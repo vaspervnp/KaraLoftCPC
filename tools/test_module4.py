@@ -347,7 +347,7 @@ def main():
                            ("vertical up", 100), ("vertical up", 90)]:
         if advance:
             machine.run_frames(advance)
-        settle(machine, sym)
+        sync_to_frame_top(machine, sym)
         st = state(machine, sym)
         scroll, wx, wcr = st[0], st[1], st[2]
         scrolls.append(scroll)
@@ -372,16 +372,20 @@ def main():
     # 2. step sizes
     # ---------------------------------------------------------------
     print("\n  step sizes:")
-    for phase, name, frames, want, n in [
+    for phase, name, frames, want, least in [
             (0, "horizontal",    6,  (1, 1, 0),    6),
-            (1, "vertical down", 12, (40, 0, 1),   3),
-            (2, "vertical up",   12, (-40, 0, -1), 3)]:
+            (1, "vertical down", 16, (40, 0, 1),   3),
+            (2, "vertical up",   16, (-40, 0, -1), 3)]:
         machine.poke(sym["DEMO_PHASE"], phase)
         machine.poke(sym["DEMO_PHASE_T"], 0)
-        sync_to_frame_top(machine, sym)
-        deltas = step_deltas(machine, sym, frames)
+        settle(machine, sym)                  # drain a step left pending by the
+        deltas = step_deltas(machine, sym, frames)   # previous phase
         uniform = deltas and all(d == want for d in deltas)
-        check(f"{name} step", uniform and len(deltas) == n,
+        # The COUNT in a fixed window is demo cadence - a vertical step now
+        # commits two frames after it starts, so a window catches 3 or 4.
+        # What must hold is that every step that happens is exactly one
+        # character row and moves nothing else.
+        check(f"{name} step", uniform and len(deltas) >= least,
               f"{len(deltas)} steps in {frames} frames, "
               + (f"each {deltas[0]}" if uniform else f"deltas {sorted(set(deltas))}"))
 
@@ -400,7 +404,6 @@ def main():
     machine.poke(sym["DEMO_PHASE"], 0)
     machine.poke(sym["DEMO_PHASE_T"], 0)
     check("test can sync to the instant after VSYNC", sync_to_vsync(machine, sym))
-    settle(machine, sym)
     st = state(machine, sym)
     y0, hits, probes = find_display_top(
         machine, [expected_pens(model(tiles, level_map, sprites, st, True), st[0])],
@@ -414,8 +417,7 @@ def main():
         history = []
         for _ in range(6):
             sync_to_vsync(machine, sym)
-            if machine.peek(sym["V_PHASE"]) == 0:
-                history.append(state(machine, sym))
+            history.append(state(machine, sym))   # mid-step frames included
         scores = [(render_mismatch(machine,
                                    expected_pens(model(tiles, level_map, sprites, h, True), h[0]),
                                    pen_to_hw, y0), h)
@@ -425,6 +427,41 @@ def main():
               f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
               f"{bad:>6} wrong pixels  (best of {len(scores)} candidate views)")
         check(f"{name} scrolling is tear-free on screen", bad == 0, f"{bad} pixels")
+
+    # ---------------------------------------------------------------
+    # 3b. Kara does not move on screen while the world scrolls under her
+    #
+    # KARA_Y is a SCREEN line, so her rendered box must start at exactly
+    # that line on every single frame. When SCROLL ran ahead of the CRTC
+    # latch she was drawn at line 112 of a view that was not on screen
+    # yet - 8 scanlines out, for the two frames before the latch caught
+    # up - which looks like two Karas flickering. Every other check here
+    # passed through that, because they only compared frames where the
+    # two agreed.
+    # ---------------------------------------------------------------
+    print("\n  Kara's screen position through a vertical scroll:")
+    for phase, name in [(1, "vertical down"), (2, "vertical up")]:
+        machine.poke(sym["DEMO_PHASE"], phase)
+        machine.poke(sym["DEMO_PHASE_T"], 0)
+        tops = set()
+        for _ in range(14):
+            sync_to_vsync(machine, sym)
+            st = machine_state = state(machine, sym)
+            bare = expected_pens(model(tiles, level_map, sprites, st, False), st[0])
+            fb = machine.framebuffer()
+            rows = [y for y, row in enumerate(bare)
+                    if any(fb[(y0 + y) * FB_W + 64 + x * 4] != pen_to_hw[p]
+                           for x, p in enumerate(row))]
+            tops.add(rows[0] if rows else None)
+        ky = machine.peek(sym["KARA_Y"])
+        seen = sorted(t for t in tops if t is not None)
+        print(f"    {name:<14} sprite top scanline(s) seen: {seen}  (KARA_Y = {ky})")
+        # Her first sprite lines are fully transparent, so the first row
+        # that differs from the bare tilemap sits a little below KARA_Y.
+        # What must hold is that it is the SAME row on every frame.
+        check(f"Kara holds her screen line through a {name} step",
+              len(seen) == 1 and ky <= seen[0] < ky + 8,
+              f"saw {seen}, want one value in {ky}..{ky + 7}")
 
     # ---------------------------------------------------------------
     # 4. R12/R13 are only ever written during vertical blanking

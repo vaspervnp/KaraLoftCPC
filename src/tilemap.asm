@@ -629,23 +629,23 @@ SCROLL_WRAP:    ld   a,h
 SCROLL_V_STEP:  or   a
                 jr   nz,.up
 
-                ld   a,(WORLD_CR)
-                inc  a
-                ld   (WORLD_CR),a
+                ld   a,(WORLD_CR)           ; PENDING state only - SCROLL and
+                inc  a                      ; WORLD_CR must keep describing the
+                ld   (V_WCR),a              ; view that is actually on screen
                 ld   hl,(SCROLL)
                 ld   de,SCR_CHARS
                 add  hl,de
-                call SCROLL_WRAP
+                call V_WRAP
                 ld   a,SCR_CHAR_ROWS - 1    ; incoming row at the bottom
                 jr   .half
 
 .up:            ld   a,(WORLD_CR)
                 dec  a
-                ld   (WORLD_CR),a
+                ld   (V_WCR),a
                 ld   hl,(SCROLL)
                 ld   de,-SCR_CHARS
                 add  hl,de                  ; 16-bit wrap, then masked
-                call SCROLL_WRAP
+                call V_WRAP
                 xor  a                      ; incoming row at the top
 
 .half:          ld   (V_ROW),a
@@ -666,10 +666,16 @@ SCROLL_V_FINISH:
                 ld   (V_PHASE),a            ; at the next VSYNC, not here
                 ret
 
+V_WRAP:         ld   a,h
+                and  3
+                ld   h,a
+                ld   (V_SCROLL),hl
+                ret
+
 ; ---------------------------------------------------------------------
-; SCROLL_VBLANK - the only place a vertical step's new start address is
-; ever latched. Call it FIRST in the frame, before any drawing, while
-; the raster is still in the border.
+; SCROLL_VBLANK - commit a finished vertical step and latch it. The ONLY
+; place a vertical step reaches the CRTC, and the only place SCROLL and
+; WORLD_CR move for one. Call it FIRST in the frame, in the border.
 ;                                Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 SCROLL_VBLANK:  ld   a,(V_PHASE)
@@ -677,12 +683,47 @@ SCROLL_VBLANK:  ld   a,(V_PHASE)
                 ret  nz
                 xor  a
                 ld   (V_PHASE),a
+                ld   hl,(V_SCROLL)          ; the view and the state move
+                ld   (SCROLL),hl            ; together, in the same blanking
+                ld   a,(V_WCR)              ; interval
+                ld   (WORLD_CR),a
                 jp   SCROLL_APPLY
 
-V_PAINT:        call BANK_SET_C4
+; ---------------------------------------------------------------------
+; V_PAINT - paint part of the incoming row AS IF the step had happened.
+;
+; DRAW_ROW works from SCROLL and WORLD_CR, and those still describe the
+; view on screen - deliberately, because KARA_DRAW and BUL_DRAW derive
+; their addresses from SCROLL through SCR_ADDR and must land where the
+; player can see them. So the pending view is swapped in around the
+; call and swapped straight back out.
+;
+; Letting SCROLL run ahead instead is what made Kara appear at two
+; screen positions on alternate frames during a vertical scroll: she was
+; drawn at line 112 of a view the CRTC had not been given yet, which is
+; 8 scanlines from where she belonged, for the two frames before the
+; latch caught up.
+;                                Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+V_PAINT:        ld   hl,(SCROLL)
+                push hl
+                ld   a,(WORLD_CR)
+                push af
+                ld   hl,(V_SCROLL)
+                ld   (SCROLL),hl
+                ld   a,(V_WCR)
+                ld   (WORLD_CR),a
+
+                call BANK_SET_C4
                 ld   a,(V_ROW)
                 call DRAW_ROW
-                jp   BANK_RESTORE
+                call BANK_RESTORE
+
+                pop  af
+                ld   (WORLD_CR),a
+                pop  hl
+                ld   (SCROLL),hl
+                ret
 
 ; ---------------------------------------------------------------------
 ; Scrolling state.
@@ -711,5 +752,7 @@ ROW_COUNT:      db 0
 ROW_WR:         db 0
 ROW_FIRST:      db 0
 ROW_N:          db SCR_CHARS
+V_SCROLL:       dw 0
+V_WCR:          db 0
 V_ROW:          db 0
 V_PHASE:        db 0
