@@ -5,28 +5,46 @@
 ; ---------------------------------------------------------------------
 ; SCREEN_LINE - address of the first byte of a scanline.
 ;   addr = &C000 + (line AND 7) * &0800 + (line >> 3) * 80
+;
+; The character-row term comes from a table rather than a multiply loop.
+; The loop version cost up to 280 T-states, which is fine once a frame
+; and ruinous when 14 bullets and a block fill all call it; this is a
+; flat ~100.
+;
 ; IN : A  = scanline 0-199
-; OUT: HL = address              destroys AF,BC,DE
+; OUT: HL = address              destroys AF,DE
 ; ---------------------------------------------------------------------
-SCREEN_LINE:    push af
+SCREEN_LINE:    ld   e,a
                 and  7
                 add  a,a
                 add  a,a
                 add  a,a                ; (line AND 7) * 8 = high byte of *&0800
                 add  a,SCREEN_BASE / 256
+                ld   d,a
+                ld   a,e
+                rrca
+                rrca
+                rrca
+                and  &1F                ; character row 0-24
+                add  a,a                ; word index into the table
+                add  a,ROW_OFFSETS % 256
+                ld   l,a                ; the table is aligned so this cannot carry
+                ld   h,ROW_OFFSETS / 256
+                ld   a,(hl)
+                inc  l
+                ld   h,(hl)
+                ld   l,a                ; HL = row * 80, so H <= 7
+                ld   a,d
+                add  a,h
                 ld   h,a
-                ld   l,0
-                pop  af
-                rrca
-                rrca
-                rrca
-                and  &1F                ; line >> 3 = character row 0-24
-                ret  z
-                ld   b,a
-                ld   de,SCREEN_WIDTH_BYTES
-.add_row:       add  hl,de
-                djnz .add_row
                 ret
+
+                ; 25 character rows. ALIGN 64 keeps all 50 bytes inside one
+                ; page, which is what lets SCREEN_LINE index with ADD A,L.
+                align 64
+ROW_OFFSETS:    dw 0,   80,  160,  240,  320,  400,  480,  560,  640
+                dw 720, 800, 880,  960,  1040, 1120, 1200, 1280, 1360
+                dw 1440,1520,1600, 1680, 1760, 1840, 1920
 
 ; ---------------------------------------------------------------------
 ; SCREEN_CLS - fill the whole 16 KB frame buffer with A.

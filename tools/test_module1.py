@@ -7,6 +7,9 @@ Checks, in order:
   3. the five bank blocks are green              -> banking works
   4. IRQ_TICKS advances                          -> IM 1 handler installed
   5. the heartbeat block toggles                 -> main loop is alive
+
+Screen positions come from the demo layout documented at the top of
+src/main.asm; they move when that layout does.
 """
 import sys, os
 sys.path.insert(0, "/home/vasilhs/cpcemu")
@@ -37,8 +40,8 @@ row = scr[20]
 bars = [row[bar * 10 + 2] for bar in range(16)]   # 5 bytes = 10 pixels per bar
 check("colour bars read back as pens 0-15", bars == list(range(16)), str(bars))
 
-# --- bank result blocks: line 110, block i at byte 4+i*14, 10 bytes wide ---
-row = scr[110]
+# --- bank result blocks: line 44, block i at byte 4+i*14, 10 bytes wide ---
+row = scr[44]
 PEN_GREEN, PEN_RED = 7, 3
 names = ["&C0", "C4", "C5", "C6", "C7"]
 for i, nm in enumerate(names):
@@ -46,13 +49,13 @@ for i, nm in enumerate(names):
     check(f"bank {nm} marker survived", pen == PEN_GREEN,
           f"pen={pen} ({'green' if pen == PEN_GREEN else 'red' if pen == PEN_RED else '?'})")
 
-# --- interrupt liveness block: line 160, byte 16..23 ---
-pen = c.decode_screen_ram()[160][16 * 2 + 4]
+# --- interrupt liveness lamp: line 60, byte 16..23 ---
+pen = c.decode_screen_ram()[60][16 * 2 + 4]
 check("IM 1 handler is firing", pen == PEN_GREEN, f"pen={pen}")
 
 # --- heartbeat toggles across 25 frames ---
 def beat():
-    return c.decode_screen_ram()[160][4 * 2 + 4]
+    return c.decode_screen_ram()[60][4 * 2 + 4]
 b0 = beat()
 c.run_frames(26)
 b1 = beat()

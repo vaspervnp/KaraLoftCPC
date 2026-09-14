@@ -7,10 +7,11 @@ corrections and why.
 
 ## 1. Status
 
-**Modules 1 and 2 done.** `./build.sh` regenerates the assets, assembles, and
-produces `build/kara.dsk`, which boots, relocates, sets Mode 0, passes its bank
-self-test and runs an interrupt-driven main loop. `./tools/run_tests.sh` runs
-every acceptance suite. Modules 3-7 (§11) are not started.
+**Modules 1-3 done.** `./build.sh` regenerates the assets, assembles, and
+produces `build/kara.dsk`. It boots, relocates, passes its bank self-test, and
+runs Kara walking and firing over a striped background with full save-under
+restore. `./tools/run_tests.sh` runs every acceptance suite. Modules 4-7 (§11)
+are not started.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -18,6 +19,8 @@ src/config.asm    ports and memory map constants
 src/bank.asm      bank switching (must stay outside &4000-&7FFF)
 src/screen.asm    Mode 0 addressing, block fill, palette, vsync
 src/palette.asm   the 16 pens + solid-pen byte table
+src/sprite.asm    masked blitter, save-under restore, scanline stepping
+src/bullets.asm   dual pistols, 14-round pool, reloading
 disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
@@ -130,6 +133,13 @@ Two gotchas learned from probing it:
   Do not assume `&C000` — BASIC scrolling moves it.
 
 One Mode 0 pixel spans 4 framebuffer columns; the visible area starts at x=64.
+
+**Sampling the screen needs a sync point.** Drawing takes most of a frame, so a bare
+`run_frames()` leaves the CPU inside the blitter and a test reads a half-drawn
+screen. Step with `run_us(4)` until `pc` is in the `WAIT_VSYNC` spin — the one
+moment when the last frame is finished and the next has not begun. Do any
+border-band profiling *before* that stepping, though: leaving the machine
+mid-scanline skews the bands.
 
 ## 6. CPC 6128 hardware reference
 
@@ -396,16 +406,46 @@ CURRENT_BOOK_ID:  db 0
 Interaction handlers: `CHECK_KEY_DOOR`, `PLACE_STATUE`, `READ_BOOK_PUZZLE`,
 `TALK_NPC_COIN`, `USE_MEDKIT`, all gated by an AABB test in `ENTITY_COLLISION_CHECK`.
 
-## 9. Performance budget
+## 9. Performance budget — measured, and over
 
-A frame is **79,872 T-states**. Allow ~25% (≈19,900 T-states) for drawing Kara plus
-background restore plus 14 bullets; the remaining 75% covers scrolling, tile refresh,
-collision, AI, and the music player.
+A frame is **79,872 T-states**. The demo paints the border a different colour per
+phase, so the frame's cost is legible as bands down the left edge and
+`tools/test_module3.py` reads it off the framebuffer. One scanline = 64 µs =
+256 T-states.
 
-Count T-states in comments on any loop that runs per-scanline or per-entity. Remember
-the gate array rounds instruction timings up to whole microseconds, so the practical
-throughput is nearer 3.3 MHz than 4 MHz — measured frame counts in the emulator beat
-hand-counted totals when the two disagree.
+| Phase | T-states | % of frame |
+|---|---:|---:|
+| erase (14 rounds + Kara's 384-byte restore) | 6,400 | 8.0 |
+| game logic | 2,048 | 2.6 |
+| **Kara: masked draw + save-under** | **31,232** | **39.1** |
+| bullets draw | 2,048 | 2.6 |
+| HUD (only on frames where a magazine changes) | 7,680 | 9.6 |
+| **typical frame** | **41,700–50,400** | **52–63** |
+
+**plan.md's 25% budget for sprite plus restore plus bullets is not reachable with
+a generic masked blitter at 16×48.** The arithmetic says so before the
+measurement does: 384 bytes at 55 T each is 21,000 T-states for the composite
+alone, and the budget is 19,900 for everything. The number above is what a
+correct, reasonably tight implementation actually costs. It fits in a frame with
+room to spare, but not with the margin the plan assumed.
+
+Four ways to buy the time back, cheapest first:
+
+1. **Restore from the tilemap instead of saving under** (natural once Module 4
+   exists). Drops the save from the draw loop, 55 → 42 T per byte, and replaces
+   the 8,600 T restore with a redraw of only the tiles Kara dirtied.
+2. **Only redraw Kara when she moves or animates.** A standing player costs
+   nothing.
+3. **Blit only the occupied span of each line.** A humanoid rarely fills all 8
+   bytes; a per-line (skip, count) table cuts a good third of the work.
+4. **Compiled sprites** — generate Z80 per frame, so an opaque byte is
+   `ld a,n : ld (de),a` (14 T) and a transparent byte costs nothing at all.
+   3-5× faster, at roughly 2-3 KB of code per frame. The standard CPC answer if
+   the first three are not enough.
+
+Count T-states in comments on any loop that runs per-scanline or per-entity, but
+trust the border bands over the arithmetic: the gate array rounds instruction
+timings up to whole microseconds, so real throughput is nearer 3.3 MHz than 4.
 
 ## 10. Conventions and pitfalls
 
@@ -413,6 +453,17 @@ hand-counted totals when the two disagree.
 * Labels `SCREAMING_SNAKE`, local labels `.dotted`.
 * Prefer `EXX` / shadow registers over push/pop in inner loops; document which shadow
   set a routine clobbers, since the interrupt handler uses them too.
+* **Write the clobber list in the header comment of every routine, and check it at
+  every call site.** The worst bug in Module 3 was not in the blitter — it was a
+  helper that scratched `DE` while the caller was holding the screen address there,
+  so the blitter cheerfully composited Kara over her own sprite data. The routine
+  tested perfectly in isolation.
+* **Buffers outside the loaded image start as whatever BASIC left there.** Anything
+  in `&8000-&BFFF` that gets read before it is written — a save-under slot, an
+  entity table — has to be cleared at startup or the first frame scatters writes
+  across memory. See `BUFFERS_CLEAR`.
+* Sprite frames must be **16-byte aligned**: the blitter's inner loop steps the
+  sprite pointer with `INC L` and cannot carry into `H`.
 * `LD SP,&BFFF` explicitly at startup. An SP that drifts into `&C000-&FFFF` shows up as
   random screen corruption, not as a crash.
 * AMSDOS keeps its buffers around `&A700-&BFFF`. That region is only safe once the
@@ -433,8 +484,9 @@ the next one starts.
    switching, `build.sh`, BASIC loader, `.dsk` generation, `tools/test_module1.py`.
 2. ~~**Asset exporters**~~ — done: `cpclib.py`, `png2sprite.py`, `png2screen.py`,
    `blender_title.py`, wired into `build.sh`, with round-trip and on-hardware tests.
-3. **Sprite blitter + dual-pistol bullet pool** — masked 8×48 blit, `FIRE_BULLET`,
-   `UPDATE_BULLETS`.
+3. ~~**Sprite blitter + dual-pistol bullet pool**~~ — done: one-pass masked draw
+   with save-under, LDI restore, 14-round pool, alternating magazines, reloading,
+   HUD, and per-phase raster profiling.
 4. **Scrolling engine** — horizontal CRTC scroll and both vertical variants.
 5. **Objects, puzzles, NPCs** — inventory, interaction handlers, AABB.
 6. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
@@ -459,3 +511,6 @@ Consult this list before implementing from the plan:
    buffers, but not because of bank size. It needs two because the CRTC cannot address
    more than 21 character rows in one raster block; the two halves are displayed by
    re-pointing R12/R13 mid-frame. See §6.5.
+6. **The 25% sprite budget (§6.1)** — not reachable with a generic masked blitter at
+   16×48; 384 bytes at 55 T-states each exceeds it before anything else runs. Measured
+   cost and the four ways to claw it back are in §9.

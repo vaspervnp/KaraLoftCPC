@@ -28,9 +28,9 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         --preview "$BUILD/title_preview.png" --dither
 
 # --- code -------------------------------------------------------------
-rasm "$ROOT/src/main.asm" -I "$ROOT/src" -amper \
+rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
      -ob "$BUILD/game.bin" \
-     -os "$BUILD/game.sym" -sa
+     -s -sa -os "$BUILD/game.sym"
 
 cp "$ROOT/disc/disc.bas" "$BUILD/disc.bas"
 

@@ -1,6 +1,6 @@
 ; =====================================================================
 ; Kara Loft and the Illuminati
-; MODULE 1 - memory architecture, bank switching, build pipeline
+; MODULE 3 - sprite blitter, save-under restore, dual pistol bullet pool
 ;
 ; Build: ./build.sh        Output: build/kara.dsk
 ;
@@ -10,9 +10,42 @@
 ; though, so nothing may stay there. The code at &4000 is therefore a
 ; bootstrap that relocates the core engine down to &0040 and jumps to
 ; it, after which the window is free for level data.
+;
+; The demo screen doubles as the acceptance test for Modules 1-3:
+;
+;   lines   0- 31   16 colour bars, one per pen     (Mode 0 encoding)
+;   lines  36- 51   5 bank markers, green = pass    (bank switching)
+;   lines  56- 63   heartbeat and interrupt lamps   (IM 1, main loop)
+;   lines  64-175   striped background              (masking, restore)
+;   line     112    Kara, walking and firing
+;   lines 180-197   two magazines of 7 rounds       (dual pistols)
+;
+; The border turns red for exactly as long as the frame's drawing takes,
+; which is how tools/test_module3.py measures the T-state cost.
 ; =====================================================================
 
                 include "config.asm"
+
+; Save-under buffers live in the sprite-buffer region of the memory map,
+; not in the core image, so they cost nothing on disc.
+KARA_SAVE       equ &8000               ; 384 bytes
+BUL_SAVE        equ &8180               ; 56 bytes
+
+KARA_HOME_Y     equ 112
+STRIPE_TOP      equ 64
+STRIPE_BANDS    equ 14
+HUD_LEFT_LINE   equ 180
+HUD_RIGHT_LINE  equ 190
+; Raster-time markers. The border is set to a different colour for each
+; phase of the frame, so the coloured bands down the left edge ARE the
+; profile - tools/test_module3.py counts their scanlines. 1 scanline =
+; 64 us = 256 T-states.
+MARK_ERASE      equ 21                  ; bright blue
+MARK_LOGIC      equ 30                  ; yellow
+MARK_SPRITE     equ 12                  ; bright red
+MARK_BULLETS    equ 18                  ; bright green
+MARK_HUD        equ 24                  ; magenta
+MARK_IDLE       equ 20                  ; black
 
 ; =====================================================================
 ; BOOTSTRAP - entered from BASIC with CALL &4000, firmware still live.
@@ -62,23 +95,155 @@ CORE_ENTRY:     ; Install our own IM 1 handler. The firmware's lives in the
                 im   1
 
                 call PALETTE_SET
+                call BUFFERS_CLEAR
                 xor  a
                 call SCREEN_CLS
 
                 call BANK_TEST              ; must run before anything else
                 call DRAW_COLOUR_BARS       ; uses the banked window
                 call DRAW_BANK_RESULTS
+                call DRAW_STRIPES
 
                 ei
 
 ; ---------------------------------------------------------------------
-; Main loop. Module 1 has no game yet; it displays two live indicators:
-;   heartbeat block - toggles every 25 frames, proves the loop runs
-;   interrupt block - green while IRQ_TICKS advances, proves IM 1 fires
+; Main loop. Each phase paints the border its own colour first, so the
+; frame's cost is legible as coloured bands down the left edge.
 ; ---------------------------------------------------------------------
 MAIN_LOOP:      call WAIT_VSYNC
 
-                ld   a,(FRAME_COUNT)
+                ld   a,MARK_ERASE
+                call BORDER_SET
+                call BUL_ERASE              ; erase in reverse draw order:
+                call KARA_ERASE             ; bullets were drawn over Kara
+
+                ld   a,MARK_LOGIC
+                call BORDER_SET
+                call GAME_LOGIC
+
+                ld   a,MARK_SPRITE
+                call BORDER_SET
+                call KARA_DRAW
+
+                ld   a,MARK_BULLETS
+                call BORDER_SET
+                call BUL_DRAW
+
+                ld   a,MARK_HUD
+                call BORDER_SET
+                call HUD_UPDATE
+
+                ld   a,MARK_IDLE
+                call BORDER_SET
+                call LAMPS                  ; not game work, so not measured
+                jp   MAIN_LOOP
+
+; ---------------------------------------------------------------------
+; BUFFERS_CLEAR - the save-under buffers sit at &8000, which is ordinary
+; RAM holding whatever BASIC left there. BUL_ERASE reads an address out
+; of each slot before anything has written one, so they must start as
+; zero or the first frame scatters writes across memory.
+; ---------------------------------------------------------------------
+BUFFERS_CLEAR:  ld   hl,KARA_SAVE
+                ld   de,KARA_SAVE + 1
+                ld   bc,SPR_SAVE_SIZE + BUL_MAX * 4 - 1
+                ld   (hl),0
+                ldir
+                ret
+
+; ---------------------------------------------------------------------
+; GAME_LOGIC - walk Kara across the screen, fire on a timer, age the
+; rounds. Module 5 replaces this with real input and AI.
+; ---------------------------------------------------------------------
+GAME_LOGIC:     ld   a,(KARA_STEP)
+                inc  a
+                ld   (KARA_STEP),a
+                and  1
+                jr   nz,.no_walk            ; move one byte every other frame
+
+                ld   a,(KARA_X)
+                inc  a
+                cp   SCREEN_WIDTH_BYTES - SPR_WIDTH_BYTES + 1
+                jr   c,.store_x
+                xor  a                      ; wrap to the left edge
+.store_x:       ld   (KARA_X),a
+                ld   a,(KARA_STEP)
+                rrca
+                rrca
+                rrca
+                and  3                      ; new walk frame every 8 frames
+                ld   (KARA_FRAME),a
+.no_walk:
+                ld   a,(FIRE_TIMER)
+                inc  a
+                cp   10
+                jr   c,.keep_timer
+                call FIRE_BULLET
+                xor  a
+.keep_timer:    ld   (FIRE_TIMER),a
+
+                call UPDATE_BULLETS
+                call UPDATE_RELOAD
+
+                ; Demo only: hand Kara another two clips when the reserve
+                ; runs dry, so the firing and reloading keep cycling. The
+                ; real game drops ammo as a pickup instead.
+                ld   a,(AMMO_RESERVE)
+                or   a
+                ret  nz
+                ld   a,BUL_MAX * 2
+                ld   (AMMO_RESERVE),a
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_UPDATE - two rows of seven. Only redrawn when a magazine changes;
+; fourteen block fills every frame would cost more than the sprite does.
+; ---------------------------------------------------------------------
+HUD_UPDATE:     ld   a,(HUD_DIRTY)
+                or   a
+                ret  z
+                xor  a
+                ld   (HUD_DIRTY),a
+                ld   a,(MAG_LEFT)
+                ld   c,a
+                ld   a,HUD_LEFT_LINE
+                call HUD_ROW
+                ld   a,(MAG_RIGHT)
+                ld   c,a
+                ld   a,HUD_RIGHT_LINE
+                ; fall through
+
+; IN: A = top line, C = rounds left
+HUD_ROW:        ld   (BLK_LINE),a
+                ld   a,8
+                ld   (BLK_HEIGHT),a
+                ld   a,3
+                ld   (BLK_W),a
+                ld   a,4
+                ld   (BLK_X),a
+                ld   b,MAG_SIZE
+.one:           push bc
+                ld   a,MAG_SIZE
+                sub  b                      ; index of this indicator
+                cp   c
+                ld   a,PEN_AMMO_FULL
+                jr   c,.set
+                ld   a,PEN_AMMO_EMPTY
+.set:           ld   (BLK_VAL),a
+                call DRAW_BLOCK
+                ld   a,(BLK_X)
+                add  a,5
+                ld   (BLK_X),a
+                pop  bc
+                djnz .one
+                ret
+
+; ---------------------------------------------------------------------
+; LAMPS - the Module 1 liveness indicators.
+;   heartbeat toggles every 25 frames  -> the main loop is running
+;   interrupt lamp green while ticking -> IM 1 is firing
+; ---------------------------------------------------------------------
+LAMPS:          ld   a,(FRAME_COUNT)
                 inc  a
                 ld   (FRAME_COUNT),a
                 cp   25
@@ -89,15 +254,9 @@ MAIN_LOOP:      call WAIT_VSYNC
                 xor  &FF                    ; &FC <-> &03, pen 7 <-> pen 8
                 ld   (HEARTBEAT),a
                 ld   (BLK_VAL),a
-                ld   a,150
-                ld   (BLK_LINE),a
-                ld   a,24
-                ld   (BLK_HEIGHT),a
                 ld   a,4
                 ld   (BLK_X),a
-                ld   a,8
-                ld   (BLK_W),a
-                call DRAW_BLOCK
+                call LAMP_BLOCK
 .skip_beat:
                 ld   a,(IRQ_TICKS)
                 ld   hl,IRQ_LAST
@@ -107,17 +266,17 @@ MAIN_LOOP:      call WAIT_VSYNC
                 jr   z,.irq_done
                 ld   a,PEN_GREEN
 .irq_done:      ld   (BLK_VAL),a
-                ld   a,150
-                ld   (BLK_LINE),a
-                ld   a,24
-                ld   (BLK_HEIGHT),a
                 ld   a,16
                 ld   (BLK_X),a
+                ; fall through
+
+LAMP_BLOCK:     ld   a,56
+                ld   (BLK_LINE),a
+                ld   a,8
+                ld   (BLK_HEIGHT),a
                 ld   a,8
                 ld   (BLK_W),a
-                call DRAW_BLOCK
-
-                jp   MAIN_LOOP
+                jp   DRAW_BLOCK
 
 ; ---------------------------------------------------------------------
 ; IRQ_HANDLER - the CPC fires 6 interrupts per frame (300 Hz). For now
@@ -187,7 +346,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 ret
 
 ; ---------------------------------------------------------------------
-; DRAW_COLOUR_BARS - 16 bars, one per pen, 5 bytes wide, 64 lines tall.
+; DRAW_COLOUR_BARS - 16 bars, one per pen, 5 bytes wide, 32 lines tall.
 ; Proves the Mode 0 encoding, the palette write and the VRAM addressing
 ; in one picture: bar N must read back as pen N.
 ; ---------------------------------------------------------------------
@@ -196,7 +355,7 @@ DRAW_COLOUR_BARS:
                 xor  a
                 ld   (BLK_X),a
                 ld   (BLK_LINE),a
-                ld   a,64
+                ld   a,32
                 ld   (BLK_HEIGHT),a
                 ld   a,5
                 ld   (BLK_W),a
@@ -220,9 +379,9 @@ DRAW_COLOUR_BARS:
 ; ---------------------------------------------------------------------
 DRAW_BANK_RESULTS:
                 ld   hl,BANK_RESULT
-                ld   a,100
+                ld   a,36
                 ld   (BLK_LINE),a
-                ld   a,32
+                ld   a,16
                 ld   (BLK_HEIGHT),a
                 ld   a,10
                 ld   (BLK_W),a
@@ -243,9 +402,44 @@ DRAW_BANK_RESULTS:
                 djnz .blk
                 ret
 
+; ---------------------------------------------------------------------
+; DRAW_STRIPES - the background Kara walks over. Six pens in rotation, so
+; a blitter that loses a byte, shifts a line or restores the wrong row
+; shows up as a broken stripe rather than as nothing at all.
+; ---------------------------------------------------------------------
+DRAW_STRIPES:   ld   a,STRIPE_TOP
+                ld   (BLK_LINE),a
+                ld   a,8
+                ld   (BLK_HEIGHT),a
+                xor  a
+                ld   (BLK_X),a
+                ld   a,SCREEN_WIDTH_BYTES
+                ld   (BLK_W),a
+                ld   hl,STRIPE_PENS
+                ld   b,STRIPE_BANDS
+.band:          push bc
+                push hl
+                ld   a,(hl)
+                ld   (BLK_VAL),a
+                call DRAW_BLOCK
+                ld   a,(BLK_LINE)
+                add  a,8
+                ld   (BLK_LINE),a
+                pop  hl
+                inc  hl
+                pop  bc
+                djnz .band
+                ret
+
+STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
+                db &0C, &3C, &03, &0F, &33, &3F
+                db &0C, &3C
+
                 include "bank.asm"
                 include "screen.asm"
                 include "palette.asm"
+                include "sprite.asm"
+                include "bullets.asm"
 
 ; ---------------------------------------------------------------------
 ; Core variables
@@ -255,6 +449,19 @@ HEARTBEAT:      db PEN_GREEN
 IRQ_TICKS:      db 0
 IRQ_LAST:       db 0
 BANK_RESULT:    ds 5
+
+KARA_X:         db 0
+KARA_Y:         db KARA_HOME_Y
+KARA_FRAME:     db 0
+KARA_FACING:    db 1                    ; 1 = right, 0 = left
+KARA_STEP:      db 0
+KARA_LAST_ADDR: dw 0
+FIRE_TIMER:     db 0
+
+                ; SPR_DRAW_SAVE advances the sprite pointer with INC L, so
+                ; every frame has to start on a 16-byte boundary.
+                align 16
+KARA_SPRITES:   incbin "kara_sprites.bin"
 
 CORE_END:
 CORE_SIZE       equ  CORE_END - CORE_START

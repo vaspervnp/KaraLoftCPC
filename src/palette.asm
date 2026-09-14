@@ -39,3 +39,5 @@ PEN_SOLID:      db &00, &C0, &0C, &CC, &30, &F0, &3C, &FC
 
 PEN_GREEN       equ &FC     ; solid pen 7
 PEN_RED         equ &CC     ; solid pen 3
+PEN_AMMO_FULL   equ &CF     ; solid pen 11, bright yellow
+PEN_AMMO_EMPTY  equ &30     ; solid pen 4, red
