@@ -118,9 +118,24 @@ TILES_INSTALL:  call BANK_SET_C4
 ; ---------------------------------------------------------------------
 ; SCROLL_APPLY - push SCROLL into R12/R13.
 ;
-; Call it immediately after VSYNC and nowhere else: the CRTC latches
-; the start address once per frame, at the top, so a mid-frame write
-; either does nothing or splits the picture.
+; *** ONLY EVER CALL THIS INSIDE VERTICAL BLANKING. ***
+;
+; Not a style rule - a portability one, and it is CRTC-type dependent,
+; which is exactly the class of bug CLAUDE.md 10 warns about. The
+; headless emulator reloads its internal address latch from R12/R13
+; only at vertical-total rollover (mc6845.h: ma_store is assigned from
+; start_addr_hi/lo under co_vtotal and nowhere else), so a mid-frame
+; write there silently defers to the next frame and looks harmless. A
+; real 6845 takes the new address from the next CHARACTER ROW - that is
+; the mechanism the CPC's split-screen trick is built on - so the same
+; code splits the picture on hardware: everything above the write keeps
+; the old view, everything below jumps to the new one.
+;
+; That is what a mid-frame apply in SCROLL_V_FINISH did: correct on the
+; headless emulator, visibly torn on RetroVirtualMachine. WAIT_VSYNC
+; returns at scanline 240 and the display starts 72 scanlines later, so
+; anything called from the top of the main loop is safely inside the
+; window; anything called after real work is not.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 SCROLL_APPLY:   ld   hl,(SCROLL)
@@ -603,9 +618,12 @@ SCROLL_WRAP:    ld   a,h
 ; latch the new start address. Nothing can tear, because nothing the
 ; beam can see changes until both halves are down.
 ;
-; SCROLL_V_STEP:   state, then the left half.   IN A = 0 down, else up.
-; SCROLL_V_FINISH: the right half, then apply.  Call it while V_PHASE
-;                  is non-zero, before starting another step.
+; Three frames, because the latch may only happen in vertical blanking:
+;   frame N   SCROLL_V_STEP   state + left half   V_PHASE 0 -> 1
+;   frame N+1 SCROLL_V_FINISH right half          V_PHASE 1 -> 2
+;   frame N+2 SCROLL_VBLANK   latch R12/R13       V_PHASE 2 -> 0
+;
+; SCROLL_V_STEP:   IN A = 0 to scroll down the map, non-zero to scroll up.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 SCROLL_V_STEP:  or   a
@@ -640,13 +658,26 @@ SCROLL_V_STEP:  or   a
                 jr   V_PAINT
 
 SCROLL_V_FINISH:
-                xor  a
-                ld   (V_PHASE),a
                 ld   a,SCR_CHARS / 2        ; right half: columns 20-39
                 ld   (ROW_FIRST),a
                 ld   (ROW_N),a
                 call V_PAINT
-                jp   SCROLL_APPLY           ; only now does the view move
+                ld   a,2                    ; the row is whole; the view moves
+                ld   (V_PHASE),a            ; at the next VSYNC, not here
+                ret
+
+; ---------------------------------------------------------------------
+; SCROLL_VBLANK - the only place a vertical step's new start address is
+; ever latched. Call it FIRST in the frame, before any drawing, while
+; the raster is still in the border.
+;                                Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+SCROLL_VBLANK:  ld   a,(V_PHASE)
+                cp   2
+                ret  nz
+                xor  a
+                ld   (V_PHASE),a
+                jp   SCROLL_APPLY
 
 V_PAINT:        call BANK_SET_C4
                 ld   a,(V_ROW)

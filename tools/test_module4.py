@@ -426,6 +426,49 @@ def main():
               f"{bad:>6} wrong pixels  (best of {len(scores)} candidate views)")
         check(f"{name} scrolling is tear-free on screen", bad == 0, f"{bad} pixels")
 
+    # ---------------------------------------------------------------
+    # 4. R12/R13 are only ever written during vertical blanking
+    #
+    # This one cannot be caught by looking at the picture HERE. The
+    # headless emulator reloads its address latch from R12/R13 only at
+    # vertical-total rollover, so a mid-frame write defers harmlessly to
+    # the next frame and renders perfectly. A real 6845 takes it from the
+    # next character row and splits the screen - which is what happened
+    # on RetroVirtualMachine while every check above passed. So assert
+    # the RULE, not the appearance: the write must land inside the 72
+    # scanlines of border between the VSYNC exit and the first displayed
+    # line.
+    # ---------------------------------------------------------------
+    print("\n  CRTC start-address writes (must be inside vertical blanking):")
+    lo = sym["SCROLL_APPLY"]
+    hi = lo + 30
+    top = sym["SCROLL_DEMO.LOOP"] + 3
+    worst = 0
+    seen = 0
+    for phase, name in [(0, "horizontal"), (1, "vertical down"), (2, "vertical up")]:
+        machine.poke(sym["DEMO_PHASE"], phase)
+        machine.poke(sym["DEMO_PHASE_T"], 0)
+        latest = None
+        for _ in range(12):
+            sync_to_vsync(machine, sym)          # stops just past the VSYNC exit
+            us = 0
+            for _ in range(4800):                # stay inside ONE frame, or the
+                machine.run_us(4)                # search runs on into the next
+                us += 4                          # frame's legitimate vblank write
+                if lo <= machine.pc <= hi:
+                    latest = us if latest is None else max(latest, us)
+                    seen += 1
+                    break
+        if latest is None:
+            print(f"    {name:<14} no start-address write in any sampled frame")
+            continue
+        worst = max(worst, latest)
+        print(f"    {name:<14} latest write {latest:>6} us after VSYNC "
+              f"= scanline {latest / 64:5.1f}")
+    check("R12/R13 written only in the border above the display",
+          seen > 0 and worst < 4608,           # 72 scanlines x 64 us
+          f"worst {worst} us (limit 4608 = 72 scanlines); {seen} writes seen")
+
     print()
     if fails:
         print(f"FAILED: {len(fails)} check(s): " + ", ".join(fails))

@@ -194,6 +194,7 @@ SCROLL_DEMO:    di
                 ; before the next scroll step recycles that RAM to a new world
                 ; position.
 .loop:          call WAIT_VSYNC
+                call SCROLL_VBLANK          ; R12/R13 may only be written here
                 ld   a,(IRQ_TICKS)
                 ld   (FRAME_TICK0),a        ; raster clock for this frame
                 ld   a,MARK_SPRITE
@@ -274,6 +275,8 @@ SCROLL_SCRIPT:  ld   hl,DEMO_PHASE_T
                 ld   a,(V_PHASE)            ; a vertical step in progress?
                 or   a
                 jp   nz,SCROLL_V_FINISH     ; finish it before starting another
+                                            ; (V_PHASE can only be 1 here -
+                                            ; SCROLL_VBLANK cleared 2 already)
                 ld   a,(hl)
                 cp   200
                 jr   c,.act
@@ -621,6 +624,7 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "palette.asm"
                 include "sprite.asm"
                 include "bullets.asm"
+                include "input.asm"
                 include "tilemap.asm"
 
 ; ---------------------------------------------------------------------

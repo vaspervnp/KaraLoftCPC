@@ -28,7 +28,21 @@ GA_COLOUR_BASE      equ &40     ; %01xxxxxx - OR with a 0-31 hardware colour
 ; ---------------------------------------------------------------------
 ; PPI - port B bit 0 is the CRTC VSYNC flag
 ; ---------------------------------------------------------------------
-PPI_PORT_B          equ &F5
+PPI_PORT_A          equ &F4     ; AY data bus
+PPI_PORT_B          equ &F5     ; bit 0 = VSYNC
+PPI_PORT_C          equ &F6     ; bits 7-6 AY BDIR/BC1, bits 3-0 keyboard row
+PPI_CONTROL         equ &F7
+
+; PPI mode-set words. Writing EITHER of these also zeroes ports A, B and
+; C, so the control word must always be written BEFORE the row select.
+PPI_CTL_PA_OUT      equ &82     ; port A output - what an AY writer needs
+PPI_CTL_PA_IN       equ &92     ; port A input  - what a keyboard read needs
+
+; AY-3-8912 control lines, in PPI port C bits 7-6.
+AY_INACTIVE         equ &00
+AY_REG_READ         equ &40     ; BC1 - also selects the keyboard row
+AY_REG_SELECT       equ &C0     ; BDIR+BC1 - latch a register number
+AY_R14_KEYBOARD     equ 14      ; AY port A is wired to the key matrix
 
 ; ---------------------------------------------------------------------
 ; Memory map
