@@ -7,11 +7,12 @@ corrections and why.
 
 ## 1. Status
 
-**Modules 1-3 done.** `./build.sh` regenerates the assets, assembles, and
-produces `build/kara.dsk`. It boots, relocates, passes its bank self-test, and
-runs Kara walking and firing over a striped background with full save-under
-restore. `./tools/run_tests.sh` runs every acceptance suite. Modules 4-7 (§11)
-are not started.
+**Modules 1-4 done.** `./build.sh` regenerates the assets, assembles, and
+produces `build/kara.dsk`. It boots, relocates, passes its bank self-test, runs
+Kara walking and firing over a striped background with full save-under restore,
+and then hands over to the scrolling city: a tilemap in bank C4 moved by the
+CRTC start address, horizontally and both ways vertically. `./tools/run_tests.sh`
+runs every acceptance suite; all six pass. Modules 5-7 (§11) are not started.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -21,12 +22,15 @@ src/screen.asm    Mode 0 addressing, block fill, palette, vsync
 src/palette.asm   the 16 pens + solid-pen byte table
 src/sprite.asm    masked blitter, save-under restore, scanline stepping
 src/bullets.asm   dual pistols, 14-round pool, reloading
+src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
 tools/png2sprite.py        sprite sheet  -> data+mask binary
 tools/png2screen.py        image         -> overscan.bin / 16K screen
+tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
+tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
 tools/test_*.py            acceptance suites
@@ -222,6 +226,23 @@ Standard (non-overscan) layout, 80 bytes per line, base `&C000`:
 addr = base + (line & 7) * &0800 + (line >> 3) * 80 + x_byte
 ```
 
+That form assumes the CRTC start address is zero. Once anything scrolls it no
+longer holds, and the general model — verified against the emulator at six
+start addresses, 2,400 sampled bytes each, wrap-crossing ones included, with
+zero mismatches — is:
+
+```
+addr = ((MA & &3000) << 2) | ((RA & 7) << 11) | ((MA & &3FF) << 1)
+
+MA = start + char_row * R1 + char_column        RA = raster 0-7 within the row
+```
+
+The `& &3FF` is the part that bites. **The screen is a window into a circular
+space of 1024 words, not a linear buffer**, because the gate array only drives
+MA0-MA9 onto the address bus. Everything that computes a screen address —
+tiles, sprites, HUD — has to apply that mask, and code that walks the screen by
+adding a constant is only correct while it stays inside one character row.
+
 Advancing one scanline inside the blitter:
 
 ```asm
@@ -366,15 +387,61 @@ Six levels, each with its own scroll axis:
 
 FSM: `STATE_LEVEL_PLAY → STATE_LEVEL_CLEAR → STATE_CUTSCENE → STATE_LOAD_NEXT`.
 
-### 8.2 Scrolling
+### 8.2 Scrolling — implemented and measured
 
-* **Horizontal** — CRTC hardware scroll via R12/R13, coarse steps of 2 bytes
-  (4 Mode 0 pixels). Each step refreshes one tile column at the incoming edge.
-* **Vertical** — CRTC start-address offset by whole lines. Levels 3 and 4 use opposite
-  directions; level 4 additionally applies upward buoyancy each frame unless the player
-  swims down.
-* Both update the start address **only after `HALT` / VBLANK sync** to avoid tearing,
-  and both must handle seamless wrap-around of the 16 KB VRAM window.
+Scrolling is two `OUT`s to CRTC R12/R13 plus a repaint of the one edge that is
+new. `SCROLL` is the start address in words, always masked to 0-1023;
+`WORLD_X` and `WORLD_CR` are where the top-left of the screen sits in the map,
+in characters. The three step together or the picture and the map disagree.
+
+**`R6 = 24`, not 25.** 24 character rows display 960 of the 1024 words, which
+leaves 64 permanently off-screen — more than the 40 words of one character row.
+That margin costs 8 scanlines of picture and is what makes vertical scrolling
+tear-free. It is the single most important decision in the module.
+
+**Syncing to VBLANK is not enough.** Every scroll step writes into memory that
+is on screen at that moment, so what matters is *where*, and the answer differs
+per axis:
+
+| Axis | Order | Why |
+|---|---|---|
+| Horizontal | state → apply → paint | The incoming column is not hidden: under the old start address those cells are the left edge of each row below. Latch the new address first, then paint top-down and outrun the beam. |
+| Vertical down | state → apply → paint | New bottom row lands at offset 960 — hidden. Painted long before the raster reaches line 184. |
+| Vertical up | state → paint → apply | New top row lands at offset 984 — hidden — but the raster reaches line 0 only 18,432 T into the frame, far too early for a 51,600 T row redraw. Painting first and moving the picture one frame later is invisible and always correct. |
+
+The horizontal race is won comfortably: VSYNC leaves 72 scanlines (18,432 T) of
+head start, and a character cell costs ~1,290 T against the beam's 2,048 T per
+character row. It only holds if `DRAW_COLUMN` runs **top to bottom**.
+
+Getting any of this backwards does not crash and does not corrupt video RAM —
+it puts a 4-pixel column of the wrong tile down one edge of every frame. That
+is why `tools/test_module4.py` compares the **rendered framebuffer**, not just
+RAM, and why it carries a negative control: reversing the horizontal ordering
+leaves all 15,360 RAM bytes correct and produces 272 wrong pixels on screen.
+
+Two traps the emulator sets while testing this:
+
+* Its framebuffer is a **live raster buffer**, not a completed frame. Sampling
+  mid-sweep returns the new frame's top over the old frame's bottom, which
+  looks exactly like tearing and is not. Sample in the instant after VSYNC.
+* The 300 Hz interrupt pulls the PC out of `WAIT_VSYNC` six times a frame, so
+  "the PC left the spin" means "an interrupt fired", not "a frame ended". Watch
+  a counter the game itself increments.
+
+Tiles are 16×16 pixels = 8 bytes × 16 lines, so a tile spans 4 character
+columns and 2 character rows. Map dimensions are powers of two (64×16) so the
+map wraps with an `AND` instead of a divide. Tiles and map are staged into bank
+C4 by `TILES_INSTALL`; they ride inside the core image, so the boot relocation
+has already put them in base RAM, which is the only reason a plain `LDIR` into
+the `&4000` window works.
+
+Not yet done, and deliberately: **sprites over a scrolled screen.** The blitter
+walks the screen with a fixed `+&0800` / `+&C050` step, which is only correct
+while the start address is zero. Over a scrolled screen a sprite must take its
+address from the same masked word index the tile engine uses, recomputed at
+each character-row boundary, and handle the case where its 4 words straddle the
+1024-word seam. Module 4's demo therefore does not draw Kara. This is the first
+task of Module 5.
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
@@ -429,10 +496,22 @@ alone, and the budget is 19,900 for everything. The number above is what a
 correct, reasonably tight implementation actually costs. It fits in a frame with
 room to spare, but not with the margin the plan assumed.
 
+Module 4 adds, measured the same way:
+
+| Phase | T-states | % of frame |
+|---|---:|---:|
+| horizontal step (repaint 24 cells = one character column) | 21,504 | 26.9 |
+| vertical step (repaint 40 cells = one character row) | ~35,800 | ~45 |
+| full playfield repaint (40 columns, level entry only) | ~860,000 | ~11 frames |
+
+A cell is 2 bytes × 8 rasters and costs ~1,290 T, of which 576 is the copy
+itself. Horizontal scrolling every frame plus Kara at 39% does not fit; that is
+the arithmetic behind remedy 1 below, which Module 4 now makes available.
+
 Four ways to buy the time back, cheapest first:
 
-1. **Restore from the tilemap instead of saving under** (natural once Module 4
-   exists). Drops the save from the draw loop, 55 → 42 T per byte, and replaces
+1. **Restore from the tilemap instead of saving under** — now possible:
+   `DRAW_CELL` can repaint exactly the cells Kara dirtied. Drops the save from the draw loop, 55 → 42 T per byte, and replaces
    the 8,600 T restore with a redraw of only the tiles Kara dirtied.
 2. **Only redraw Kara when she moves or animates.** A standing player costs
    nothing.
@@ -487,8 +566,13 @@ the next one starts.
 3. ~~**Sprite blitter + dual-pistol bullet pool**~~ — done: one-pass masked draw
    with save-under, LDI restore, 14-round pool, alternating magazines, reloading,
    HUD, and per-phase raster profiling.
-4. **Scrolling engine** — horizontal CRTC scroll and both vertical variants.
+4. ~~**Scrolling engine**~~ — done: CRTC R12/R13 hardware scroll, tile
+   rendering out of bank C4, horizontal and both vertical directions,
+   per-axis latch ordering, `tools/test_module4.py` with a render-level
+   tearing check and a negative control.
 5. **Objects, puzzles, NPCs** — inventory, interaction handlers, AABB.
+   Starts with scroll-aware sprite addressing (§8.2), which is the one piece
+   of Module 4 deliberately left out.
 6. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 7. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
@@ -514,3 +598,8 @@ Consult this list before implementing from the plan:
 6. **The 25% sprite budget (§6.1)** — not reachable with a generic masked blitter at
    16×48; 384 bytes at 55 T-states each exceeds it before anything else runs. Measured
    cost and the four ways to claw it back are in §9.
+7. **"Vertical roll without tearing (sync with VBLANK / HALT)" (§5 Module 4)** —
+   VBLANK sync is necessary but nowhere near sufficient. Because the CRTC row
+   stride *is* the displayed width, every step writes into memory that is on
+   screen; tear-free scrolling needs `R6 = 24` to create a 64-word off-screen
+   margin, and a latch order that differs per axis. See §8.2.

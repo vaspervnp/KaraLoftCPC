@@ -3,7 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 status=0
-for t in tools/test_cpclib.py tools/test_sprites.py tools/test_overscan.py tools/test_module1.py tools/test_module3.py; do
+for t in tools/test_cpclib.py tools/test_sprites.py tools/test_overscan.py tools/test_module1.py tools/test_module3.py tools/test_module4.py; do
     echo "=== $t"
     python3 "$t" || status=1
 done

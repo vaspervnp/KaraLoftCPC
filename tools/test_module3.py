@@ -83,6 +83,12 @@ def main():
     machine.type_text('RUN"DISC\n')
     machine.run_frames(400)
 
+    # Module 4 hands the demo over to the scrolling screen once
+    # DEMO_TIMER runs out. Pin it open so this suite always sees the
+    # Module 1-3 acceptance screen no matter how many frames it runs.
+    machine.poke(sym["DEMO_TIMER"], 0xFF)
+    machine.poke(sym["DEMO_TIMER"] + 1, 0xFF)
+
     check("game is running in Mode 0", machine.mode == 0, f"mode={machine.mode}")
     # ---------------------------------------------------------------
     # frame cost, measured first: the run_us stepping the later checks
@@ -194,15 +200,22 @@ def main():
     # ---------------------------------------------------------------
     # 4. bullet travel: 2 bytes = 4 Mode 0 pixels per frame
     # ---------------------------------------------------------------
-    sync_to_frame_top(machine, sym)
-    before = machine.read_ram(sym["BULLETS"], 14 * 5)
-    machine.run_frames(1)
-    sync_to_frame_top(machine, sym)
-    after = machine.read_ram(sym["BULLETS"], 14 * 5)
-    steps = [after[i * 5 + 1] - before[i * 5 + 1]
-             for i in range(14)
-             if before[i * 5] and after[i * 5]
-             and before[i * 5 + 4] == after[i * 5 + 4] + 1]   # same round, one frame older
+    # The demo spends a fifth of its time reloading, with nothing in
+    # flight, so wait for a frame that actually has rounds to measure
+    # rather than sampling one and hoping.
+    steps = []
+    for _ in range(80):
+        sync_to_frame_top(machine, sym)
+        before = machine.read_ram(sym["BULLETS"], 14 * 5)
+        machine.run_frames(1)
+        sync_to_frame_top(machine, sym)
+        after = machine.read_ram(sym["BULLETS"], 14 * 5)
+        steps = [after[i * 5 + 1] - before[i * 5 + 1]
+                 for i in range(14)
+                 if before[i * 5] and after[i * 5]
+                 and before[i * 5 + 4] == after[i * 5 + 4] + 1]   # one frame older
+        if steps:
+            break
     check("rounds travel 4 pixels per frame",
           bool(steps) and all(s == 2 for s in steps), f"steps={sorted(set(steps))}")
 

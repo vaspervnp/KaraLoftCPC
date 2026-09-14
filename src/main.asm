@@ -1,6 +1,6 @@
 ; =====================================================================
 ; Kara Loft and the Illuminati
-; MODULE 3 - sprite blitter, save-under restore, dual pistol bullet pool
+; MODULE 4 - hardware scrolling engine over a banked tilemap
 ;
 ; Build: ./build.sh        Output: build/kara.dsk
 ;
@@ -19,6 +19,9 @@
 ;   lines  64-175   striped background              (masking, restore)
 ;   line     112    Kara, walking and firing
 ;   lines 180-197   two magazines of 7 rounds       (dual pistols)
+;
+; After DEMO_TIMER frames it switches to the Module 4 screen: the city
+; tilemap, scrolled by the CRTC start address, right then down then up.
 ;
 ; The border turns red for exactly as long as the frame's drawing takes,
 ; which is how tools/test_module3.py measures the T-state cost.
@@ -136,7 +139,75 @@ MAIN_LOOP:      call WAIT_VSYNC
                 ld   a,MARK_IDLE
                 call BORDER_SET
                 call LAMPS                  ; not game work, so not measured
+
+                ; The Module 1-3 acceptance screen runs for a while, then
+                ; hands over to the scrolling demo for good. Tests that
+                ; want one or the other poke DEMO_TIMER.
+                ld   hl,(DEMO_TIMER)
+                dec  hl
+                ld   (DEMO_TIMER),hl
+                ld   a,h
+                or   l
+                jp   z,SCROLL_DEMO
                 jp   MAIN_LOOP
+
+; =====================================================================
+; MODULE 4 demo - the city scrolls under CRTC control.
+;
+; Kara is deliberately not drawn here. Her blitter walks the screen with
+; a fixed +&0800 / +&C050 step, which is only the right arithmetic while
+; the start address is zero; over a scrolled screen a sprite has to take
+; its address from the same masked word index the tile engine uses. That
+; is the first job of Module 5, and doing it badly would be worse than
+; not doing it - see CLAUDE.md 8.2.
+; =====================================================================
+SCROLL_DEMO:    di
+                xor  a
+                call SCREEN_CLS
+                call SCROLL_INIT
+                ei
+
+                ; Each step routine owns its own SCROLL_APPLY, because the
+                ; safe moment to latch a new start address is different for
+                ; the two axes - see tilemap.asm. All this loop guarantees
+                ; is that a step begins at VSYNC.
+.loop:          call WAIT_VSYNC
+                ld   a,MARK_SPRITE
+                call BORDER_SET
+                call SCROLL_SCRIPT
+                ld   a,MARK_IDLE
+                call BORDER_SET
+                ld   hl,FRAME_COUNT
+                inc  (hl)
+                jp   .loop
+
+; ---------------------------------------------------------------------
+; SCROLL_SCRIPT - 200 frames right, 200 down, 200 up, repeat. The
+; vertical phases step every 4th frame; 8 scanlines at 50 Hz would be
+; far too fast to look at.
+; ---------------------------------------------------------------------
+SCROLL_SCRIPT:  ld   hl,DEMO_PHASE_T
+                inc  (hl)
+                ld   a,(hl)
+                cp   200
+                jr   c,.act
+                ld   (hl),0
+                ld   a,(DEMO_PHASE)
+                inc  a
+                cp   3
+                jr   c,.store
+                xor  a
+.store:         ld   (DEMO_PHASE),a
+.act:           ld   a,(DEMO_PHASE)
+                or   a
+                jp   z,SCROLL_H_STEP
+                ld   b,a
+                ld   a,(DEMO_PHASE_T)
+                and  3
+                ret  nz
+                ld   a,b
+                dec  a                      ; phase 1 -> down, phase 2 -> up
+                jp   SCROLL_V_STEP
 
 ; ---------------------------------------------------------------------
 ; BUFFERS_CLEAR - the save-under buffers sit at &8000, which is ordinary
@@ -440,6 +511,7 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "palette.asm"
                 include "sprite.asm"
                 include "bullets.asm"
+                include "tilemap.asm"
 
 ; ---------------------------------------------------------------------
 ; Core variables
@@ -457,11 +529,21 @@ KARA_FACING:    db 1                    ; 1 = right, 0 = left
 KARA_STEP:      db 0
 KARA_LAST_ADDR: dw 0
 FIRE_TIMER:     db 0
+DEMO_TIMER:     dw 600                  ; frames of Module 1-3 screen
+DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up
+DEMO_PHASE_T:   db 0
 
                 ; SPR_DRAW_SAVE advances the sprite pointer with INC L, so
                 ; every frame has to start on a 16-byte boundary.
                 align 16
 KARA_SPRITES:   incbin "kara_sprites.bin"
+
+                ; Level data rides inside the core image, so the boot
+                ; relocation lands it in base RAM - which is the only
+                ; reason TILES_INSTALL can LDIR it into the &4000 window.
+                ; The two must stay adjacent and in this order.
+CITY_TILES:     incbin "city_tiles.bin"
+CITY_MAP:       incbin "city_map.bin"
 
 CORE_END:
 CORE_SIZE       equ  CORE_END - CORE_START

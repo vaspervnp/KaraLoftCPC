@@ -16,7 +16,7 @@ rm -f "$BUILD/$DSK" "$BUILD/game.bin"
 
 # --- assets -----------------------------------------------------------
 # Regenerated every build so the binaries can never drift from the art.
-# Nothing INCBINs them yet; Module 3 links the sprites, Module 6 the title.
+# main.asm INCBINs the sprites and the level; Module 6 links the title.
 python3 "$ROOT/tools/png2sprite.py" "$ROOT/assets/placeholder/kara_sheet.png" \
         -o "$BUILD/kara_sprites.bin" \
         --inc "$BUILD/kara_sprites.inc" \
@@ -28,6 +28,11 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         --preview "$BUILD/title_preview.png" --dither
 
 # --- code -------------------------------------------------------------
+python3 "$ROOT/tools/make_placeholder_level.py"
+python3 "$ROOT/tools/png2tiles.py" "$ROOT/assets/placeholder/city_tiles.png" \
+        -o "$BUILD/city_tiles.bin" --inc "$BUILD/city_tiles.inc"
+cp "$ROOT/assets/placeholder/city_map.bin" "$BUILD/city_map.bin"
+
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
      -ob "$BUILD/game.bin" \
      -s -sa -os "$BUILD/game.sym"
