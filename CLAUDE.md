@@ -7,8 +7,22 @@ corrections and why.
 
 ## 1. Status
 
-Pre-code. The repository contains only `plan.md` and no commits yet. There is no
-`src/`, no build script, and no assets. Module 1 (§10) creates the skeleton.
+**Module 1 done.** `./build.sh` produces `build/kara.dsk`; it boots, relocates,
+sets Mode 0, passes its bank self-test and runs an interrupt-driven main loop.
+Verify with `python3 tools/test_module1.py`. Modules 2-7 (§11) are not started.
+
+Layout:
+
+```
+src/main.asm      bootstrap at &4000 + core engine at &0040
+src/config.asm    ports and memory map constants
+src/bank.asm      bank switching (must stay outside &4000-&7FFF)
+src/screen.asm    Mode 0 addressing, block fill, palette, vsync
+src/palette.asm   the 16 pens + solid-pen byte table
+disc/disc.bas     ASCII BASIC loader
+tools/            emulator acceptance tests
+docs/             hardware reference tables
+```
 
 ## 2. Target platform (hard constraints)
 
@@ -32,7 +46,7 @@ Pre-code. The repository contains only `plan.md` and no commits yet. There is no
 | Python | system `python3` 3.14 with Pillow 12.3 | — |
 | ffmpeg | `/home/vasilhs/bin/ffmpeg` | for the audio pipeline |
 | Blender | MCP tools (`mcp__Blender__*`) — no CLI binary on PATH | render pipeline |
-| Aseprite | **not available** — no CLI and no MCP server is connected | see §6.2 |
+| Aseprite | **not available** — no CLI and no MCP server is connected | see §7.2 |
 
 RASM can emit the DSK itself via a `SAVE "GAME.BIN",start,length,AMSDOS,"kara.dsk"`
 directive, which is usually simpler than post-processing with iDSK. Use iDSK when you
@@ -42,15 +56,39 @@ need to inspect or patch an existing image:
 iDSK kara.dsk -l
 ```
 
-Typical two-step build if you prefer explicit control:
+The project uses the two-step route, wrapped in `build.sh`:
 
 ```bash
-rasm src/main.asm -o build/game && iDSK build/kara.dsk -n && iDSK build/kara.dsk -i build/game.bin -t 1 -c 4000 -e 4000 -f
+./build.sh
 ```
 
 `-t 1` = binary, `-c` = load address, `-e` = execution address, `-f` = overwrite.
 
-## 4. Test loop — always verify in the emulator
+**`rasm` needs `-amper`.** Without it `&` is the bitwise AND operator and every
+hex literal in this codebase fails to parse. `build.sh` passes it; any ad-hoc
+`rasm` invocation must too.
+
+## 4. Boot sequence
+
+AMSDOS can only land the binary somewhere BASIC is not, and BASIC occupies
+`&0170` upward — so the load address is `&4000`, which is exactly the banked
+window nothing may live in. The code at `&4000` is therefore a **bootstrap, not
+the engine**:
+
+1. `DI`, `LD SP,&BFFF`.
+2. Write `&8C` to the gate array: Mode 0, **both ROMs disabled**. The lower ROM
+   must go before any execution at `&0040`, or reads from `&0000-&3FFF` come
+   from the OS ROM instead of the relocated code.
+3. Select RAM config `&C0` so the window is in a known state.
+4. `LDIR` the core engine image down to `&0040` (source and destination do not
+   overlap) and `JP` into it. There is no way back to BASIC after this.
+5. The core rewrites `&0038` with `JP IRQ_HANDLER` before the first `EI`, since
+   the firmware's handler went out with the lower ROM.
+
+`ORG code,output` in RASM is what lets the core be assembled for `&0040` while
+being stored in the file after the bootstrap.
+
+## 5. Test loop — always verify in the emulator
 
 Never declare a module working on a clean assemble alone. The headless emulator boots a
 real 6128 ROM set, accepts a `.dsk`, and renders to a framebuffer, so every visual claim
@@ -80,9 +118,9 @@ Two gotchas learned from probing it:
 
 One Mode 0 pixel spans 4 framebuffer columns; the visible area starts at x=64.
 
-## 5. CPC 6128 hardware reference
+## 6. CPC 6128 hardware reference
 
-### 5.1 Memory map (base 64 KB)
+### 6.1 Memory map (base 64 KB)
 
 ```
 &0000-&003F  Z80 restart vectors + IM 1 interrupt handler
@@ -92,7 +130,7 @@ One Mode 0 pixel spans 4 framebuffer columns; the visible area starts at x=64.
 &C000-&FFFF  Primary video RAM
 ```
 
-### 5.2 Banking (gate array port `&7Fxx`)
+### 6.2 Banking (gate array port `&7Fxx`)
 
 Writing `&C0`–`&FF` to port `&7F` selects a RAM configuration. Only the `&4000-&7FFF`
 window changes in the configurations this project uses:
@@ -122,7 +160,7 @@ BANK_SET_C4:    ld   bc,&7FC4
 The overscan title screen is 26,112 bytes and does not fit one 16 KB bank; it is split
 across two banks and assembled into VRAM in two passes.
 
-### 5.3 Mode 0 pixel encoding — VERIFIED
+### 6.3 Mode 0 pixel encoding — VERIFIED
 
 Each byte holds 2 pixels, bits interleaved. Bit numbers on the right are the **pen
 number's** bit weights (bit 0 = value 1, bit 3 = value 8):
@@ -153,7 +191,7 @@ table with bits 0↔3 and 1↔2 swapped and is wrong** — an exporter built fro
 table produces scrambled palette indices. Every asset exporter must use the table above,
 and every exporter needs a round-trip unit test (encode → decode → original pens).
 
-### 5.4 Screen addressing
+### 6.4 Screen addressing
 
 Standard (non-overscan) layout, 80 bytes per line, base `&C000`:
 
@@ -172,7 +210,7 @@ Advancing one scanline inside the blitter:
 .same_row:
 ```
 
-### 5.5 Overscan title screen (192×272)
+### 6.5 Overscan title screen (192×272)
 
 CRTC registers. **One CRTC character = 2 bytes**, so R1=48 gives 96 bytes/line:
 
@@ -188,13 +226,15 @@ CRTC registers. **One CRTC character = 2 bytes**, so R1=48 gives 96 bytes/line:
 plan.md's "48 chars × 4 bytes = 192 bytes" is arithmetically wrong but arrives at the
 correct 192-pixel width and the correct 26,112-byte total; use 96 bytes/line.
 
-### 5.6 Palette and fades
+### 6.6 Palette and fades
 
 Gate array port `&7F00`: write `&00-&0F` to select a pen (`&10` for border), then the
-hardware colour value. Fades walk each pen through a luminance-ordered ramp toward
+hardware colour value; the verified ink/hardware/port table is in
+[docs/cpc_palette.md](docs/cpc_palette.md) and the game's 16 pens are in
+`src/palette.asm`. Fades walk each pen through a luminance-ordered ramp toward
 black and back; keep the ramp as a table, not as arithmetic on colour codes.
 
-### 5.7 AY-3-8912
+### 6.7 AY-3-8912
 
 Accessed through PPI port A (`&F4`) with control on `&F6`. Register set: R0-R5 tone
 periods, R6 noise period, R7 mixer, R8-R10 channel volumes, R11-R13 hardware envelope.
@@ -202,9 +242,9 @@ The music player runs from the 50 Hz interrupt. Channel C is the SFX carrier: gu
 and hurt sounds steal it via the noise generator and volume envelope, then hand it back
 to the music without a re-trigger click.
 
-## 6. Asset pipeline
+## 7. Asset pipeline
 
-### 6.1 Sprites
+### 7.1 Sprites
 
 Kara Loft is 16×48 pixels → 8 bytes wide × 48 lines.
 
@@ -226,23 +266,23 @@ transparent pixel contributes `&F` in its interleaved bit positions.
 
 Sprites are emitted as raw binaries for `INCBIN` (`kara_sprites.bin`).
 
-### 6.2 Aseprite is not available
+### 7.2 Aseprite is not available
 
 plan.md assumes an Aseprite MCP server. Nothing on this machine provides Aseprite.
 Until that changes, write the sprite encoder as a **standalone Python script** that
 reads PNG sheets (Pillow is installed) and emits the data+mask binary. That keeps the
 pipeline working and stays trivially portable to Aseprite later.
 
-### 6.3 Blender
+### 7.3 Blender
 
 Blender is reachable through the MCP tools, not a CLI. Title-screen renders use an
 orthographic camera at 192×272, quantised to 16 pens chosen from the CPC's 27 hardware
 colours, then laid out into the overscan VRAM order and written as `overscan.bin`
 (26,112 bytes). Inspect the scene before changing it; do not assume object names.
 
-## 7. Game architecture
+## 8. Game architecture
 
-### 7.1 Level flow
+### 8.1 Level flow
 
 Six levels, each with its own scroll axis:
 
@@ -257,7 +297,7 @@ Six levels, each with its own scroll axis:
 
 FSM: `STATE_LEVEL_PLAY → STATE_LEVEL_CLEAR → STATE_CUTSCENE → STATE_LOAD_NEXT`.
 
-### 7.2 Scrolling
+### 8.2 Scrolling
 
 * **Horizontal** — CRTC hardware scroll via R12/R13, coarse steps of 2 bytes
   (4 Mode 0 pixels). Each step refreshes one tile column at the incoming edge.
@@ -269,7 +309,7 @@ FSM: `STATE_LEVEL_PLAY → STATE_LEVEL_CLEAR → STATE_CUTSCENE → STATE_LOAD_N
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
-### 7.3 Dual pistols
+### 8.3 Dual pistols
 
 ```
 MAG_LEFT     0-7      rounds in left pistol
@@ -283,7 +323,7 @@ AMMO_RESERVE bytes    clips add 14
 Bullets move 4 pixels/frame and die on a solid tile. Reload is manual (Down+Fire) or
 automatic when both magazines hit 0; during reload the player is slowed or frozen.
 
-### 7.4 Game state
+### 8.4 Game state
 
 ```asm
 PLAYER_HP:        db 100     ; 0-100, medkit restores 35, capped at 100
@@ -297,7 +337,7 @@ CURRENT_BOOK_ID:  db 0
 Interaction handlers: `CHECK_KEY_DOOR`, `PLACE_STATUE`, `READ_BOOK_PUZZLE`,
 `TALK_NPC_COIN`, `USE_MEDKIT`, all gated by an AABB test in `ENTITY_COLLISION_CHECK`.
 
-## 8. Performance budget
+## 9. Performance budget
 
 A frame is **79,872 T-states**. Allow ~25% (≈19,900 T-states) for drawing Kara plus
 background restore plus 14 bullets; the remaining 75% covers scrolling, tile refresh,
@@ -308,9 +348,9 @@ the gate array rounds instruction timings up to whole microseconds, so the pract
 throughput is nearer 3.3 MHz than 4 MHz — measured frame counts in the emulator beat
 hand-counted totals when the two disagree.
 
-## 9. Conventions and pitfalls
+## 10. Conventions and pitfalls
 
-* Hex is `&` prefixed (RASM/CPC style), not `0x`.
+* Hex is `&` prefixed (RASM/CPC style), not `0x` — which requires `-amper`.
 * Labels `SCREAMING_SNAKE`, local labels `.dotted`.
 * Prefer `EXX` / shadow registers over push/pop in inner loops; document which shadow
   set a routine clobbers, since the interrupt handler uses them too.
@@ -325,14 +365,14 @@ hand-counted totals when the two disagree.
 * `plan.md:Zone.Identifier` is a Windows download artefact; add `*:Zone.Identifier` to
   `.gitignore` when the repo gets one.
 
-## 10. Module order
+## 11. Module order
 
 Build strictly in sequence; each module must assemble **and run in the emulator** before
 the next one starts.
 
-1. **Memory architecture + build pipeline** — `main.asm`, bank switching, `build.sh`,
-   BASIC loader, `.dsk` generation.
-2. **Asset exporters** — Blender → `overscan.bin`, PNG → `kara_sprites.bin` (§6.2).
+1. ~~**Memory architecture + build pipeline**~~ — done: bootstrap/relocator, bank
+   switching, `build.sh`, BASIC loader, `.dsk` generation, `tools/test_module1.py`.
+2. **Asset exporters** — Blender → `overscan.bin`, PNG → `kara_sprites.bin` (§7.2).
 3. **Sprite blitter + dual-pistol bullet pool** — masked 8×48 blit, `FIRE_BULLET`,
    `UPDATE_BULLETS`.
 4. **Scrolling engine** — horizontal CRTC scroll and both vertical variants.
@@ -341,11 +381,11 @@ the next one starts.
 7. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
 
-## 11. Corrections to plan.md
+## 12. Corrections to plan.md
 
 Consult this list before implementing from the plan:
 
-1. **Mode 0 bit table (§4.2)** — wrong; pen bits 0↔3 and 1↔2 are swapped. Use §5.3
+1. **Mode 0 bit table (§4.2)** — wrong; pen bits 0↔3 and 1↔2 are swapped. Use §6.3
    above, which was verified on the emulator.
 2. **Overscan byte count (§4.3)** — a CRTC character is 2 bytes, not 4. R1=48 yields
    96 bytes/line, not 192. The resulting 192-pixel width and 26,112-byte total are

@@ -1,5 +1,6 @@
 *:Zone.Identifier
 build/
+!build/.gitkeep
 *.bin
 *.dsk
 __pycache__/
