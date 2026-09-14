@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Sprite sheet PNG -> CPC Mode 0 data + mask binary.
+
+plan.md assumed an Aseprite MCP server; there is none on this machine, so
+the sheet is read straight from PNG (see CLAUDE.md 7.2). Nothing else about
+the pipeline changes -- swap this front end for Aseprite later and the
+output format is unaffected.
+
+Output layout, per frame, top line first:
+
+    line 0: mask0 data0 mask1 data1 ... mask7 data7
+    line 1: ...
+
+Mask and data are interleaved so the blitter walks both with one pointer:
+
+    ld a,(de) : and (hl) : inc hl : or (hl) : inc hl : ld (de),a : inc de
+
+A 16x48 frame is 8 bytes x 48 lines x 2 = 768 bytes, matching plan.md 3.1.
+
+Usage:
+    png2sprite.py sheet.png -o kara_sprites.bin [--frame 16x48] [--preview out.png]
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cpclib
+
+from PIL import Image
+
+
+def game_palette(path):
+    """The 16 pens the engine programs, read from src/palette.asm.
+
+    Sprites MUST be quantised against the same pens the level uses, so the
+    palette comes from the assembly source rather than from the image.
+    """
+    src = open(path).read()
+    block = src.split("PALETTE_DATA:")[1].split("PEN_SOLID")[0]
+    values = [int(v, 16) for v in re.findall(r"db +&([0-9A-Fa-f]{2})", block)]
+    if len(values) < 16:
+        raise SystemExit(f"{path}: expected 16 pens + border, found {len(values)}")
+    return [v & 0x1F for v in values[:16]]      # strip the &40 colour-select prefix
+
+
+def encode_frame(img, palette, transparent_pen):
+    """One frame -> (interleaved bytes, opaque pixel count)."""
+    w, h = img.size
+    if w % 2:
+        raise SystemExit("frame width must be even (Mode 0 packs 2 pixels per byte)")
+    rgba = img.convert("RGBA")
+    px = rgba.load()
+
+    pens = cpclib.quantise(img, palette)
+    out = bytearray()
+    opaque_count = 0
+    for y in range(h):
+        for x in range(0, w, 2):
+            op = []
+            pen = []
+            for dx in (0, 1):
+                alpha = px[x + dx, y][3]
+                is_opaque = alpha >= 128
+                op.append(is_opaque)
+                pen.append(pens[y][x + dx] if is_opaque else 0)
+            opaque_count += sum(op)
+            out.append(cpclib.encode_mask(op[0], op[1]))
+            out.append(cpclib.encode_pixels(pen[0], pen[1]))
+    return bytes(out), opaque_count
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("sheet")
+    ap.add_argument("-o", "--output", required=True)
+    ap.add_argument("--frame", default="16x48", help="frame size, e.g. 16x48")
+    ap.add_argument("--palette", default=None, help="path to src/palette.asm")
+    ap.add_argument("--preview", default=None, help="write a quantised preview PNG")
+    ap.add_argument("--inc", default=None, help="write a RASM include with the labels")
+    args = ap.parse_args()
+
+    fw, fh = (int(v) for v in args.frame.lower().split("x"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    palette = game_palette(args.palette or os.path.join(here, "..", "src", "palette.asm"))
+
+    sheet = Image.open(args.sheet).convert("RGBA")
+    if sheet.width % fw or sheet.height % fh:
+        raise SystemExit(f"sheet {sheet.width}x{sheet.height} is not a whole number "
+                         f"of {fw}x{fh} frames")
+    cols, rows = sheet.width // fw, sheet.height // fh
+
+    blob = bytearray()
+    preview = Image.new("RGB", sheet.size, (255, 0, 255)) if args.preview else None
+    frames = 0
+    for ry in range(rows):
+        for rx in range(cols):
+            box = (rx * fw, ry * fh, (rx + 1) * fw, (ry + 1) * fh)
+            frame = sheet.crop(box)
+            data, opaque = encode_frame(frame, palette, 0)
+            blob += data
+            frames += 1
+            if preview is not None:
+                pens = cpclib.quantise(frame, palette)
+                alpha = frame.load()
+                cell = Image.new("RGB", (fw, fh))
+                cp = cell.load()
+                for y in range(fh):
+                    for x in range(fw):
+                        cp[x, y] = (cpclib.HW_COLOURS[palette[pens[y][x]]]
+                                    if alpha[x, y][3] >= 128 else (255, 0, 255))
+                preview.paste(cell, box)
+
+    frame_bytes = fw // 2 * fh * 2
+    with open(args.output, "wb") as f:
+        f.write(blob)
+
+    print(f"{args.sheet}: {frames} frames of {fw}x{fh}")
+    print(f"  {frame_bytes} bytes/frame ({fw // 2} bytes wide x {fh} lines, mask+data)")
+    print(f"  -> {args.output}  {len(blob)} bytes")
+
+    if preview is not None:
+        preview.save(args.preview)
+        print(f"  -> {args.preview}")
+
+    if args.inc:
+        name = os.path.splitext(os.path.basename(args.output))[0].upper()
+        with open(args.inc, "w") as f:
+            f.write(f"; generated by png2sprite.py - do not edit\n")
+            f.write(f"{name}_FRAMES      equ {frames}\n")
+            f.write(f"{name}_WIDTH_BYTES equ {fw // 2}\n")
+            f.write(f"{name}_HEIGHT      equ {fh}\n")
+            f.write(f"{name}_FRAME_SIZE  equ {frame_bytes}\n")
+            f.write(f"{name}_DATA:       incbin \"{os.path.basename(args.output)}\"\n")
+        print(f"  -> {args.inc}")
+
+
+if __name__ == "__main__":
+    main()

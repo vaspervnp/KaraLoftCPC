@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Every acceptance test, in dependency order. Assumes ./build.sh has run.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+status=0
+for t in tools/test_cpclib.py tools/test_sprites.py tools/test_overscan.py tools/test_module1.py; do
+    echo "=== $t"
+    python3 "$t" || status=1
+done
+echo
+[ $status -eq 0 ] && echo "ALL SUITES PASSED" || echo "SOME SUITES FAILED"
+exit $status

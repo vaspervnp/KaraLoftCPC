@@ -7,11 +7,10 @@ corrections and why.
 
 ## 1. Status
 
-**Module 1 done.** `./build.sh` produces `build/kara.dsk`; it boots, relocates,
-sets Mode 0, passes its bank self-test and runs an interrupt-driven main loop.
-Verify with `python3 tools/test_module1.py`. Modules 2-7 (§11) are not started.
-
-Layout:
+**Modules 1 and 2 done.** `./build.sh` regenerates the assets, assembles, and
+produces `build/kara.dsk`, which boots, relocates, sets Mode 0, passes its bank
+self-test and runs an interrupt-driven main loop. `./tools/run_tests.sh` runs
+every acceptance suite. Modules 3-7 (§11) are not started.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -20,9 +19,23 @@ src/bank.asm      bank switching (must stay outside &4000-&7FFF)
 src/screen.asm    Mode 0 addressing, block fill, palette, vsync
 src/palette.asm   the 16 pens + solid-pen byte table
 disc/disc.bas     ASCII BASIC loader
-tools/            emulator acceptance tests
-docs/             hardware reference tables
+
+tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
+                           place the bit interleaving is written down
+tools/png2sprite.py        sprite sheet  -> data+mask binary
+tools/png2screen.py        image         -> overscan.bin / 16K screen
+tools/blender_title.py     the title scene and its CPC render settings
+tools/make_placeholder_sprites.py
+tools/test_*.py            acceptance suites
+tools/run_tests.sh         all of them, in order
+
+assets/placeholder/        stand-in sprite art, to be replaced
+assets/title/              the title render
+docs/                      hardware reference tables
 ```
+
+Nothing INCBINs the asset binaries yet: Module 3 links the sprites, Module 6
+the title screen. `build.sh` regenerates them anyway so they cannot drift.
 
 ## 2. Target platform (hard constraints)
 
@@ -222,9 +235,28 @@ CRTC registers. **One CRTC character = 2 bytes**, so R1=48 gives 96 bytes/line:
 | R6 | 34 | vertical displayed → 34 × 8 = 272 scanlines |
 | R7 | 35 | vertical sync position |
 
-96 bytes × 272 lines = **26,112 bytes**, which is why the buffer spans two banks.
-plan.md's "48 chars × 4 bytes = 192 bytes" is arithmetically wrong but arrives at the
-correct 192-pixel width and the correct 26,112-byte total; use 96 bytes/line.
+96 bytes × 272 lines = **26,112 bytes**. plan.md's "48 chars × 4 bytes = 192 bytes"
+is arithmetically wrong but arrives at the correct 192-pixel width and the correct
+total; use 96 bytes/line.
+
+**The screen cannot be one buffer.** The CRTC only drives MA0-MA9 onto the address
+bus, so one raster block reaches 1024 words = 2048 bytes. At 48 chars per line that
+is 21 character rows, and overscan needs 34. So the screen is **two halves of 17
+rows** (136 lines, 13,056 bytes each), each laid out exactly like a normal CPC
+screen, with the display code re-pointing R12/R13 at the second half partway down
+the frame:
+
+```
+offset within a half = (line AND 7) * &0800 + (line >> 3) * 96 + x   ; peaks at 15,967
+```
+
+Verified on the emulator, including the failure mode: programmed as 34 rows in one
+buffer, rows 17-20 draw blank and the address counter folds back mid-row-21, redrawing
+the top of the picture. `tools/test_overscan.py` asserts both directions.
+
+`overscan.bin` is stored in **copy order** — half 0 raster blocks 0-7, then half 1 —
+each block 17 rows × 96 bytes = 1,632 bytes, so the loader is eight LDIRs per half
+rather than a scatter.
 
 ### 6.6 Palette and fades
 
@@ -254,31 +286,58 @@ AND mask   : 8 × 48 = 384 bytes
 total      : 768 bytes per frame
 ```
 
-Mask convention: **`&F`-nibble set (1) where the background shows through, 0 where the
-sprite pixel is opaque** — i.e. the mask is ANDed with the screen, then the data is ORed:
+Mask convention: mask bits **set where the background shows through**, clear where the
+sprite pixel is opaque, so the blitter does:
 
 ```
 SCREEN = (SCREEN AND MASK) OR DATA
 ```
 
-Because Mode 0 packs 2 pixels per byte, mask nibbles are per-pixel, not per-bit: a
-transparent pixel contributes `&F` in its interleaved bit positions.
+Because Mode 0 interleaves, a pixel's four mask bits are not adjacent: the left pixel
+owns the odd bits (`&AA`) and the right pixel the even ones (`&55`). A transparent left
+pixel therefore contributes `&AA`, not `&F0`.
 
-Sprites are emitted as raw binaries for `INCBIN` (`kara_sprites.bin`).
+**Mask and data are interleaved per byte**, so the blitter walks both with one pointer:
+
+```
+line 0:  mask0 data0 mask1 data1 ... mask7 data7
+line 1:  ...
+
+ld a,(de) : and (hl) : inc hl : or (hl) : inc hl : ld (de),a : inc de
+```
+
+Produced by `tools/png2sprite.py`, emitted for `INCBIN`, with a generated `.inc` of
+frame count and sizes. Sprites are quantised against the pens in `src/palette.asm`,
+not against their own image, so they match the level they are drawn over.
 
 ### 7.2 Aseprite is not available
 
-plan.md assumes an Aseprite MCP server. Nothing on this machine provides Aseprite.
-Until that changes, write the sprite encoder as a **standalone Python script** that
-reads PNG sheets (Pillow is installed) and emits the data+mask binary. That keeps the
-pipeline working and stays trivially portable to Aseprite later.
+plan.md assumes an Aseprite MCP server. Nothing on this machine provides Aseprite, so
+the sprite front end reads PNG sheets via Pillow instead. Swapping in Aseprite later
+changes nothing downstream — the output format is unaffected.
 
 ### 7.3 Blender
 
-Blender is reachable through the MCP tools, not a CLI. Title-screen renders use an
-orthographic camera at 192×272, quantised to 16 pens chosen from the CPC's 27 hardware
-colours, then laid out into the overscan VRAM order and written as `overscan.bin`
-(26,112 bytes). Inspect the scene before changing it; do not assume object names.
+**Blender runs on Windows (5.2.1 LTS), not inside WSL.** Consequences:
+
+* Render paths passed to `bpy` must be Windows paths (`C:\Users\vasilhs\...`); read
+  the result back from WSL under `/mnt/c/...`.
+* Blender cannot see this repository, so scripts are injected as source through
+  `execute_blender_code` rather than imported by path.
+* The EEVEE enum name differs between versions — this build has `BLENDER_EEVEE`, not
+  `BLENDER_EEVEE_NEXT`. Pick from `render.bl_rna.properties["engine"].enum_items`.
+
+**The open Blender session contains unrelated unsaved work** (a scene of ~200 objects).
+`tools/blender_title.py` therefore builds into its own scene, `KaraTitle`, never clears
+anything, and restores the active scene when it finishes. Keep it that way.
+
+Render settings that matter: 192×272 at 100%, and **pixel aspect 2:1**, because Mode 0
+pixels are twice as wide as they are tall — without it the art is framed for a shape
+the hardware never shows. Camera is orthographic, per plan.md.
+
+`tools/png2screen.py` then picks 16 of the 27 hardware colours by usage, optionally
+Floyd-Steinberg dithers (worth it — a render banded to 16 colours looks poor without
+it), and writes `overscan.bin` plus a palette include and a preview.
 
 ## 8. Game architecture
 
@@ -372,7 +431,8 @@ the next one starts.
 
 1. ~~**Memory architecture + build pipeline**~~ — done: bootstrap/relocator, bank
    switching, `build.sh`, BASIC loader, `.dsk` generation, `tools/test_module1.py`.
-2. **Asset exporters** — Blender → `overscan.bin`, PNG → `kara_sprites.bin` (§7.2).
+2. ~~**Asset exporters**~~ — done: `cpclib.py`, `png2sprite.py`, `png2screen.py`,
+   `blender_title.py`, wired into `build.sh`, with round-trip and on-hardware tests.
 3. **Sprite blitter + dual-pistol bullet pool** — masked 8×48 blit, `FIRE_BULLET`,
    `UPDATE_BULLETS`.
 4. **Scrolling engine** — horizontal CRTC scroll and both vertical variants.
@@ -395,3 +455,7 @@ Consult this list before implementing from the plan:
    sprite budget is ≈19,900 T-states.
 4. **Aseprite (§5 Module 2)** — not installed and no MCP server for it; use a Python
    PNG encoder instead.
+5. **"Overscan title buffer, 26 KB across 2 banks" (§4.1)** — right that it needs two
+   buffers, but not because of bank size. It needs two because the CRTC cannot address
+   more than 21 character rows in one raster block; the two halves are displayed by
+   re-pointing R12/R13 mid-frame. See §6.5.

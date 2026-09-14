@@ -14,6 +14,20 @@ DSK="kara.dsk"
 mkdir -p "$BUILD"
 rm -f "$BUILD/$DSK" "$BUILD/game.bin"
 
+# --- assets -----------------------------------------------------------
+# Regenerated every build so the binaries can never drift from the art.
+# Nothing INCBINs them yet; Module 3 links the sprites, Module 6 the title.
+python3 "$ROOT/tools/png2sprite.py" "$ROOT/assets/placeholder/kara_sheet.png" \
+        -o "$BUILD/kara_sprites.bin" \
+        --inc "$BUILD/kara_sprites.inc" \
+        --preview "$BUILD/kara_preview.png"
+
+python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
+        -o "$BUILD/overscan.bin" \
+        --inc "$BUILD/title_palette.asm" \
+        --preview "$BUILD/title_preview.png" --dither
+
+# --- code -------------------------------------------------------------
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -amper \
      -ob "$BUILD/game.bin" \
      -os "$BUILD/game.sym" -sa
