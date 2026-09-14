@@ -1,0 +1,5 @@
+*:Zone.Identifier
+build/
+*.bin
+*.dsk
+__pycache__/
