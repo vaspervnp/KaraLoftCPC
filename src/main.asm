@@ -171,15 +171,97 @@ SCROLL_DEMO:    di
                 ; safe moment to latch a new start address is different for
                 ; the two axes - see tilemap.asm. All this loop guarantees
                 ; is that a step begins at VSYNC.
+                ;
+                ; ORDER IS LOAD-BEARING, and it is a beam chase, not just a
+                ; data-dependency order. Both constraints point the same way:
+                ;
+                ;  - the scroll step must go FIRST because its incoming column
+                ;    is visible under the new start address and it only wins
+                ;    its race with the raster by starting at VSYNC;
+                ;  - KARA_DRAW must stay AHEAD of the beam. Her blitter runs
+                ;    at 651 T per line against the raster's 256, so she only
+                ;    survives by starting with a lead: at line 112 the beam
+                ;    arrives 47,104 T in and she starts at 23,548 T, which
+                ;    holds to line 172 - past her last line at 159;
+                ;  - KARA_ERASE must stay BEHIND it. Starting at 54,820 T it
+                ;    trails the beam at every one of her lines, so the restore
+                ;    is invisible. Erasing at the TOP of the frame instead
+                ;    pushes her draw 37,356 T in, the beam overtakes her at
+                ;    line 137, and she flickers from the waist down.
+                ;
+                ; Erasing last also satisfies the data rule for free:
+                ; KARA_LAST_ADDR is consumed in the same frame it was written,
+                ; before the next scroll step recycles that RAM to a new world
+                ; position.
 .loop:          call WAIT_VSYNC
+                ld   a,(IRQ_TICKS)
+                ld   (FRAME_TICK0),a        ; raster clock for this frame
                 ld   a,MARK_SPRITE
                 call BORDER_SET
-                call SCROLL_SCRIPT
+                call SCROLL_SCRIPT          ; races the beam from the top
+                call KARA_WALK
+                call KARA_DRAW              ; stays ahead of it
+
+                ; RASTER GATE. The erase must trail the beam past Kara's
+                ; first line, which the raster reaches 47,104 T after VSYNC.
+                ; On a horizontal-scroll frame the work above already takes
+                ; 54,772 T and this falls through; on a light frame - a
+                ; vertical phase between steps - the draw alone ends at
+                ; 31,272 T and without this the erase would wipe her top
+                ; lines BEFORE the beam displayed them, once every four
+                ; frames. The IM 1 interrupt is the cheapest raster clock
+                ; the CPC has - the 6845 exposes no scanline counter - and
+                ; its ticks were MEASURED from the WAIT_VSYNC exit rather
+                ; than assumed: the first lands after only 532 T, not a
+                ; full 52-line period, and then every 13,312 T:
+                ;
+                ;   tick 1   532 T | tick 4  40,464 T
+                ;   tick 2 13,844 T | tick 5  53,776 T   <- the one we want
+                ;   tick 3 27,152 T | tick 6  67,088 T
+                ;
+                ; Four ticks is 40,464 T and still AHEAD of the beam, which
+                ; is why the first version of this gate did not work. Five
+                ; clears 47,104 T and leaves 26,096 T for a 13,856 T erase.
+                ; On a horizontal-scroll frame the work above already costs
+                ; 54,772 T, so the gate falls straight through and costs
+                ; nothing.
+                ld   a,MARK_IDLE
+                call BORDER_SET
+.gate:          ld   a,(IRQ_TICKS)
+                ld   hl,FRAME_TICK0
+                sub  (hl)                   ; wraps cleanly: small differences
+                cp   5
+                jr   c,.gate
+
+                ld   a,MARK_ERASE
+                call BORDER_SET
+                call KARA_ERASE             ; stays behind the beam
                 ld   a,MARK_IDLE
                 call BORDER_SET
                 ld   hl,FRAME_COUNT
                 inc  (hl)
                 jp   .loop
+
+; Demo only: drift Kara across the scrolling world so the tests see her
+; at many (SCROLL, KARA_X) combinations rather than at one.
+KARA_WALK:      ld   a,(KARA_STEP)
+                inc  a
+                ld   (KARA_STEP),a
+                and  3
+                ret  nz
+                ld   a,(KARA_X)
+                inc  a
+                cp   SCREEN_WIDTH_BYTES - SPR_WIDTH_BYTES + 1
+                jr   c,.sx
+                xor  a
+.sx:            ld   (KARA_X),a
+                ld   a,(KARA_STEP)
+                rrca
+                rrca
+                rrca
+                and  3
+                ld   (KARA_FRAME),a
+                ret
 
 ; ---------------------------------------------------------------------
 ; SCROLL_SCRIPT - 200 frames right, 200 down, 200 up, repeat. The
@@ -187,7 +269,11 @@ SCROLL_DEMO:    di
 ; far too fast to look at.
 ; ---------------------------------------------------------------------
 SCROLL_SCRIPT:  ld   hl,DEMO_PHASE_T
-                inc  (hl)
+                inc  (hl)                   ; keep the cadence regular even
+                                            ; on the frame a step finishes
+                ld   a,(V_PHASE)            ; a vertical step in progress?
+                or   a
+                jp   nz,SCROLL_V_FINISH     ; finish it before starting another
                 ld   a,(hl)
                 cp   200
                 jr   c,.act
@@ -284,30 +370,54 @@ HUD_UPDATE:     ld   a,(HUD_DIRTY)
                 ld   a,HUD_RIGHT_LINE
                 ; fall through
 
-; IN: A = top line, C = rounds left
-HUD_ROW:        ld   (BLK_LINE),a
+; IN: A = top line, C = rounds left        Clobbers AF, BC, DE, HL
+;
+; One pass over the whole row rather than seven DRAW_BLOCK calls. The
+; seven indicators are 3 bytes wide on a 5-byte pitch, so a scanline is
+; 21 writes and six 2-byte gaps - ONE address computation for the row
+; instead of one per indicator per scanline. That is the difference
+; between 49,040 T (61% of a frame, every time a shot is fired) and the
+; number now in CLAUDE.md 9.
+;
+; Scroll-correct vertically (SCR_NEXT_LINE carries the raster rule), but
+; the 33-byte horizontal run is NOT seam-tested: it assumes the row does
+; not cross offset 2047. True wherever the HUD is drawn today, which is
+; the unscrolled Module 1-3 screen. The scrolling game needs a
+; split-screen HUD anyway - that is Module 6's R12/R13 mid-frame change.
+HUD_ROW:        push bc                     ; C = rounds left
+                ld   c,4                    ; byte column of indicator 0
+                call SCR_ADDR               ; HL = its address under SCROLL
+                pop  bc
+                ex   de,hl                  ; DE = line base
                 ld   a,8
-                ld   (BLK_HEIGHT),a
-                ld   a,3
-                ld   (BLK_W),a
-                ld   a,4
-                ld   (BLK_X),a
+                ld   (HUD_LINES),a
+
+.line:          ld   h,d                    ; working copy - DE keeps the base
+                ld   l,e
                 ld   b,MAG_SIZE
-.one:           push bc
-                ld   a,MAG_SIZE
+.ind:           ld   a,MAG_SIZE
                 sub  b                      ; index of this indicator
                 cp   c
                 ld   a,PEN_AMMO_FULL
-                jr   c,.set
+                jp   c,.set
                 ld   a,PEN_AMMO_EMPTY
-.set:           ld   (BLK_VAL),a
-                call DRAW_BLOCK
-                ld   a,(BLK_X)
-                add  a,5
-                ld   (BLK_X),a
-                pop  bc
-                djnz .one
+.set:           ld   (hl),a                 ; 3 bytes of indicator
+                inc  hl
+                ld   (hl),a
+                inc  hl
+                ld   (hl),a
+                inc  hl
+                inc  hl                     ; 2 bytes of gap
+                inc  hl
+                djnz .ind
+
+                call SCR_NEXT_LINE
+                ld   hl,HUD_LINES
+                dec  (hl)
+                jp   nz,.line
                 ret
+
+HUD_LINES:      db 0
 
 ; ---------------------------------------------------------------------
 ; LAMPS - the Module 1 liveness indicators.
@@ -514,6 +624,22 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "tilemap.asm"
 
 ; ---------------------------------------------------------------------
+; Cross-module invariants. They live here, after every include, because
+; RASM evaluates ASSERT eagerly in source order - a forward reference to
+; a symbol from a later include fails even though instructions that
+; reference it resolve fine in a later pass.
+;
+; Note AND, not "&": under -amper (which build.sh requires) "& 15"
+; parses as the hex literal &15 and the assert reports a bogus failure.
+; ---------------------------------------------------------------------
+                ; ROW_OFFSETS is read as "char row * 80 bytes" by
+                ; DRAW_BLOCK and as "char row * 40 CRTC words" by
+                ; SCR_ADDR. Those are the same number only while R1 = 40.
+                assert SCR_CHARS * 2 == SCREEN_WIDTH_BYTES
+                ; SCR_ADDR indexes ROW_OFFSETS with ADD A,L over 64 bytes.
+                assert (ROW_OFFSETS AND 63) == 0
+
+; ---------------------------------------------------------------------
 ; Core variables
 ; ---------------------------------------------------------------------
 FRAME_COUNT:    db 0
@@ -532,11 +658,14 @@ FIRE_TIMER:     db 0
 DEMO_TIMER:     dw 600                  ; frames of Module 1-3 screen
 DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up
 DEMO_PHASE_T:   db 0
+FRAME_TICK0:    db 0
 
                 ; SPR_DRAW_SAVE advances the sprite pointer with INC L, so
                 ; every frame has to start on a 16-byte boundary.
                 align 16
 KARA_SPRITES:   incbin "kara_sprites.bin"
+                ; The fast blitter lane walks a 16-byte line with INC L.
+                assert (KARA_SPRITES AND 15) == 0
 
                 ; Level data rides inside the core image, so the boot
                 ; relocation lands it in base RAM - which is the only

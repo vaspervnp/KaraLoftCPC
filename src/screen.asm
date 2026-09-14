@@ -3,48 +3,19 @@
 ; =====================================================================
 
 ; ---------------------------------------------------------------------
-; SCREEN_LINE - address of the first byte of a scanline.
-;   addr = &C000 + (line AND 7) * &0800 + (line >> 3) * 80
+; ROW_OFFSETS - character row * 80 bytes, which under R1 = 40 is also
+; character row * 40 CRTC words. SCR_ADDR (sprite.asm) indexes it with
+; ADD A,L, so ALIGN 64 is load-bearing: all 64 bytes must sit in one
+; page. 32 entries, not 25, because SCR_ADDR masks the row with AND &1F
+; and a mispositioned sprite must read a defined value.
 ;
-; The character-row term comes from a table rather than a multiply loop.
-; The loop version cost up to 280 T-states, which is fine once a frame
-; and ruinous when 14 bullets and a block fill all call it; this is a
-; flat ~100.
-;
-; IN : A  = scanline 0-199
-; OUT: HL = address              destroys AF,DE
+; The two meanings agree only because R1 = 40 - see the assert.
 ; ---------------------------------------------------------------------
-SCREEN_LINE:    ld   e,a
-                and  7
-                add  a,a
-                add  a,a
-                add  a,a                ; (line AND 7) * 8 = high byte of *&0800
-                add  a,SCREEN_BASE / 256
-                ld   d,a
-                ld   a,e
-                rrca
-                rrca
-                rrca
-                and  &1F                ; character row 0-24
-                add  a,a                ; word index into the table
-                add  a,ROW_OFFSETS % 256
-                ld   l,a                ; the table is aligned so this cannot carry
-                ld   h,ROW_OFFSETS / 256
-                ld   a,(hl)
-                inc  l
-                ld   h,(hl)
-                ld   l,a                ; HL = row * 80, so H <= 7
-                ld   a,d
-                add  a,h
-                ld   h,a
-                ret
-
-                ; 25 character rows. ALIGN 64 keeps all 50 bytes inside one
-                ; page, which is what lets SCREEN_LINE index with ADD A,L.
                 align 64
 ROW_OFFSETS:    dw 0,   80,  160,  240,  320,  400,  480,  560,  640
                 dw 720, 800, 880,  960,  1040, 1120, 1200, 1280, 1360
                 dw 1440,1520,1600, 1680, 1760, 1840, 1920
+                dw 1920,1920,1920, 1920, 1920, 1920, 1920   ; rows 25-31 clamp
 
 ; ---------------------------------------------------------------------
 ; SCREEN_CLS - fill the whole 16 KB frame buffer with A.
@@ -58,35 +29,69 @@ SCREEN_CLS:     ld   hl,SCREEN_BASE
                 ret
 
 ; ---------------------------------------------------------------------
-; DRAW_BLOCK - fill a rectangle of screen bytes. Parameters live in
-; memory because Module 1 has registers to spare and clarity to gain.
+; DRAW_BLOCK - fill a rectangle of screen bytes, scroll-correct.
+;
+; Module 3 called SCREEN_LINE once per scanline, which was both wrong
+; under scroll (flat 80-byte model) and ruinously slow - 140 T of table
+; lookup to place a 3-byte HUD fill. This computes the address once and
+; steps it with the raster rule, and tests the seam once per row rather
+; than per byte.
+;
 ; Uses BLK_LINE / BLK_HEIGHT / BLK_X / BLK_W / BLK_VAL.
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
 DRAW_BLOCK:     ld   a,(BLK_HEIGHT)
                 or   a
                 ret  z
-                ld   b,a
-                ld   a,(BLK_LINE)
-.row:           push bc
-                push af
-                call SCREEN_LINE        ; HL = start of this scanline
-                ld   a,(BLK_X)
-                ld   e,a
-                ld   d,0
-                add  hl,de
+                ld   b,a                ; B = rows left
                 ld   a,(BLK_W)
                 or   a
-                jr   z,.next
-                ld   b,a
-                ld   a,(BLK_VAL)
-.fill:          ld   (hl),a
-                inc  hl
-                djnz .fill
-.next:          pop  af
-                inc  a
+                ret  z
+                ld   c,a
+
+                ld   a,(BLK_X)
+                push bc
+                ld   c,a
+                ld   a,(BLK_LINE)
+                call SCR_ADDR           ; HL = first byte, under SCROLL
                 pop  bc
-                djnz .row
+                ex   de,hl              ; DE = screen
+                ld   a,(BLK_W)
+                ld   l,a                ; L = width, master copy
+                ld   a,(BLK_VAL)
+                ld   h,a                ; H = fill byte - both hoisted out of
+                                        ; the row loop, 32 T per row saved
+.row:           ld   c,l                ; 4   C = bytes this row
+                ld   a,d                ; 4   does this row reach past offset 2047?
+                or   &F8                ; 8   Z iff (D AND 7) = 7
+                inc  a                  ; 4
+                jp   nz,.fast           ; 12
+                ld   a,c                ; 4
+                dec  a                  ; 4
+                add  a,e                ; 4   E + W - 1 > 255 -> the run wraps
+                jp   nc,.fast           ; 12
+
+.slow:          push de                 ; rare: wrap-aware within the block
+                ld   a,h
+.sbyte:         ld   (de),a
+                push af
+                call SPR_STEP_BYTE
+                pop  af
+                dec  c
+                jp   nz,.sbyte
+                pop  de
+                jp   .next
+
+.fast:          push de                 ; 16
+                ld   a,h                ; 4
+.fbyte:         ld   (de),a             ; 8
+                inc  de                 ; 8   safe: the run stays in the block
+                dec  c                  ; 4
+                jp   nz,.fbyte          ; 12
+                pop  de                 ; 12
+
+.next:          call SCR_NEXT_LINE      ; 40  scroll-correct raster step
+                djnz .row               ; 16/12
                 ret
 
 BLK_LINE:       db 0

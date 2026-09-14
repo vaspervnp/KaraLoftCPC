@@ -163,11 +163,8 @@ BUL_DRAW:       ld   b,BUL_MAX
                 ld   c,(hl)             ; x
                 inc  hl
                 ld   a,(hl)             ; y
-                push de                 ; SCREEN_LINE clobbers DE
-                call SCREEN_LINE
-                ld   e,c
-                ld   d,0
-                add  hl,de              ; HL = the round's screen address
+                push de                 ; SCR_ADDR clobbers DE (and B, which
+                call SCR_ADDR           ; is already pushed); C = x survives
                 pop  de                 ; DE = its save entry
 
                 ld   a,l                ; remember where it went, so the

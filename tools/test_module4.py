@@ -39,6 +39,8 @@ SCR_CHARS = 40
 SCR_CHAR_ROWS = 24
 SCR_LINES = SCR_CHAR_ROWS * 8
 MAP_W, MAP_H = 64, 16
+SCREEN_WIDTH_BYTES = 80
+SPR_WIDTH, SPR_HEIGHT, SPR_FRAME_SIZE = 8, 48, 768
 TILE_BYTES = 128
 TILES_LEN = 16 * TILE_BYTES
 BLOB_LEN = TILES_LEN + MAP_W * MAP_H
@@ -61,6 +63,23 @@ def symbols():
 
 def in_vsync(machine, sym):
     return sym["WAIT_VSYNC"] <= machine.pc <= sym["WAIT_VSYNC.WAIT"] + 6
+
+
+def settle(machine, sym):
+    """Advance to a frame with no vertical step in flight.
+
+    A vertical step paints its incoming row in two halves on consecutive
+    frames and only then latches the new start address, so between the
+    two SCROLL has moved but the picture has not. That is the design -
+    the row is hidden until it is whole - but it means SCROLL and the
+    screen only agree while V_PHASE is clear.
+    """
+    for _ in range(40):
+        sync_to_frame_top(machine, sym)
+        if machine.peek(sym["V_PHASE"]) == 0:
+            return True
+        next_frame_top(machine, sym)
+    return False
 
 
 def sync_to_frame_top(machine, sym):
@@ -114,7 +133,35 @@ def sync_to_vsync(machine, sym):
 
 def state(machine, sym):
     scroll = machine.peek(sym["SCROLL"]) | (machine.peek(sym["SCROLL"] + 1) << 8)
-    return scroll, machine.peek(sym["WORLD_X"]), machine.peek(sym["WORLD_CR"])
+    return (scroll, machine.peek(sym["WORLD_X"]), machine.peek(sym["WORLD_CR"]),
+            machine.peek(sym["KARA_X"]), machine.peek(sym["KARA_Y"]),
+            machine.peek(sym["KARA_FRAME"]))
+
+
+def overlay_kara(want, sprites, scroll, kara_x, kara_y, frame):
+    """Composite Kara over the tilemap, in the blitter's own address model.
+
+        v    = (2*SCROLL + 80*char_row + byte_column) AND &07FF
+        addr = &C000 + ((line AND 7) << 11) + v
+
+    Same formula the Z80 uses, so a sprite drawn with the Module 3 flat
+    model (or one that mishandles the 2047 seam) will not match.
+    """
+    base = frame * SPR_FRAME_SIZE
+    cr, raster = divmod(kara_y, 8)
+    v = (2 * scroll + 80 * (cr & 0x1F) + kara_x) & 0x7FF
+    for line in range(SPR_HEIGHT):
+        for b in range(SPR_WIDTH):
+            addr = 0xC000 + (raster << 11) + ((v + b) & 0x7FF)
+            mask = sprites[base + line * 16 + b * 2]
+            data = sprites[base + line * 16 + b * 2 + 1]
+            if addr in want:
+                want[addr] = (want[addr] & mask) | data
+        raster += 1
+        if raster == 8:
+            raster = 0
+            v = (v + 80) & 0x7FF
+    return want
 
 
 def expected_screen(tiles, level_map, scroll, world_x, world_cr):
@@ -140,23 +187,36 @@ def expected_screen(tiles, level_map, scroll, world_x, world_cr):
     return want
 
 
-def expected_pens(tiles, level_map, scroll, world_x, world_cr):
-    """The same thing as a 192 x 160 grid of pen numbers, in screen order."""
+def expected_pens(want, scroll):
+    """A 192 x 160 grid of pen numbers, read back out of the byte model.
+
+    Derived from `want` rather than from the tiles directly, so whatever
+    is composited into it - Kara included - is carried through.
+    """
     rows = []
     for line in range(SCR_LINES):
         cr, raster = divmod(line, 8)
-        wr = (world_cr + cr) & 0xFF
-        map_row = (wr >> 1) & (MAP_H - 1)
-        line_off = (wr & 1) * 64
+        v = (2 * scroll + 80 * cr) & 0x7FF
         row = []
-        for x in range(SCR_CHARS):
-            wc = (world_x + x) & 0xFF
-            tile = level_map[map_row * MAP_W + ((wc >> 2) & (MAP_W - 1))]
-            src = tile * TILE_BYTES + line_off + (wc & 3) * 2 + raster * 8
-            row.extend(cpclib.decode_byte(tiles[src]))
-            row.extend(cpclib.decode_byte(tiles[src + 1]))
+        for x in range(SCREEN_WIDTH_BYTES):
+            row.extend(cpclib.decode_byte(want[0xC000 + (raster << 11) + ((v + x) & 0x7FF)]))
         rows.append(row)
     return rows
+
+
+def model(tiles, level_map, sprites, st, with_kara):
+    """Expected video RAM for one sampled state.
+
+    Two models, deliberately. The loop draws Kara and then erases her
+    again in the same frame - ahead of the raster, then behind it - so
+    at the VSYNC sample point video RAM holds pure tilemap and no Kara,
+    while the frame the beam actually painted holds her. Comparing RAM
+    against the Kara-free model and the framebuffer against the Kara
+    model tests both halves of that arrangement.
+    """
+    scroll, wx, wcr, kx, ky, kf = st
+    want = expected_screen(tiles, level_map, scroll, wx, wcr)
+    return overlay_kara(want, sprites, scroll, kx, ky, kf) if with_kara else want
 
 
 def step_deltas(machine, sym, frames):
@@ -167,10 +227,10 @@ def step_deltas(machine, sym, frames):
     counters to force the cadence just races whatever it was doing.
     """
     out = []
-    prev = state(machine, sym)
+    prev = state(machine, sym)[:3]
     for _ in range(frames):
         next_frame_top(machine, sym)
-        cur = state(machine, sym)
+        cur = state(machine, sym)[:3]
         d = tuple(((c - p) & m) - (m + 1 if ((c - p) & m) > m // 2 else 0)
                   for c, p, m in zip(cur, prev, (0x3FF, 0xFF, 0xFF)))
         if any(d):
@@ -251,6 +311,7 @@ def main():
     check("handed over to the scrolling demo",
           state(machine, sym)[0] > 0, f"scroll={state(machine, sym)[0]}")
 
+    sprites = machine.read_ram(sym["KARA_SPRITES"], 4 * SPR_FRAME_SIZE)
     tiles = machine.read_ram(sym["CITY_TILES"], TILES_LEN)
     level_map = machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H)
     check("level blob is intact in base RAM",
@@ -279,23 +340,25 @@ def main():
     # ---------------------------------------------------------------
     # 1. video RAM vs the map, across all three scroll phases
     # ---------------------------------------------------------------
-    print("\n  video RAM vs map (15,360 bytes per sample):")
+    print("\n  video RAM vs map, Kara already erased (15,360 bytes per sample):")
     scrolls, worst = [], 0
     for label, advance in [("horizontal", 0), ("horizontal", 90),
                            ("vertical down", 130), ("vertical down", 90),
                            ("vertical up", 100), ("vertical up", 90)]:
         if advance:
             machine.run_frames(advance)
-        sync_to_frame_top(machine, sym)
-        scroll, wx, wcr = state(machine, sym)
+        settle(machine, sym)
+        st = state(machine, sym)
+        scroll, wx, wcr = st[0], st[1], st[2]
         scrolls.append(scroll)
-        want = expected_screen(tiles, level_map, scroll, wx, wcr)
+        want = model(tiles, level_map, sprites, st, with_kara=False)
         vram = machine.read_ram(0xC000, 0x4000)
         bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
         worst = max(worst, bad)
         raw = machine.crtc_screen_addr
         ok_crtc = raw == (0x3000 | scroll)
-        print(f"    {label:<14} scroll={scroll:>4} world=({wx:>3},{wcr:>3})  "
+        print(f"    {label:<14} scroll={scroll:>4} world=({wx:>3},{wcr:>3}) "
+              f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
               f"{bad:>5} wrong  CRTC=&{raw:04X} {'ok' if ok_crtc else 'MISMATCH'}")
         if not ok_crtc:
             fails.append(f"CRTC start address at scroll {scroll}")
@@ -337,11 +400,10 @@ def main():
     machine.poke(sym["DEMO_PHASE"], 0)
     machine.poke(sym["DEMO_PHASE_T"], 0)
     check("test can sync to the instant after VSYNC", sync_to_vsync(machine, sym))
+    settle(machine, sym)
     st = state(machine, sym)
     y0, hits, probes = find_display_top(
-        machine,
-        [expected_pens(tiles, level_map, (st[0] + d) & 0x3FF,
-                       (st[1] + d) & 0xFF, st[2]) for d in (0, 1)],
+        machine, [expected_pens(model(tiles, level_map, sprites, st, True), st[0])],
         pen_to_hw)
     check("found the displayed area in the framebuffer", hits >= probes * 0.9,
           f"top scanline {y0}, {hits} of {probes} probes matched")
@@ -350,14 +412,17 @@ def main():
         machine.poke(sym["DEMO_PHASE"], phase)
         machine.poke(sym["DEMO_PHASE_T"], 0)
         history = []
-        for _ in range(5):
+        for _ in range(6):
             sync_to_vsync(machine, sym)
-            history.append(state(machine, sym))
-        scores = [(render_mismatch(machine, expected_pens(tiles, level_map, *st),
-                                   pen_to_hw, y0), st)
-                  for st in history[-3:]]
+            if machine.peek(sym["V_PHASE"]) == 0:
+                history.append(state(machine, sym))
+        scores = [(render_mismatch(machine,
+                                   expected_pens(model(tiles, level_map, sprites, h, True), h[0]),
+                                   pen_to_hw, y0), h)
+                  for h in history[-3:]]
         bad, st = min(scores)
-        print(f"    {name:<14} scroll={st[0]:>4} world=({st[1]:>3},{st[2]:>3})  "
+        print(f"    {name:<14} scroll={st[0]:>4} world=({st[1]:>3},{st[2]:>3}) "
+              f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
               f"{bad:>6} wrong pixels  (best of {len(scores)} candidate views)")
         check(f"{name} scrolling is tear-free on screen", bad == 0, f"{bad} pixels")
 

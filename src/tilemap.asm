@@ -247,7 +247,14 @@ DRAW_CELL:      ld   a,(CELL_WC)
 ; Top to bottom is not cosmetic: a horizontal step writes into memory
 ; the current frame is still displaying, so the loop has to stay ahead
 ; of the raster. Started right after VSYNC it has 72 scanlines of head
-; start and gains 1,190 T on the beam per character row.
+; start and gains ground on the beam every character row.
+;
+; A tile is 16 pixels tall and a character row is 8, so ONE tile covers
+; two character rows. The map column is fixed for the whole column, so
+; the map lookup is hoisted: the pointer is computed once and advanced
+; by one map row every second character row. That is 12 lookups for the
+; column instead of 24, and it is most of the difference between this
+; and calling DRAW_CELL 24 times.
 ;
 ; IN:  A = screen character column, 0-39.  Bank C4 must be paged in.
 ; Clobbers AF, BC, DE, HL
@@ -257,29 +264,144 @@ DRAW_COLUMN:    ld   e,a
                 ld   hl,(SCROLL)
                 add  hl,de
                 ld   (CELL_WORD),hl         ; word of (row 0, this column)
+
                 ld   a,(WORLD_X)
-                add  a,e
-                ld   (CELL_WC),a
+                add  a,e                    ; world character column
+                ld   c,a
+                and  3
+                add  a,a
+                ld   (COL_BYTEOFF),a        ; (wc AND 3) * 2
+
+                ld   a,c
+                rrca
+                rrca
+                and  &3F                    ; map column 0-63
+                ld   e,a
                 ld   a,(WORLD_CR)
                 ld   (CELL_WR),a
-                ld   a,SCR_CHAR_ROWS
-                ld   (CELL_COUNT),a
+                srl  a
+                and  MAP_ROW_MASK           ; map row 0-15
+                rrca
+                rrca                        ; -> (row AND 3)<<6 | row>>2
+                ld   d,a
+                and  &C0
+                or   e
+                ld   l,a
+                ld   a,d
+                and  3
+                add  a,MAP_ADDR >> 8
+                ld   h,a
+                ld   (COL_MAPPTR),hl
 
-.row:           call DRAW_CELL
-                ld   hl,(CELL_WORD)
-                ld   de,SCR_CHARS           ; down one character row
-                add  hl,de
-                ld   (CELL_WORD),hl
-                ld   hl,CELL_WR
+                call COL_FETCH              ; prime COL_TILEBASE
+                ld   a,SCR_CHAR_ROWS
+                ld   (COL_ROWS),a
+                ld   bc,(CELL_WORD)         ; the word index lives in BC for
+                                            ; the whole loop - the blit below
+                                            ; touches only AF, DE and HL
+
+                ; Screen address, 40 T, no scratch pair needed:
+                ;   addr = &C000 + ((word * 2) AND &07FF)
+                ; ADD A,A sets the carry out of the low byte and ADC A,A
+                ; folds it into the high byte, so the mask is AND 7 on the
+                ; doubled value rather than AND 3 on the word.
+.row:           ld   a,c                    ; 4
+                add  a,a                    ; 4
+                ld   e,a                    ; 4
+                ld   a,b                    ; 4   (LD does not touch flags)
+                adc  a,a                    ; 4
+                and  7                      ; 8
+                add  a,SCREEN_BASE >> 8     ; 8
+                ld   d,a                    ; 4   DE = screen, raster 0
+
+                ld   hl,(COL_TILEBASE)
+                ld   a,(CELL_WR)
+                and  1
+                jp   z,.top
+                ld   a,l                    ; odd world row: the lower half
+                add  a,64                   ; of the tile, 8 lines on
+                ld   l,a
+.top:
+
+                repeat 8
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                inc  l                      ; 4   a tile is 128 bytes on a
+                inc  e                      ; 4   128-byte boundary, and
+                ld   a,(hl)                 ; 8   word*2 is even, so neither
+                ld   (de),a                 ; 8   of these can carry
+                ld   a,l                    ; 4
+                add  a,7                    ; 8   source: next tile line
+                ld   l,a                    ; 4
+                dec  e                      ; 4
+                ld   a,d                    ; 4
+                add  a,8                    ; 8   screen: next scanline
+                ld   d,a                    ; 4   -- 76 T per raster
+                rend
+
+                ld   a,c                    ; word += 40: down one char row
+                add  a,SCR_CHARS
+                ld   c,a
+                jp   nc,.same_page
+                inc  b
+.same_page:     ld   hl,CELL_WR
                 inc  (hl)
-                ld   hl,CELL_COUNT
+                ld   a,(hl)
+                and  1
+                call z,COL_NEXT_TILE        ; crossed into a new map row
+                ld   hl,COL_ROWS
                 dec  (hl)
                 jp   nz,.row
                 ret
 
 ; ---------------------------------------------------------------------
+; COL_FETCH - read the tile under COL_MAPPTR and work out the address of
+; its first line, byte offset already folded in.
+;                                Clobbers AF, HL
+; ---------------------------------------------------------------------
+COL_FETCH:      ld   hl,(COL_MAPPTR)
+                ld   a,(hl)                 ; tile index 0-15
+                rrca                        ; -> (tile AND 1)<<7 | tile>>1
+                ld   h,a
+                and  &80
+                ld   l,a
+                ld   a,(COL_BYTEOFF)
+                add  a,l                    ; max 128+6, never carries
+                ld   l,a
+                ld   a,h
+                and  7
+                add  a,TILES_ADDR >> 8
+                ld   h,a
+                ld   (COL_TILEBASE),hl
+                ret
+
+; ---------------------------------------------------------------------
+; COL_NEXT_TILE - step the map pointer down one row and refetch.
+;
+; The map is 1024 bytes at &4800, so the pointer runs &4800-&4BFF and
+; RES 2,H folds &4C00 back to &4800 - which is the 16-row wrap, free.
+;                                Clobbers AF, HL
+; ---------------------------------------------------------------------
+COL_NEXT_TILE:  ld   hl,(COL_MAPPTR)
+                ld   a,l
+                add  a,MAP_W
+                ld   l,a
+                jp   nc,.stored
+                inc  h
+.stored:        res  2,h
+                ld   (COL_MAPPTR),hl
+                jp   COL_FETCH
+
+; ---------------------------------------------------------------------
 ; DRAW_ROW - repaint one screen character row, left to right.
-; IN:  A = screen character row, 0-23.  Bank C4 must be paged in.
+;
+; The mirror of DRAW_COLUMN. A tile is 16 pixels wide and a character is
+; 4, so ONE tile covers four character columns; the map row is fixed
+; across the row, so the lookup is hoisted the same way - 10 lookups for
+; the row instead of 40.
+;
+; IN:  A = screen character row 0-23; (ROW_FIRST) = first character
+;      column, (ROW_N) = how many. Bank C4 must be paged in.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 DRAW_ROW:       ld   e,a
@@ -292,25 +414,133 @@ DRAW_ROW:       ld   e,a
                 jr   nz,.mul
 .got:           ld   bc,(SCROLL)
                 add  hl,bc
+
+                ld   a,(WORLD_CR)
+                add  a,e                    ; E = screen char row -> world row
+                ld   (ROW_WR),a             ; the map row needs it too, and C
+                and  1                      ; is about to become the column
+                rrca
+                rrca                        ; (wr AND 1) * 64
+                ld   (ROW_LINEOFF),a
+
+                ld   a,(ROW_FIRST)
+                ld   e,a                    ; start at this character column
+                ld   d,0
+                add  hl,de
                 ld   (CELL_WORD),hl
                 ld   a,(WORLD_X)
-                ld   (CELL_WC),a
-                ld   a,(WORLD_CR)
-                add  a,e
-                ld   (CELL_WR),a
-                ld   a,SCR_CHARS
-                ld   (CELL_COUNT),a
+                add  a,e                    ; ... and the world column under it
+                ld   c,a
+                and  3
+                add  a,a
+                ld   (ROW_BYTEOFF),a        ; (wc AND 3) * 2
 
-.col:           call DRAW_CELL
-                ld   hl,(CELL_WORD)
-                inc  hl                     ; right one character
-                ld   (CELL_WORD),hl
-                ld   hl,CELL_WC
-                inc  (hl)
-                ld   hl,CELL_COUNT
+                ; map pointer = MAP_ADDR + (map_row << 6) + map_col
+                ld   a,c
+                rrca
+                rrca
+                and  &3F                    ; map column 0-63
+                ld   e,a
+                ld   a,(ROW_WR)
+                srl  a
+                and  MAP_ROW_MASK           ; map row 0-15
+                rrca
+                rrca                        ; -> (row AND 3)<<6 | row>>2
+                ld   d,a
+                and  &C0
+                or   e
+                ld   l,a
+                ld   a,d
+                and  3
+                add  a,MAP_ADDR >> 8
+                ld   h,a
+                ld   (ROW_MAPPTR),hl
+
+                call ROW_FETCH              ; prime ROW_TILEBASE
+                ld   a,(ROW_N)
+                ld   (ROW_COUNT),a
+                ld   bc,(CELL_WORD)         ; word index lives in BC
+
+.col:           ld   a,c                    ; screen address, 40 T
+                add  a,a
+                ld   e,a
+                ld   a,b
+                adc  a,a
+                and  7
+                add  a,SCREEN_BASE >> 8
+                ld   d,a
+
+                ld   hl,(ROW_TILEBASE)
+                ld   a,(ROW_BYTEOFF)
+                add  a,l                    ; max 192+6, never carries
+                ld   l,a
+
+                repeat 8
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                inc  l                      ; 4
+                inc  e                      ; 4
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                ld   a,l                    ; 4
+                add  a,7                    ; 8
+                ld   l,a                    ; 4
+                dec  e                      ; 4
+                ld   a,d                    ; 4
+                add  a,8                    ; 8
+                ld   d,a                    ; 4   -- 76 T per raster
+                rend
+
+                inc  bc                     ; right one character
+                ld   a,(ROW_BYTEOFF)
+                add  a,2
+                cp   8
+                jr   c,.same_tile           ; still inside this tile
+                call ROW_NEXT_TILE          ; every 4th character column
+                xor  a
+.same_tile:     ld   (ROW_BYTEOFF),a
+                ld   hl,ROW_COUNT
                 dec  (hl)
                 jp   nz,.col
                 ret
+
+; ---------------------------------------------------------------------
+; ROW_FETCH - tile under ROW_MAPPTR -> ROW_TILEBASE, with the half-tile
+; line offset folded in.                Clobbers AF, HL
+; ---------------------------------------------------------------------
+ROW_FETCH:      ld   hl,(ROW_MAPPTR)
+                ld   a,(hl)                 ; tile index 0-15
+                rrca                        ; -> (tile AND 1)<<7 | tile>>1
+                ld   h,a
+                and  &80
+                ld   l,a
+                ld   a,(ROW_LINEOFF)
+                add  a,l
+                ld   l,a
+                ld   a,h
+                and  7
+                add  a,TILES_ADDR >> 8
+                ld   h,a
+                ld   (ROW_TILEBASE),hl
+                ret
+
+; ---------------------------------------------------------------------
+; ROW_NEXT_TILE - step the map pointer right one tile, wrapping inside
+; the map row: bits 0-5 of the low byte are the column, bits 6-7 carry
+; part of the row, so the wrap is a mask rather than a compare.
+;                                Clobbers AF, DE, HL
+; ---------------------------------------------------------------------
+ROW_NEXT_TILE:  ld   hl,(ROW_MAPPTR)
+                ld   a,l
+                inc  a
+                and  &3F
+                ld   e,a
+                ld   a,l
+                and  &C0
+                or   e
+                ld   l,a
+                ld   (ROW_MAPPTR),hl
+                jp   ROW_FETCH
 
 ; ---------------------------------------------------------------------
 ; DRAW_PLAYFIELD - the whole screen. ~9 frames; level entry only.
@@ -358,24 +588,24 @@ SCROLL_WRAP:    ld   a,h
                 ret
 
 ; ---------------------------------------------------------------------
-; SCROLL_V_STEP - one character row, 8 scanlines, MA += or -= 40.
+; SCROLL_V_STEP / SCROLL_V_FINISH - one character row, 8 scanlines.
 ;
-; Neither direction races anything. Measured against the start address
-; the CRTC is currently displaying, the incoming row lands in the 64
-; words R6 = 24 keeps off-screen:
+; A whole row is 40 cells and 37,124 T - 46% of a frame - which does not
+; fit alongside Kara. It does not have to: measured against the start
+; address the CRTC is still displaying, the incoming row lands in the 64
+; words R6 = 24 keeps off-screen,
 ;
 ;   down: new bottom row = SCROLL + 40 + 23*40  -> offset 960, hidden
 ;   up:   new top row    = SCROLL - 40          -> offset 984, hidden
 ;
-; Down can apply first, because a start address written during the
-; frame only takes effect at the next one and the bottom row is painted
-; long before the beam gets there. Up must apply last: its new row is
-; at the top of the screen, which the beam reaches 18,432 T into the
-; frame - far too early for a 51,600 T row redraw to win. Applying
-; afterwards moves the picture one frame later instead, which is
-; invisible and always correct.
+; so it is invisible until SCROLL_APPLY moves the view. That buys the
+; freedom to paint it in two halves on consecutive frames and only then
+; latch the new start address. Nothing can tear, because nothing the
+; beam can see changes until both halves are down.
 ;
-; IN:  A = 0 to scroll down the map, non-zero to scroll up.
+; SCROLL_V_STEP:   state, then the left half.   IN A = 0 down, else up.
+; SCROLL_V_FINISH: the right half, then apply.  Call it while V_PHASE
+;                  is non-zero, before starting another step.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 SCROLL_V_STEP:  or   a
@@ -388,10 +618,8 @@ SCROLL_V_STEP:  or   a
                 ld   de,SCR_CHARS
                 add  hl,de
                 call SCROLL_WRAP
-                call SCROLL_APPLY
                 ld   a,SCR_CHAR_ROWS - 1    ; incoming row at the bottom
-                call .paint
-                ret
+                jr   .half
 
 .up:            ld   a,(WORLD_CR)
                 dec  a
@@ -401,12 +629,27 @@ SCROLL_V_STEP:  or   a
                 add  hl,de                  ; 16-bit wrap, then masked
                 call SCROLL_WRAP
                 xor  a                      ; incoming row at the top
-                call .paint
+
+.half:          ld   (V_ROW),a
+                ld   a,1
+                ld   (V_PHASE),a
+                xor  a
+                ld   (ROW_FIRST),a          ; left half: columns 0-19
+                ld   a,SCR_CHARS / 2
+                ld   (ROW_N),a
+                jr   V_PAINT
+
+SCROLL_V_FINISH:
+                xor  a
+                ld   (V_PHASE),a
+                ld   a,SCR_CHARS / 2        ; right half: columns 20-39
+                ld   (ROW_FIRST),a
+                ld   (ROW_N),a
+                call V_PAINT
                 jp   SCROLL_APPLY           ; only now does the view move
 
-.paint:         push af
-                call BANK_SET_C4
-                pop  af
+V_PAINT:        call BANK_SET_C4
+                ld   a,(V_ROW)
                 call DRAW_ROW
                 jp   BANK_RESTORE
 
@@ -425,3 +668,17 @@ CELL_WORD:      dw 0
 CELL_WC:        db 0
 CELL_WR:        db 0
 CELL_COUNT:     db 0
+COL_BYTEOFF:    db 0
+COL_MAPPTR:     dw 0
+COL_TILEBASE:   dw 0
+COL_ROWS:       db 0
+ROW_LINEOFF:    db 0
+ROW_BYTEOFF:    db 0
+ROW_MAPPTR:     dw 0
+ROW_TILEBASE:   dw 0
+ROW_COUNT:      db 0
+ROW_WR:         db 0
+ROW_FIRST:      db 0
+ROW_N:          db SCR_CHARS
+V_ROW:          db 0
+V_PHASE:        db 0

@@ -473,58 +473,104 @@ CURRENT_BOOK_ID:  db 0
 Interaction handlers: `CHECK_KEY_DOOR`, `PLACE_STATUE`, `READ_BOOK_PUZZLE`,
 `TALK_NPC_COIN`, `USE_MEDKIT`, all gated by an AABB test in `ENTITY_COLLISION_CHECK`.
 
-## 9. Performance budget — measured, and over
+## 9. Performance budget — measured directly, and it closes
 
-A frame is **79,872 T-states**. The demo paints the border a different colour per
-phase, so the frame's cost is legible as bands down the left edge and
-`tools/test_module3.py` reads it off the framebuffer. One scanline = 64 µs =
-256 T-states.
+A frame is **79,872 T-states**.
 
-| Phase | T-states | % of frame |
-|---|---:|---:|
-| erase (14 rounds + Kara's 384-byte restore) | 6,400 | 8.0 |
-| game logic | 2,048 | 2.6 |
-| **Kara: masked draw + save-under** | **31,232** | **39.1** |
-| bullets draw | 2,048 | 2.6 |
-| HUD (only on frames where a magazine changes) | 7,680 | 9.6 |
-| **typical frame** | **41,700–50,400** | **52–63** |
+**Do not use border bands to profile.** The demo still paints them, and they
+are useful for *seeing* where time goes, but they under-report: the emulator
+renders 40 of its 312 framebuffer rows as colour index 0 during vertical
+blanking regardless of the border register, so those 40 scanlines (10,240 T)
+are invisible to a counter — and they land on whichever phase runs first after
+`WAIT_VSYNC`. That is how §9 came to record the erase at 6,144 T when it is
+13,856, and the Module 4 scroll step at 21,504 T when it was 29,620.
 
-**plan.md's 25% budget for sprite plus restore plus bullets is not reachable with
-a generic masked blitter at 16×48.** The arithmetic says so before the
-measurement does: 384 bytes at 55 T each is 21,000 T-states for the composite
-alone, and the budget is 19,900 for everything. The number above is what a
-correct, reasonably tight implementation actually costs. It fits in a frame with
-room to spare, but not with the margin the plan assumed.
+Time routines by **calling them from a `DI` stub and summing `run_us()`**:
 
-Module 4 adds, measured the same way:
+```python
+m.write_ram(STUB, bytes([0xF3, 0xCD, lo, hi, 0x18, 0xFE]))   # di : call nn : jr $
+m.set_pc(STUB)
+while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
+```
 
-| Phase | T-states | % of frame |
-|---|---:|---:|
-| horizontal step (repaint 24 cells = one character column) | 21,504 | 26.9 |
-| vertical step (repaint 40 cells = one character row) | ~35,800 | ~45 |
-| full playfield repaint (40 columns, level entry only) | ~860,000 | ~11 frames |
+`tools/bench.py` wraps this; subtract the ~40 T stub overhead.
 
-A cell is 2 bytes × 8 rasters and costs ~1,290 T, of which 576 is the copy
-itself. Horizontal scrolling every frame plus Kara at 39% does not fit; that is
-the arithmetic behind remedy 1 below, which Module 4 now makes available.
+### Measured, after the Module 5 optimisation pass
 
-Four ways to buy the time back, cheapest first:
+| Routine | Before | After | |
+|---|---:|---:|---|
+| `HUD_UPDATE` (dirty) | 49,040 | **15,560** | one pass per row, not 7 `DRAW_BLOCK` calls |
+| `DRAW_BLOCK` (3×8) | 3,308 | **1,696** | address computed once, not per scanline |
+| `SCROLL_H_STEP` | 29,620 | **23,500** | hoisted tile lookup, word index in `BC` |
+| `DRAW_ROW` (40 cells) | 49,208 | **37,124** | same, and now split across two frames |
+| `KARA_DRAW` | 30,948 | 31,272 | +324 for scroll-aware addressing |
+| `KARA_ERASE` | 13,584 | 13,856 | +272, same reason |
+| `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |
+| `GAME_LOGIC` | | 1,780 | |
 
-1. **Restore from the tilemap instead of saving under** — now possible:
-   `DRAW_CELL` can repaint exactly the cells Kara dirtied. Drops the save from the draw loop, 55 → 42 T per byte, and replaces
-   the 8,600 T restore with a redraw of only the tiles Kara dirtied.
-2. **Only redraw Kara when she moves or animates.** A standing player costs
-   nothing.
-3. **Blit only the occupied span of each line.** A humanoid rarely fills all 8
-   bytes; a per-line (skip, count) table cuts a good third of the work.
-4. **Compiled sprites** — generate Z80 per frame, so an opaque byte is
-   `ld a,n : ld (de),a` (14 T) and a transparent byte costs nothing at all.
-   3-5× faster, at roughly 2-3 KB of code per frame. The standard CPC answer if
-   the first three are not enough.
+### The frame, in situ
 
-Count T-states in comments on any loop that runs per-scanline or per-entity, but
-trust the border bands over the arithmetic: the gate array rounds instruction
-timings up to whole microseconds, so real throughput is nearer 3.3 MHz than 4.
+Measured as the real loop period (time between `FRAME_COUNT` increments), not
+as a sum of estimates:
+
+| Loop | Worst frame | Result |
+|---|---:|---|
+| Kara over the scrolling city, horizontal | 19,972 µs | **50 Hz** |
+| vertical down | 20,028 µs | **50 Hz** |
+| vertical up | 19,976 µs | **50 Hz** |
+| Module 1-3 acceptance screen | 24,252 µs | drops a frame when the HUD redraws |
+
+The scrolling path — which is the game — closes at about 86% of a frame with
+roughly 11,000 T spare. Two routines are 68% of it: `KARA_DRAW` at 31,272 and
+`SCROLL_H_STEP` at 23,500.
+
+### Three raster constraints, all of them load-bearing
+
+The order of work in the main loop is not a data-dependency order, it is a
+**beam chase**, and each of these was found by a test rather than by reasoning:
+
+1. **The scroll step must go first.** Its incoming column is visible under the
+   new start address; it only wins the race by starting at VSYNC.
+2. **`KARA_DRAW` must stay ahead of the beam.** Her blitter runs at 651 T per
+   line against the raster's 256, so she only survives on a lead. Starting at
+   23,548 T holds to line 172 — past her last line at 159. Starting at 37,356 T
+   (erase first, then scroll) means the beam overtakes her at line 137 and she
+   flickers from the waist down: exactly 23 lines × 8 pixels = 184 wrong pixels,
+   which is what `test_module4.py` measured.
+3. **`KARA_ERASE` must stay behind it**, or it wipes her before the beam shows
+   her. On a scroll frame the work above already costs 54,772 T and it trails
+   naturally; on a light frame the draw alone ends at 31,272 T and it does not.
+   The erase is therefore **raster-gated on the IM 1 interrupt count** — the
+   only raster clock the CPC offers, since the 6845 exposes no scanline
+   register. Ticks measured from the `WAIT_VSYNC` exit:
+
+   | tick | 1 | 2 | 3 | 4 | 5 | 6 |
+   |---|---:|---:|---:|---:|---:|---:|
+   | T | 532 | 13,844 | 27,152 | 40,464 | 53,776 | 67,088 |
+
+   The first lands after only 532 T, not a full 52-line period. Four ticks is
+   40,464 T and still ahead of the beam — the first version of the gate used 4
+   and did not work. **Five** clears 47,104 T and leaves 26,096 T for a
+   13,856 T erase.
+
+### What did not work, with the numbers
+
+* **§9 remedy 1, "restore from the tilemap instead of saving under", is a
+  pessimisation.** Kara's footprint is 24 cells; at the measured `DRAW_CELL`
+  cost that is 25,248 T against `SPR_RESTORE`'s 13,856, and the save-under only
+  costs ~6,100 T on the draw side. `LDI` moves a byte in 20 T; `DRAW_CELL`
+  manages 56. A tilemap repaint cannot beat it.
+* **Span-limited blitting (remedy 3) does not pay at 48 lines.** Only 59% of
+  Kara's bounding box is inside her occupied span, which looks like a 10,000 T
+  saving — but per-line span bookkeeping costs ~130 T against 48 lines, so the
+  net is under 4,000 T for a large rise in complexity. It would pay for a
+  shorter sprite.
+* **Compiled sprites (remedy 4)** would be ~10 KB for four frames against 7,808
+  bytes of headroom below `&4000`. They would have to live in a bank.
+
+Remaining lever if more time is needed: **only redraw Kara when she moves** —
+but note that while the view scrolls she moves relative to video RAM every
+frame, so this only helps a standing player on a still screen.
 
 ## 10. Conventions and pitfalls
 
@@ -602,4 +648,10 @@ Consult this list before implementing from the plan:
    VBLANK sync is necessary but nowhere near sufficient. Because the CRTC row
    stride *is* the displayed width, every step writes into memory that is on
    screen; tear-free scrolling needs `R6 = 24` to create a 64-word off-screen
-   margin, and a latch order that differs per axis. See §8.2.
+   margin, a latch order that differs per axis, and a main loop ordered as a
+   beam chase. See §8.2 and §9.
+8. **RASM's `/` rounds to nearest**, it does not truncate: `&2240/256` is `&22`
+   but `&2280/256` is `&23`. Use `>> 8`. `screen.asm` was correct only by luck.
+9. **`assert (X & 15)` fails under `-amper`** — `&15` parses as a hex literal.
+   Use `AND`. And `ASSERT` is evaluated eagerly in source order, so
+   cross-module assertions must sit *after* every `include`.
