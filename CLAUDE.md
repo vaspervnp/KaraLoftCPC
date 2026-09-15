@@ -19,7 +19,7 @@ every path (§9).
 `./tools/run_tests.sh` runs every acceptance suite and **all nine
 pass**, including the frame budget: a scrolling frame on Kara's
 heaviest animation frame is 78,764 T of 79,872, with the span blitter
-at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 49. The
+at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 numbers are in §9.
 
 ```
@@ -960,8 +960,8 @@ while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
 |---|---:|---:|---|
 | `HUD_UPDATE` (dirty) | 49,040 | **15,560** | one pass per row, not 7 `DRAW_BLOCK` calls |
 | `DRAW_BLOCK` (3×8) | 3,308 | **1,696** | address computed once, not per scanline |
-| `DRAW_COLUMN` (24 rows) | 29,620 | **18,348** | a tile an iteration, stepped address, map in `BC` |
-| `DRAW_ROW` (40 cells) | 49,208 | **37,124** | same, and now split across two frames |
+| `DRAW_COLUMN` (24 rows) | 29,620 | **16,052** | a tile an iteration, stepped address, map in `BC`, column-major tiles |
+| `DRAW_ROW` (40 cells) | 49,208 | **31,008** | same, split across two frames, column-major tiles |
 | `KARA_DRAW` | 30,948 | **30,072** | scroll-aware, and grouped by character row |
 | `KARA_ERASE` | 13,584 | **11,592** | a whole row unrolled: 8 `LDI` + 24 T a line |
 | `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |
@@ -1067,10 +1067,10 @@ and **the lever was the column, not the blitter**:
 
 | | before | after |
 |---|---:|---:|
-| the incoming column, `H_HEAD` + `H_TAIL` | 27,244 | **18,792** |
-| input, player, camera, bullets, logic | 7,080 | 6,976 |
-| + Kara, lightest | 72,128 | 63,572 |
-| + Kara, heaviest | 87,320 — over by 7,448 | **78,764 — fits, 1,108 spare** |
+| the incoming column, `H_HEAD` + `H_TAIL` | 27,244 | **16,504** |
+| input, player, camera, bullets, logic | 7,080 | 7,080 |
+| + Kara, lightest | 72,128 | 61,388 |
+| + Kara, heaviest | 87,320 — over by 7,448 | **76,580 — fits, 3,292 spare** |
 
 `DRAW_COLUMN` was 71 T a byte to copy 384 bytes out of the tile bank,
 against 32 for a plain `LD A,(HL)` / `LD (DE),A` pair. Its inner raster
@@ -1094,13 +1094,27 @@ two thirds:
   `H_TAIL` was 18 iterations of pointer walking, ~3,800 T; it is now
   one multiply in the setup.
 
-The next lever on it, if another 2,300 T is ever wanted, is a
-**column-major tile layout**: store a tile as, for each character
-column, its 16 lines' 2 bytes consecutively. The inner raster's
-`LD A,L / ADD A,7 / LD L,A` becomes one `INC L`, 64 T instead of 76,
-and it costs nothing in space because it is the same 64 bytes in a
-different order. `DRAW_ROW` wants the same order, which is the sign it
-is the right one.
+**And then the tiles were stored column-major**, which took another
+2,296 T off the column and 6,116 off `DRAW_ROW`. A tile is now, for
+each of its character columns, that column's 16 lines' two bytes
+consecutively:
+
+```
+offset = char_column * 32 + line * 2 + byte
+```
+
+Every blitter here paints a character column at a time, two bytes a
+raster for eight rasters, so in row-major order the source had to step
+8 bytes a line — `LD A,L / ADD A,7 / LD L,A`. Column-major it is one
+`INC L`: **64 T a raster instead of 76**, and it costs nothing in space
+because it is the same 128 bytes in a different order. That all three
+blitters wanted the same reordering is the sign it is the right one.
+
+| | row-major | column-major |
+|---|---:|---:|
+| `DRAW_COLUMN`, 24 rows | 18,348 | **16,052** |
+| `H_HEAD` + `H_TAIL` | 18,792 | **16,504** |
+| `DRAW_ROW`, 40 cells | 37,124 | **31,008** |
 
 ### What did not work, with the numbers
 
@@ -1190,8 +1204,8 @@ the next one starts.
       because switching over needs the bank loader below;
    3. ~~the column~~ — done: `DRAW_COLUMN` 23,560 -> 18,348 T and the
       head/tail pair 27,244 -> 18,792, which is what closes the frame
-      (§9). A column-major tile layout is worth another ~2,300 T if it
-      is ever needed;
+      (§9), and then column-major tiles took it to 16,052 and
+      `DRAW_ROW` to 31,008;
    4. the level loader — **half done**: `src/unpack.asm` unpacks a
       packed bank image into its bank and `tools/test_levels.py` proves
       every bank of all six levels comes back byte-exact on a 6128

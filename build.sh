@@ -35,12 +35,6 @@ python3 "$ROOT/tools/level_banks.py"
 # Where a shot leaves each firing frame, against the BLOB's numbering.
 python3 "$ROOT/tools/spawns.py"
 
-# ZX0 for everything that goes on the disc. It is the best cruncher RASM
-# ships on BOTH ratio and depack speed - see tools/pack.py for the nine
-# that were measured - and it buys disc space and load time, not frame
-# time: the blitter reads uncompressed bytes out of a bank.
-python3 "$ROOT/tools/pack.py" city_tiles.bin city_map.bin overscan.bin
-
 python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         -o "$BUILD/overscan.bin" \
         --inc "$BUILD/title_palette.asm" \
@@ -51,6 +45,15 @@ python3 "$ROOT/tools/make_placeholder_level.py"
 python3 "$ROOT/tools/png2tiles.py" "$ROOT/assets/placeholder/city_tiles.png" \
         -o "$BUILD/city_tiles.bin" --inc "$BUILD/city_tiles.inc"
 cp "$ROOT/assets/placeholder/city_map.bin" "$BUILD/city_map.bin"
+
+# ZX0 for everything that goes on the disc. It is the best cruncher RASM
+# ships on BOTH ratio and depack speed - see tools/pack.py for the nine
+# that were measured - and it buys disc space and load time, not frame
+# time: the blitter reads uncompressed bytes out of a bank.
+python3 "$ROOT/tools/pack.py" city_tiles.bin city_map.bin overscan.bin
+# ... and it has to come AFTER everything it packs. It used to run
+# before png2tiles and quietly shipped the PREVIOUS build's tiles.
+
 
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
      -ob "$BUILD/game.bin" \

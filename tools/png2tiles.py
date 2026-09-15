@@ -46,8 +46,14 @@ def main():
         for rx in range(cols):
             tile = sheet.crop((rx * tw, ry * th, (rx + 1) * tw, (ry + 1) * th))
             pens = cpclib.quantise(tile, palette)
-            for line in pens:
-                blob += cpclib.encode_row(line)
+            # COLUMN-MAJOR: for each character column of the tile, all
+            # its lines' two bytes in a row. Every blitter paints a
+            # character column at a time, so this turns the source step
+            # between lines from LD A,L / ADD A,n / LD L,A into one
+            # INC L. See the note at the top of src/tilemap.asm.
+            for col in range(tw // 4):              # 4 pixels a character
+                for line in pens:
+                    blob += cpclib.encode_row(line[col * 4:col * 4 + 4])
             count += 1
 
     open(args.output, "wb").write(blob)

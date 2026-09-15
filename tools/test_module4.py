@@ -288,17 +288,18 @@ def paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x):
     The address model from CLAUDE.md 6.4 written out in full: MA masked
     to 10 bits, raster in bits 11-13, word times two.
     """
+    # Tiles are column-major: char_column * 32 + line * 2 + byte.
     wr = (world_cr + cr) & 0xFF
     map_row = (wr >> 1) & (MAP_H - 1)
-    line_off = (wr & 1) * 64
+    line_off = (wr & 1) * 16
     wc = (world_x + x) & 0xFF
     tile = level_map[map_row * MAP_W + ((wc >> 2) & (MAP_W - 1))]
-    src = tile * TILE_BYTES + line_off + (wc & 3) * 2
+    src = tile * TILE_BYTES + line_off + (wc & 3) * 32
     word = (scroll + cr * SCR_CHARS + x) & 0x3FF
     for raster in range(8):
         addr = 0xC000 + (raster << 11) + word * 2
-        want[addr] = tiles[src + raster * 8]
-        want[addr + 1] = tiles[src + raster * 8 + 1]
+        want[addr] = tiles[src + raster * 2]
+        want[addr + 1] = tiles[src + raster * 2 + 1]
 
 
 def expected_screen(tiles, level_map, scroll, world_x, world_cr):
@@ -509,13 +510,13 @@ def column_sweep(m, sym):
                 for r in range(first, first + n):
                     wc, wr = wx + col, wcr + r
                     t = mp[((wr >> 1) & 15) * 64 + ((wc >> 2) & 63)]
-                    off = (wc & 3) * 2 + (64 if wr & 1 else 0)
+                    off = (wc & 3) * 32 + (16 if wr & 1 else 0)
                     addr = 0xC000 + (((scroll + col + r * 40) * 2) & 0x7FF)
                     for line in range(8):
                         for byte in range(2):
                             a = addr + (line << 11) + byte
                             written.add(a)
-                            if tiles[t][off + line * 8 + byte] != m.peek(a):
+                            if tiles[t][off + line * 2 + byte] != m.peek(a):
                                 bad += 1
                 after = m.read_ram(0xC000, 0x4000)
                 for i in range(0x4000):

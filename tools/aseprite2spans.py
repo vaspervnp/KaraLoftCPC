@@ -196,8 +196,14 @@ def encode_tiles(rgba, frames, palette):
     A level's tiles fill their own frame - pen 0 is black, not
     transparent - so the span format would store a full-width run on
     every line plus an all-zero mask beside it: twice the bytes and
-    twice the work for nothing. They go out raw instead, row-major,
-    which is the order the tile renderer walks them in.
+    twice the work for nothing.
+
+    They go out COLUMN-MAJOR: for each character column of the tile,
+    all its lines' two bytes in a row. Every blitter in tilemap.asm
+    paints a character column at a time - two bytes a raster for eight
+    rasters - so this makes the step between lines one INC L instead of
+    LD A,L / ADD A,n / LD L,A. Same bytes, different order, 12 T a
+    raster. See the note at the top of src/tilemap.asm.
 
     Returns (bytes, bytes_per_tile).
     """
@@ -211,9 +217,10 @@ def encode_tiles(rgba, frames, palette):
             raise SystemExit("tiles are not all one size")
         crop = rgba.crop((b["x"], b["y"], b["x"] + w, b["y"] + h))
         pens = cpclib.quantise(crop, palette)
-        for y in range(h):
-            for x in range(0, w, 2):
-                out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
+        for col in range(w // 4):               # 4 pixels a character
+            for y in range(h):
+                for x in (col * 4, col * 4 + 2):
+                    out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
     return bytes(out), (w // 2) * h
 
 

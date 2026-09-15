@@ -299,8 +299,8 @@ def main():
         check("the frame closes on her heaviest frame while scrolling",
               tot <= 79872,
               f"{tot} T, {79872 - tot} to spare; the column is "
-              f"{col / 384:.0f} T a byte and the next lever on it is a "
-              f"column-major tile layout, worth ~2,300 T")
+              f"{col / 384:.0f} T a byte, and its inner raster is now 64 T "
+              f"for two bytes - what is left there is per-row, not per-byte")
 
     print()
     if fails:

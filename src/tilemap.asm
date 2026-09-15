@@ -60,6 +60,22 @@ MAP_COL_MASK    equ MAP_W - 1               ; both dimensions are powers of
 MAP_ROW_MASK    equ MAP_H - 1               ; two, so the map wraps with AND
 
 TILE_BYTES      equ 128                     ; 8 bytes * 16 lines
+; ---------------------------------------------------------------------
+; TILES ARE STORED COLUMN-MAJOR: for each character column of the tile,
+; all sixteen lines' two bytes, consecutively.
+;
+;       offset = char_column * 32 + line * 2 + byte
+;
+; Every blitter here paints a character column at a time - 2 bytes a
+; raster for 8 rasters - so in row-major order the source had to step 8
+; bytes a line, which is LD A,L / ADD A,7 / LD L,A. Column-major it is
+; one INC L: 64 T a raster instead of 76, 2,300 T off a column, and it
+; costs nothing because it is the same 128 bytes in a different order.
+; ---------------------------------------------------------------------
+TILE_H          equ 16
+TILE_COL_BYTES  equ TILE_H * 2              ; 32 - one character column
+TILE_HALF_BYTES equ 8 * 2                   ; 16 - its lower half, 8 lines on
+
 TILE_W_BYTES    equ 8                       ; a tile line, in screen bytes.
                                             ; The drawn art is 8x16 = 4
                                             ; bytes (CLAUDE.md 8.3); the
@@ -208,14 +224,18 @@ TILE_SRC:       ld   a,b
                 ld   a,b
                 and  1
                 rrca
-                rrca                        ; (wr & 1) * 64
+                rrca
+                rrca
+                rrca                        ; (wr & 1) * 16 - the lower half
                 add  a,e
                 ld   e,a
                 ld   a,c
                 and  3
-                add  a,a                    ; (wc & 3) * 2
-                add  a,e                    ; max 128+64+6, never carries
-                ld   l,a
+                rrca
+                rrca
+                rrca                        ; (wc & 3) * 32 - the character
+                add  a,e                    ; column. Max 128+96+16 = 240,
+                ld   l,a                    ; so it still never carries
                 ld   a,d
                 and  7
                 add  a,TILES_ADDR / 256
@@ -248,16 +268,15 @@ DRAW_CELL:      ld   a,(CELL_WC)
                 ex   de,hl                  ; DE = screen, raster 0
                 pop  hl                     ; HL = tile source
 
-                ld   bc,7
                 repeat 8
-                ld   a,(hl)                 ; 7
-                ld   (de),a                 ; 7
-                inc  hl                     ; 6
-                inc  de                     ; 6
-                ld   a,(hl)                 ; 7
-                ld   (de),a                 ; 7
-                add  hl,bc                  ; 11  source += 8 (next tile line)
-                dec  de                     ; 6
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                inc  l                      ; 4
+                inc  e                      ; 4
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                inc  l                      ; 4   column-major: the next
+                dec  e                      ; 4   line is the next two bytes
                 ld   a,d                    ; 4
                 add  a,8                    ; 7   screen += &0800
                 ld   d,a                    ; 4   never carries: max &FFFE
@@ -323,8 +342,10 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 add  a,(hl)                 ; world character column
                 ld   l,a
                 and  3
-                add  a,a
-                ld   (COL_BOFF + 1),a       ; (wc AND 3) * 2, into the fetch
+                rrca
+                rrca
+                rrca                        ; (wc AND 3) * 32
+                ld   (COL_BOFF + 1),a       ; ... into the fetch below
                 ld   a,l
                 rrca
                 rrca
@@ -363,7 +384,7 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 or   a
                 jr   z,.pair
                 ld   a,l                    ; it starts on the lower half,
-                add  a,64                   ; eight lines down
+                add  a,TILE_HALF_BYTES      ; eight lines down
                 ld   l,a
                 jp   .odd
 
@@ -386,10 +407,8 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 inc  e                      ; 4   128-byte boundary and
                 ld   a,(hl)                 ; 8   word*2 is even, so neither
                 ld   (de),a                 ; 8   of these can carry
-                ld   a,l                    ; 4
-                add  a,TILE_W_BYTES - 1     ; 8   source: next tile line
-                ld   l,a                    ; 4
-                dec  e                      ; 4
+                inc  l                      ; 4   column-major: the next
+                dec  e                      ; 4   line is the next two bytes
                 ld   a,d                    ; 4
                 add  a,8                    ; 8   screen: next scanline
                 ld   d,a                    ; 4   -- 76 T a raster
@@ -415,9 +434,7 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 inc  e
                 ld   a,(hl)
                 ld   (de),a
-                ld   a,l
-                add  a,TILE_W_BYTES - 1
-                ld   l,a
+                inc  l
                 dec  e
                 ld   a,d
                 add  a,8
@@ -462,7 +479,7 @@ COL_FETCH:      ld   a,(bc)                 ; 8   tile index 0-15
                 rrca                        ; 4   -> (t AND 1)<<7 | t>>1
                 ld   h,a                    ; 4
                 and  &80                    ; 8
-COL_BOFF:       add  a,0                    ; 8   + (wc AND 3)*2, patched by
+COL_BOFF:       add  a,0                    ; 8   + (wc AND 3)*32, patched by
                 ld   l,a                    ; 4   the setup above
                 ld   a,h                    ; 4
                 and  7                      ; 8
@@ -498,7 +515,9 @@ DRAW_ROW:       ld   e,a
                 ld   (ROW_WR),a             ; the map row needs it too, and C
                 and  1                      ; is about to become the column
                 rrca
-                rrca                        ; (wr AND 1) * 64
+                rrca
+                rrca
+                rrca                        ; (wr AND 1) * 16 - the lower half
                 ld   (ROW_LINEOFF),a
 
                 ld   a,(ROW_FIRST)
@@ -510,8 +529,10 @@ DRAW_ROW:       ld   e,a
                 add  a,e                    ; ... and the world column under it
                 ld   c,a
                 and  3
-                add  a,a
-                ld   (ROW_BYTEOFF),a        ; (wc AND 3) * 2
+                rrca
+                rrca
+                rrca
+                ld   (ROW_BYTEOFF),a        ; (wc AND 3) * 32
 
                 ; map pointer = MAP_ADDR + (map_row << 6) + map_col
                 ld   a,c
@@ -550,7 +571,7 @@ DRAW_ROW:       ld   e,a
 
                 ld   hl,(ROW_TILEBASE)
                 ld   a,(ROW_BYTEOFF)
-                add  a,l                    ; max 192+6, never carries
+                add  a,l                    ; max 128+16+96, never carries
                 ld   l,a
 
                 repeat 8
@@ -560,19 +581,17 @@ DRAW_ROW:       ld   e,a
                 inc  e                      ; 4
                 ld   a,(hl)                 ; 8
                 ld   (de),a                 ; 8
-                ld   a,l                    ; 4
-                add  a,7                    ; 8
-                ld   l,a                    ; 4
-                dec  e                      ; 4
+                inc  l                      ; 4   column-major: the next
+                dec  e                      ; 4   line is the next two bytes
                 ld   a,d                    ; 4
                 add  a,8                    ; 8
-                ld   d,a                    ; 4   -- 76 T per raster
+                ld   d,a                    ; 4   -- 64 T a raster
                 rend
 
                 inc  bc                     ; right one character
                 ld   a,(ROW_BYTEOFF)
-                add  a,2
-                cp   8
+                add  a,TILE_COL_BYTES
+                cp   TILE_BYTES             ; 4 character columns of 32
                 jr   c,.same_tile           ; still inside this tile
                 call ROW_NEXT_TILE          ; every 4th character column
                 xor  a
