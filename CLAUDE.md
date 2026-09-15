@@ -16,12 +16,11 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-`./tools/run_tests.sh` runs every acceptance suite. Eight pass;
-`test_spanblit.py` reports one failure on purpose — the span blitter is
-correct and at its floor, but a scrolling frame does not close on
-Kara's heaviest animation frames, and the 7,448 T have to come out of
-`DRAW_COLUMN` rather than out of the blitter. The numbers are in §9 and
-it is the next item in §11.
+`./tools/run_tests.sh` runs every acceptance suite and **all nine
+pass**, including the frame budget: a scrolling frame on Kara's
+heaviest animation frame is 78,764 T of 79,872, with the span blitter
+at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 49. The
+numbers are in §9.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -961,15 +960,15 @@ while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
 |---|---:|---:|---|
 | `HUD_UPDATE` (dirty) | 49,040 | **15,560** | one pass per row, not 7 `DRAW_BLOCK` calls |
 | `DRAW_BLOCK` (3×8) | 3,308 | **1,696** | address computed once, not per scanline |
-| `DRAW_COLUMN` (24 rows) | 29,620 | **23,560** | hoisted tile lookup, word index in `BC` |
+| `DRAW_COLUMN` (24 rows) | 29,620 | **18,348** | a tile an iteration, stepped address, map in `BC` |
 | `DRAW_ROW` (40 cells) | 49,208 | **37,124** | same, and now split across two frames |
 | `KARA_DRAW` | 30,948 | **30,072** | scroll-aware, and grouped by character row |
 | `KARA_ERASE` | 13,584 | **11,592** | a whole row unrolled: 8 `LDI` + 24 T a line |
 | `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |
 | `INPUT_SCAN` / `PLAYER_UPDATE` / `CAMERA_DECIDE` | | 804 / 704 / 108 | |
 
-`H_HEAD` is 18 of those rows (18,160 T) and `H_TAIL` the other 6 (9,792 T —
-its `.skip` loop pays ~3,800 T to walk the map pointer down to row 18).
+`H_HEAD` is 18 of those rows (13,872 T) and `H_TAIL` the other 6
+(4,920 T — the `.skip` loop is gone, replaced by arithmetic).
 A seam-straddling character row costs `KARA_DRAW` 33,248 T and `KARA_ERASE`
 14,172, worst of 525 positions swept across scroll, X, Y and frame.
 
@@ -1063,27 +1062,45 @@ lines of 5.7 bytes carry far more per-line bookkeeping than 48 lines of
 32 T address step, a 24 T seam test, a 24 T loop and a 12 T dispatch —
 and everything left on the table is worth about 2,000 T in total.
 
-**A scrolling frame therefore does not close on her heaviest frames**,
-measured end to end:
+That did not close a scrolling frame until `DRAW_COLUMN` was rewritten,
+and **the lever was the column, not the blitter**:
 
-| | T |
-|---|---:|
-| the incoming column, `H_HEAD` + `H_TAIL` | 27,244 |
-| input, player, camera, bullets, logic | 7,080 |
-| + Kara, lightest | 72,128 — **fits** |
-| + Kara, heaviest | 87,320 — **over by 7,448** |
+| | before | after |
+|---|---:|---:|
+| the incoming column, `H_HEAD` + `H_TAIL` | 27,244 | **18,792** |
+| input, player, camera, bullets, logic | 7,080 | 6,976 |
+| + Kara, lightest | 72,128 | 63,572 |
+| + Kara, heaviest | 87,320 — over by 7,448 | **78,764 — fits, 1,108 spare** |
 
-**The lever is the column, not the blitter.** `DRAW_COLUMN` spends
-**71 T a byte** copying 384 bytes out of the tile bank; a plain
-`LD A,(HL) / LD (DE),A` pair is 32 and `LDI` is 20. Its inner raster is
-76 T for 2 bytes, which is defensible; the other 8,880 T are per-
-character-row setup, ~370 T a row for 608 T of work. Halving that
-setup and moving the inner loop toward `LDI` is worth 10,000-14,000 T,
-which closes the frame with margin. That is the next piece of work and
-it is tilemap work.
+`DRAW_COLUMN` was 71 T a byte to copy 384 bytes out of the tile bank,
+against 32 for a plain `LD A,(HL)` / `LD (DE),A` pair. Its inner raster
+was 76 T for 2 bytes and still is; all 8,452 T came out of the other
+two thirds:
 
-Until it is done `test_spanblit.py` reports the overrun rather than
-hiding it behind a threshold.
+* **Two character rows an iteration, because two character rows are one
+  tile.** The map is read once for the pair and `HL` walks straight
+  from the tile's line 7 into its line 8, so the lower half needs no
+  fetch, no parity test and no reload — 68 T a row gone.
+* **The screen address steps instead of being recomputed.** Eight
+  rasters of `+&0800` leave `D` exactly where the next row wants to
+  start: `D` is `&C0 + (v >> 8)` with `v >> 8` in 0-7, so eight times
+  `+8` is `+64`, which carries out of the byte and leaves `DE = v` with
+  the page bits gone. Adding 80 and masking to 11 bits is the whole
+  step, and the word index in `BC` is not needed at all.
+* **The map pointer lives in `BC`** and is read with `LD A,(BC)`, so
+  the fetch and the row advance are inline instead of three `CALL`s
+  through memory.
+* **`COL_FIRST` is arithmetic, not a loop.** Skipping to row 18 for
+  `H_TAIL` was 18 iterations of pointer walking, ~3,800 T; it is now
+  one multiply in the setup.
+
+The next lever on it, if another 2,300 T is ever wanted, is a
+**column-major tile layout**: store a tile as, for each character
+column, its 16 lines' 2 bytes consecutively. The inner raster's
+`LD A,L / ADD A,7 / LD L,A` becomes one `INC L`, 64 T instead of 76,
+and it costs nothing in space because it is the same 64 bytes in a
+different order. `DRAW_ROW` wants the same order, which is the sign it
+is the right one.
 
 ### What did not work, with the numbers
 
@@ -1171,10 +1188,10 @@ the next one starts.
       measured (§9), with `tools/test_spanblit.py`. **It is not yet
       wired into the game**: `KARA_DRAW` still runs the 16×48 path,
       because switching over needs the bank loader below;
-   3. **the column, `DRAW_COLUMN` at 71 T a byte** — the frame does not
-      close on Kara's heaviest frames until this comes down (§9). It is
-      the next thing, ahead of the state machine, because everything
-      after it is measured against a frame that has room;
+   3. ~~the column~~ — done: `DRAW_COLUMN` 23,560 -> 18,348 T and the
+      head/tail pair 27,244 -> 18,792, which is what closes the frame
+      (§9). A column-major tile layout is worth another ~2,300 T if it
+      is ever needed;
    4. the level loader — **half done**: `src/unpack.asm` unpacks a
       packed bank image into its bank and `tools/test_levels.py` proves
       every bank of all six levels comes back byte-exact on a 6128

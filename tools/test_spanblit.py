@@ -295,11 +295,12 @@ def main():
             tot = col + rest + c[2] + c[3]
             print(f"    + Kara, {tag:<9}                      {tot:6d} T"
                   f"   {'fits' if tot <= 79872 else 'OVER by %d' % (tot - 79872)}")
+        tot = col + rest + worst[2] + worst[3]
         check("the frame closes on her heaviest frame while scrolling",
-              col + rest + worst[2] + worst[3] <= 79872,
-              f"{col + rest + worst[2] + worst[3]} T; the column is "
-              f"{col / 384:.0f} T a byte against ~30 for a plain copy, "
-              f"which is where the time is")
+              tot <= 79872,
+              f"{tot} T, {79872 - tot} to spare; the column is "
+              f"{col / 384:.0f} T a byte and the next lever on it is a "
+              f"column-major tile layout, worth ~2,300 T")
 
     print()
     if fails:

@@ -60,6 +60,13 @@ MAP_COL_MASK    equ MAP_W - 1               ; both dimensions are powers of
 MAP_ROW_MASK    equ MAP_H - 1               ; two, so the map wraps with AND
 
 TILE_BYTES      equ 128                     ; 8 bytes * 16 lines
+TILE_W_BYTES    equ 8                       ; a tile line, in screen bytes.
+                                            ; The drawn art is 8x16 = 4
+                                            ; bytes (CLAUDE.md 8.3); the
+                                            ; blitters take their stride
+                                            ; from here so the change is
+                                            ; this constant plus the map
+                                            ; dimensions.
 SCR_CHARS       equ 40                      ; R1 - characters across
 SCR_CHAR_ROWS   equ 24                      ; R6 - see EDGE 2 above
 SCR_LINES       equ SCR_CHAR_ROWS * 8       ; 192 displayed scanlines
@@ -278,160 +285,190 @@ DRAW_CELL:      ld   a,(CELL_WC)
 ; IN:  A = screen character column, 0-39.  Bank C4 must be paged in.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-DRAW_COLUMN:    ld   e,a
+DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
+                ld   e,a
                 ld   d,0
-                ld   hl,(SCROLL)
-                add  hl,de
-                ld   (CELL_WORD),hl         ; word of (row 0, this column)
 
+                ; ---- the screen address of the first row painted -----
+                ; word = SCROLL + column + COL_FIRST * 40, and the
+                ; address is &C000 + ((word * 2) AND &07FF). ADD A,A
+                ; carries out of the low byte and ADC A,A folds it in,
+                ; so the mask is AND 7 on the doubled value.
+                ld   a,(COL_FIRST)
+                ld   l,a
+                ld   h,0
+                add  hl,hl                  ; x2
+                add  hl,hl                  ; x4
+                add  hl,hl                  ; x8
+                ld   b,h                    ; ... keep x8: 40 is 32 + 8, and
+                ld   c,l                    ; keeping x4 here quietly makes
+                add  hl,hl                  ; x16   it 36. COL_FIRST is 0 for
+                add  hl,hl                  ; x32   the head, so that reads
+                add  hl,bc                  ; x40   correct until the tail
+                add  hl,de                  ; + the column
+                ld   de,(SCROLL)
+                add  hl,de
+                ld   a,l
+                add  a,a
+                ld   e,a
+                ld   a,h
+                adc  a,a
+                and  7
+                add  a,SCREEN_BASE >> 8
+                ld   d,a                    ; DE = screen, this row, raster 0
+
+                ; ---- the map pointer, which BC keeps for the whole run
                 ld   a,(WORLD_X)
-                add  a,e                    ; world character column
-                ld   c,a
+                ld   hl,COL_SCOL
+                add  a,(hl)                 ; world character column
+                ld   l,a
                 and  3
                 add  a,a
-                ld   (COL_BYTEOFF),a        ; (wc AND 3) * 2
-
-                ld   a,c
+                ld   (COL_BOFF + 1),a       ; (wc AND 3) * 2, into the fetch
+                ld   a,l
                 rrca
                 rrca
                 and  &3F                    ; map column 0-63
-                ld   e,a
+                ld   c,a
+
                 ld   a,(WORLD_CR)
-                ld   (CELL_WR),a
+                ld   hl,COL_FIRST
+                add  a,(hl)                 ; world character row of the
+                ld   l,a                    ; first row this piece paints
+                and  1
+                ld   (COL_ODD),a            ; which half of its tile it is on
+                ld   a,l
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
                 rrca
                 rrca                        ; -> (row AND 3)<<6 | row>>2
-                ld   d,a
+                ld   b,a
                 and  &C0
-                or   e
-                ld   l,a
-                ld   a,d
+                or   c
+                ld   c,a
+                ld   a,b
                 and  3
                 add  a,MAP_ADDR >> 8
-                ld   h,a
-                ld   (COL_MAPPTR),hl
+                ld   b,a                    ; BC = map pointer
 
-                ; Skip to the first row of this piece: the word index
-                ; advances 40 per character row, the world row by 1, and
-                ; the map pointer by one row every second character row.
-                ld   a,(COL_FIRST)
-                or   a
-                jr   z,.at_first
-                ld   b,a
-.skip:          ld   hl,(CELL_WORD)
-                ld   de,SCR_CHARS
-                add  hl,de
-                ld   (CELL_WORD),hl
-                ld   hl,CELL_WR
-                inc  (hl)
-                ld   a,(hl)
-                and  1
-                call z,COL_NEXT_MAP         ; crossed into a new map row
-                djnz .skip
-
-.at_first:      call COL_FETCH              ; prime COL_TILEBASE
                 ld   a,(COL_N)
-                ld   (COL_ROWS),a
-                ld   bc,(CELL_WORD)         ; the word index lives in BC for
-                                            ; the whole loop - the blit below
-                                            ; touches only AF, DE and HL
+                or   a
+                ret  z
+                exx
+                ld   b,a                    ; rows left, in the shadow so the
+                exx                         ; blit keeps all four main pairs
 
-                ; Screen address, 40 T, no scratch pair needed:
-                ;   addr = &C000 + ((word * 2) AND &07FF)
-                ; ADD A,A sets the carry out of the low byte and ADC A,A
-                ; folds it into the high byte, so the mask is AND 7 on the
-                ; doubled value rather than AND 3 on the word.
-.row:           ld   a,c                    ; 4
-                add  a,a                    ; 4
-                ld   e,a                    ; 4
-                ld   a,b                    ; 4   (LD does not touch flags)
-                adc  a,a                    ; 4
-                and  7                      ; 8
-                add  a,SCREEN_BASE >> 8     ; 8
-                ld   d,a                    ; 4   DE = screen, raster 0
-
-                ld   hl,(COL_TILEBASE)
-                ld   a,(CELL_WR)
-                and  1
-                jp   z,.top
-                ld   a,l                    ; odd world row: the lower half
-                add  a,64                   ; of the tile, 8 lines on
+                call COL_FETCH              ; HL = the tile's first line
+                ld   a,(COL_ODD)
+                or   a
+                jr   z,.pair
+                ld   a,l                    ; it starts on the lower half,
+                add  a,64                   ; eight lines down
                 ld   l,a
-.top:
+                jp   .odd
 
-                repeat 8
+; ---------------------------------------------------------------------
+; Two character rows an iteration, because two character rows are ONE
+; TILE. That is what makes the loop cheap: the map is read once for the
+; pair, and HL walks straight from the tile's line 7 into its line 8, so
+; the lower half needs no fetch, no parity test and no reload.
+;
+; The other half of it is that eight rasters of +&0800 leave D exactly
+; where the next row's address wants to start from. D is
+; &C0 + (v >> 8) with v >> 8 in 0-7, so eight times +8 is +64, which
+; carries out of the byte and leaves DE = v, 0-2047, with the page bits
+; gone. Adding 80 and masking to 11 bits is then the whole step.
+; ---------------------------------------------------------------------
+.pair:          repeat 8
                 ld   a,(hl)                 ; 8
                 ld   (de),a                 ; 8
                 inc  l                      ; 4   a tile is 128 bytes on a
-                inc  e                      ; 4   128-byte boundary, and
+                inc  e                      ; 4   128-byte boundary and
                 ld   a,(hl)                 ; 8   word*2 is even, so neither
                 ld   (de),a                 ; 8   of these can carry
                 ld   a,l                    ; 4
-                add  a,7                    ; 8   source: next tile line
+                add  a,TILE_W_BYTES - 1     ; 8   source: next tile line
                 ld   l,a                    ; 4
                 dec  e                      ; 4
                 ld   a,d                    ; 4
                 add  a,8                    ; 8   screen: next scanline
-                ld   d,a                    ; 4   -- 76 T per raster
+                ld   d,a                    ; 4   -- 76 T a raster
                 rend
 
-                ld   a,c                    ; word += 40: down one char row
-                add  a,SCR_CHARS
-                ld   c,a
-                jp   nc,.same_page
-                inc  b
-.same_page:     ld   hl,CELL_WR
-                inc  (hl)
+                exx                         ; 4
+                dec  b                      ; 4
+                exx                         ; 4
+                ret  z                      ; 16/8
+                ld   a,e                    ; 4   down one character row:
+                add  a,SCR_CHARS * 2        ; 8   40 words on, folded back
+                ld   e,a                    ; 4   into the 2 KB block
+                ld   a,d                    ; 4
+                adc  a,0                    ; 8
+                and  7                      ; 8
+                add  a,SCREEN_BASE >> 8     ; 8
+                ld   d,a                    ; 4
+
+.odd:           repeat 8
                 ld   a,(hl)
-                and  1
-                call z,COL_NEXT_TILE        ; crossed into a new map row
-                ld   hl,COL_ROWS
-                dec  (hl)
-                jp   nz,.row
-                ret
-
-; ---------------------------------------------------------------------
-; COL_FETCH - read the tile under COL_MAPPTR and work out the address of
-; its first line, byte offset already folded in.
-;                                Clobbers AF, HL
-; ---------------------------------------------------------------------
-COL_FETCH:      ld   hl,(COL_MAPPTR)
-                ld   a,(hl)                 ; tile index 0-15
-                rrca                        ; -> (tile AND 1)<<7 | tile>>1
-                ld   h,a
-                and  &80
-                ld   l,a
-                ld   a,(COL_BYTEOFF)
-                add  a,l                    ; max 128+6, never carries
-                ld   l,a
-                ld   a,h
-                and  7
-                add  a,TILES_ADDR >> 8
-                ld   h,a
-                ld   (COL_TILEBASE),hl
-                ret
-
-; ---------------------------------------------------------------------
-; COL_NEXT_TILE - step the map pointer down one row and refetch.
-;
-; The map is 1024 bytes at &4800, so the pointer runs &4800-&4BFF and
-; RES 2,H folds &4C00 back to &4800 - which is the 16-row wrap, free.
-;                                Clobbers AF, HL
-; ---------------------------------------------------------------------
-COL_NEXT_TILE:  call COL_NEXT_MAP
-                jp   COL_FETCH
-
-; COL_NEXT_MAP - advance the map pointer only.   Clobbers AF, HL
-COL_NEXT_MAP:   ld   hl,(COL_MAPPTR)
+                ld   (de),a
+                inc  l
+                inc  e
+                ld   a,(hl)
+                ld   (de),a
                 ld   a,l
-                add  a,MAP_W
+                add  a,TILE_W_BYTES - 1
                 ld   l,a
-                jp   nc,.stored
-                inc  h
-.stored:        res  2,h
-                ld   (COL_MAPPTR),hl
-                ret
+                dec  e
+                ld   a,d
+                add  a,8
+                ld   d,a
+                rend
+
+                exx
+                dec  b
+                exx
+                ret  z
+                ld   a,e
+                add  a,SCR_CHARS * 2
+                ld   e,a
+                ld   a,d
+                adc  a,0
+                and  7
+                add  a,SCREEN_BASE >> 8
+                ld   d,a
+
+                ; the pair is done, so the map goes down a row. It is
+                ; 1024 bytes at &4800, so RES 2 folds &4C00 back to
+                ; &4800 - the 16-row wrap, free.
+                ld   a,c                    ; 4
+                add  a,MAP_W                ; 8
+                ld   c,a                    ; 4
+                jr   nc,.same_page          ; 12/8
+                inc  b                      ; 4
+.same_page:     res  2,b                    ; 8
+                call COL_FETCH
+                jp   .pair
+
+; ---------------------------------------------------------------------
+; COL_FETCH - the tile under BC, as the address of its first line with
+; the byte offset inside the tile already folded in.
+;
+; The index is 0-15 and a tile is 128 bytes, so tile*128 is
+; (t AND 1) << 7 in the low byte and t >> 1 in the high - which is one
+; RRCA and two masks, not a multiply.
+;                                IN: BC = map pointer.  Clobbers AF, HL
+; ---------------------------------------------------------------------
+COL_FETCH:      ld   a,(bc)                 ; 8   tile index 0-15
+                rrca                        ; 4   -> (t AND 1)<<7 | t>>1
+                ld   h,a                    ; 4
+                and  &80                    ; 8
+COL_BOFF:       add  a,0                    ; 8   + (wc AND 3)*2, patched by
+                ld   l,a                    ; 4   the setup above
+                ld   a,h                    ; 4
+                and  7                      ; 8
+                add  a,TILES_ADDR >> 8      ; 8
+                ld   h,a                    ; 4
+                ret                         ; 12
 
 ; ---------------------------------------------------------------------
 ; DRAW_ROW - repaint one screen character row, left to right.
@@ -910,10 +947,9 @@ CELL_WORD:      dw 0
 CELL_WC:        db 0
 CELL_WR:        db 0
 CELL_COUNT:     db 0
-COL_BYTEOFF:    db 0
-COL_MAPPTR:     dw 0
-COL_TILEBASE:   dw 0
-COL_ROWS:       db 0
+COL_SCOL:       db 0            ; DRAW_COLUMN's screen character column
+COL_ODD:        db 0            ; ... and whether it starts on a tile's
+                                ; lower half
 COL_FIRST:      db 0
 COL_N:          db SCR_CHAR_ROWS
 H_COL:          db 0

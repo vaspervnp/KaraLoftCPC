@@ -19,6 +19,7 @@ catches is a 4-pixel column of the wrong tile down one edge, which
 leaves video RAM perfectly correct.
 """
 import os
+import random
 import re
 import sys
 
@@ -443,6 +444,89 @@ def read_bank(machine, sym):
     return out
 
 
+def column_sweep(m, sym):
+    """DRAW_COLUMN against the address model, over a map with no repeats.
+
+    This goes last because it overwrites bank C4 with a pseudo-random
+    map, and that is the point: the placeholder level is a continuous
+    rooftop, so most of its cells hold the same tile and a column that
+    reads the WRONG map row still matches. That is exactly how a
+    COL_FIRST * 40 written as COL_FIRST * 36 survived - the head starts
+    at row 0 where the multiply cannot be wrong, and the tail's error
+    landed on identical tiles more often than not.
+
+    Sweeping (scroll, world position, split) with every cell distinct
+    leaves it nowhere to hide - but ONLY if video RAM is scrubbed first.
+    The first version of this check read the address the model says and
+    found the right bytes there because the demo had already painted
+    them correctly, so it passed with the bug put back. It now fills the
+    screen with noise before every placement, which also makes "nothing
+    outside the column was touched" free to check.
+    """
+    TILES, MAPA, STUB = 0x4000, 0x4800, 0x9000
+
+    def page(cfg):
+        m.write_ram(STUB, bytes([0xF3, 0x01, cfg, 0x7F, 0xED, 0x49, 0x18, 0xFE]))
+        m.set_pc(STUB)
+        for _ in range(60):
+            m.run_us(1)
+
+    def draw(col, first, n):
+        m.poke(sym["COL_FIRST"], first)
+        m.poke(sym["COL_N"], n)
+        code = bytes([0xF3, 0x01, 0xC4, 0x7F, 0xED, 0x49, 0x3E, col,
+                      0xCD, sym["DRAW_COLUMN"] & 0xFF, sym["DRAW_COLUMN"] >> 8,
+                      0x18, 0xFE])
+        m.write_ram(STUB, code)
+        m.set_pc(STUB)
+        for _ in range(400000):
+            m.run_us(1)
+            if m.pc == STUB + len(code) - 2:
+                return
+
+    # a map where every cell differs from its neighbours in both axes
+    page(0xC4)
+    rng = random.Random(99)
+    m.write_ram(MAPA, bytes(rng.randrange(16) for _ in range(1024)))
+    tiles = [[m.peek(TILES + t * 128 + i) for i in range(128)] for t in range(16)]
+    mp = [m.peek(MAPA + i) for i in range(1024)]
+    page(0xC0)
+
+    bad = cases = stray = 0
+    for scroll in (0, 1, 39, 40, 512, 1000, 1023):
+        for wx, wcr in ((0, 0), (1, 1), (2, 7), (3, 15), (37, 8)):
+            for first, n in ((0, 24), (0, 18), (18, 6), (1, 1), (23, 1), (7, 9)):
+                m.poke(sym["SCROLL"], scroll & 255)
+                m.poke(sym["SCROLL"] + 1, scroll >> 8)
+                m.poke(sym["WORLD_X"], wx)
+                m.poke(sym["WORLD_CR"], wcr)
+                col = (scroll + wx) % 40
+                noise = bytes((i * 37 + 11) & 0xFF for i in range(0x4000))
+                m.write_ram(0xC000, noise)
+                draw(col, first, n)
+                cases += 1
+                written = set()
+                for r in range(first, first + n):
+                    wc, wr = wx + col, wcr + r
+                    t = mp[((wr >> 1) & 15) * 64 + ((wc >> 2) & 63)]
+                    off = (wc & 3) * 2 + (64 if wr & 1 else 0)
+                    addr = 0xC000 + (((scroll + col + r * 40) * 2) & 0x7FF)
+                    for line in range(8):
+                        for byte in range(2):
+                            a = addr + (line << 11) + byte
+                            written.add(a)
+                            if tiles[t][off + line * 8 + byte] != m.peek(a):
+                                bad += 1
+                after = m.read_ram(0xC000, 0x4000)
+                for i in range(0x4000):
+                    if after[i] != noise[i] and 0xC000 + i not in written:
+                        stray += 1
+    check("DRAW_COLUMN matches the address model over a map with no repeats",
+          bad == 0, f"{bad} wrong bytes over {cases} placements")
+    check("DRAW_COLUMN writes nothing outside its column", stray == 0,
+          f"{stray} bytes")
+
+
 def main():
     sym = symbols()
     machine = CPC()
@@ -724,6 +808,8 @@ def main():
     check("R12/R13 written only in the border above the display",
           seen > 0 and worst < 4608,           # 72 scanlines x 64 us
           f"worst {worst} us (limit 4608 = 72 scanlines); {seen} writes seen")
+
+    column_sweep(machine, sym)
 
     print()
     if fails:
