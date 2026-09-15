@@ -31,7 +31,8 @@ src/palette.asm   the 16 pens + solid-pen byte table
 src/sprite.asm    scroll-aware masked blitter, save-under restore
 src/bullets.asm   dual pistols, 14-round pool, reloading
 src/spanblit.asm  the span-compressed blitter and its erase script
-src/unpack.asm    ZX0 into a bank, for the per-level art
+src/unpack.asm    ZX0 into a bank, and LEVEL_LOAD
+src/disc.asm      the uPD765 driver - raw sectors, no firmware
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
@@ -47,6 +48,7 @@ tools/spawns.py            projectile spawn points -> build/spawns.inc
 tools/pack.py              ZX0 for everything that goes on the disc
 tools/build_levels.py      the level art packages -> blobs, both facings
 tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
+tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
 tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
@@ -671,11 +673,63 @@ in base RAM on top of the save-under buffers, which are scratch while a
 level is changing. The biggest stream measured is 4,695 bytes against
 8 KB of room.
 
-**What is still missing is the disc read.** The firmware went out with
-the ROMs at boot (§4), so a mid-game load needs either the lower ROM
-and the firmware's cassette entries brought back around the call, or a
-765 FDC driver. `&A700-&BFFF` has to stay clear of AMSDOS's buffers
-either way (§10).
+#### Getting it off the disc: the engine drives the 765 itself
+
+The boot sequence disables both ROMs (§4), so by the time a level
+changes there is no firmware to call: the OS is not in memory, AMSDOS
+is not paged in, and the engine occupies `&0040-&3FFF` where the lower
+ROM would be. Bringing it back would mean re-enabling the ROMs over the
+top of the engine, running the call from high RAM, and keeping the
+firmware's workspace at `&B100-&BFFF` and AMSDOS's buffers at `&A700`
+intact for the whole game — three standing constraints on the memory
+map for the sake of a routine that is 250 bytes to write.
+
+`src/disc.asm` talks to the uPD765 directly instead:
+
+```
+&FA7E   bit 0 = motor on      (write)
+&FB7E   main status register  (read)   7 RQM  6 DIO  5 EXM  4 CB
+&FB7F   data register         (read/write)
+```
+
+**The level data is not in the filesystem.** `tools/dskdata.py` writes
+the packed streams to raw sectors from track 8 on — past anything
+AMSDOS allocated, which it checks — and emits their track and sector
+into `build/levels/disc.inc`. That costs a build step and saves parsing
+a directory. It runs twice: once before RASM to write the include from
+the stream sizes, once after iDSK to patch the image, so the two agree
+by construction.
+
+**One sector an operation, not a multi-sector READ DATA with EOT.**
+Partly because the emulator does not implement the EOT form and asserts
+on it, so a driver written that way could not be tested at all — but
+mostly because it costs nothing: AMSDOS formats with a 2:1 interleave
+(C1 C6 C2 C7 …) precisely so that reading in ID order leaves a sector's
+worth of time between one read and the next, which is what the command
+overhead fits into. The seek is only paid when the track changes.
+
+**Interrupts are off for the whole load.** The 765 has no FIFO on this
+machine — one byte in the data register and an overrun if it is not
+taken in time. Nothing is being drawn during a level change, but the
+caller has to re-anchor the raster gates afterwards, because the tick
+count has been standing still.
+
+Measured end to end, `LEVEL_LOAD` off a real disc image:
+
+| level | banks | T | |
+|---|---:|---:|---:|
+| 1 city | 4 | 5,716,176 | 1.43 s |
+| 2 forest | 5 | 6,956,952 | **1.74 s** |
+| 3 cave | 5 | 6,272,852 | 1.57 s |
+| 4 undersea | 4 | 5,505,196 | 1.38 s |
+| 5 desert | 5 | 6,507,456 | 1.63 s |
+| 6 station | 4 | 5,855,936 | 1.46 s |
+| a set piece | 1-2 | | 0.20-0.45 s |
+
+of which 0.14 s is motor spin-up, ~0.6 s the read and ~1 s the
+unpacking. `tools/test_levels.py` loads every set of every level and
+compares each bank byte for byte; flipping a single byte of one sector
+makes it report 12,144 wrong, because ZX0 amplifies.
 
 Allocation is best-fit with a deterministic shuffle as a backstop.
 First-fit-decreasing is the usual advice and it fails here: level 5 is
@@ -1164,9 +1218,10 @@ frame, so this only helps a standing player on a still screen.
   sprite pointer with `INC L` and cannot carry into `H`.
 * `LD SP,&BFFF` explicitly at startup. An SP that drifts into `&C000-&FFFF` shows up as
   random screen corruption, not as a crash.
-* AMSDOS keeps its buffers around `&A700-&BFFF`. That region is only safe once the
-  firmware is out of the picture — if disc access is needed mid-game, move the stack and
-  the sprite buffers accordingly.
+* AMSDOS keeps its buffers around `&A700-&BFFF`, and the firmware its
+  workspace at `&B100-&BFFF`. Neither matters here: the engine reads
+  the disc itself (§7.5) and never calls back into either, which is
+  what lets the stack sit at `&BFFF` and the buffers at `&8000`.
 * Test the overscan and hardware scrolling on **CRTC types 0, 1, 2 and 4**; type
   differences bite hardest on R3/R7 timing and on start-address latching.
 * Test data and scratch output go in the scratchpad dir, not in the repo.
@@ -1206,13 +1261,14 @@ the next one starts.
       head/tail pair 27,244 -> 18,792, which is what closes the frame
       (§9), and then column-major tiles took it to 16,052 and
       `DRAW_ROW` to 31,008;
-   4. the level loader — **half done**: `src/unpack.asm` unpacks a
-      packed bank image into its bank and `tools/test_levels.py` proves
-      every bank of all six levels comes back byte-exact on a 6128
-      (§7.5). What is missing is the disc read that gets the stream
-      into the staging buffer, because the firmware went out with the
-      ROMs at boot (§4). Then switch `KARA_DRAW`/`KARA_ERASE` to
-      `SPAN_DRAW`/`SPAN_ERASE` and retire `png2sprite.py`;
+   4. ~~the level loader~~ — done: `src/disc.asm` drives the uPD765,
+      `src/unpack.asm` unpacks a bank image, and `LEVEL_LOAD` chains
+      them. Every set of every level loads off a real disc image and
+      comes back byte-exact, in 1.38-1.74 s (§7.5);
+   5. **wire the span blitter in**: `KARA_DRAW`/`KARA_ERASE` still run
+      the 16x48 path. Switching them to `SPAN_DRAW`/`SPAN_ERASE` needs
+      the frame index, the facing and the bank per action, then
+      `png2sprite.py` and the old blitter retire;
    5. the action state machine and its controls (§8.4);
    6. the entity table and the five interaction handlers, with the AABB;
    7. the enemies: the seven named characters and the level machines

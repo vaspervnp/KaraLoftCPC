@@ -688,6 +688,8 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "sprite.asm"
                 include "spanblit.asm"
                 include "unpack.asm"
+                include "disc.asm"
+                include "levels/disc.inc"
                 include "bullets.asm"
                 include "input.asm"
                 include "collide.asm"

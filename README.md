@@ -87,8 +87,14 @@ times the depack time.
 
 A level's art is 57-77 KB unpacked, more than the five banks the window
 can reach, so it loads per level as **one ZX0 stream per bank**: read,
-page, unpack. 14-18 KB off the disc and 0.8-1.05 s of unpacking. The
-whole game's art is 223,975 bytes raw, 44,332 packed.
+page, unpack. The whole game's art is 223,975 bytes raw, 44,332 packed,
+and a level change takes **1.38-1.74 s**.
+
+The engine reads the floppy itself, driving the uPD765 through its
+ports. There is no firmware left to call — the boot sequence disables
+both ROMs, and the engine sits where the lower ROM would be — and the
+level streams are raw sectors past the filesystem rather than AMSDOS
+files, so there is no directory to parse either.
 
 | | |
 |---|---|
@@ -115,7 +121,8 @@ produces `build/kara.dsk`. Needs `rasm`, `iDSK`, and Python with Pillow.
 Nine acceptance suites, all of them against an emulator running a real
 ROM: Mode 0 encoding, the sprite blobs against the artwork, the span
 blitter against an independent address model, every bank of every level
-unpacked byte for byte, the overscan layout, and scrolling compared
+unpacked byte for byte off a real disc image, the overscan layout, and
+scrolling compared
 against the **rendered framebuffer** rather than only against RAM.
 
 **No module is considered done on a clean assemble.** Several of the

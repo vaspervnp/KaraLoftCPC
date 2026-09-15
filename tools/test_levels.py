@@ -70,6 +70,65 @@ def unpack(m, sym, cfg, packed):
     return None
 
 
+def disc_check(m, sym):
+    """LEVEL_LOAD end to end: off the floppy, through ZX0, into the bank.
+
+    The streams are raw sectors past AMSDOS's files, read by the
+    engine's own uPD765 driver, because the firmware went out with the
+    ROMs at boot. This is the only check that exercises the driver, the
+    layout tool and the unpacker together - and the layout tool writes
+    the disc image from the same sizes it wrote the include from, so a
+    disagreement between them shows up here as a wrong byte.
+    """
+    if "LEVEL_LOAD" not in sym:
+        check("LEVEL_LOAD is linked", False, "rebuild first")
+        return
+    print("\n  LEVEL_LOAD, off the disc:")
+    names = sorted(x for x in os.listdir(LEV)
+                   if x.startswith("level") and os.path.isdir(os.path.join(LEV, x)))
+    bad = missing = 0
+    for i, lvl in enumerate(names):
+        for k, kind in enumerate(("lvl", "set")):
+            d = os.path.join(LEV, lvl)
+            streams = sorted(f for f in os.listdir(d)
+                             if f.startswith(kind + "_") and f.endswith(".zx0"))
+            if not streams:
+                continue
+            code = bytes([0xF3, 0x3E, i * 2 + k,
+                          0xCD, sym["LEVEL_LOAD"] & 0xFF, sym["LEVEL_LOAD"] >> 8,
+                          0x30, 0x01,               # jr nc,+1  - carry = ok
+                          0x00,
+                          0x18, 0xFE])
+            m.write_ram(MYSTUB, code)
+            m.set_pc(MYSTUB)
+            end, us = MYSTUB + len(code) - 2, None
+            for t in range(1, 8_000_000):
+                m.run_us(1)
+                if m.pc == end:
+                    us = t
+                    break
+            if us is None:
+                check(f"{lvl} {kind} loads", False, "ran away")
+                continue
+            wrong = 0
+            for f in streams:
+                cfg = int(f.split("_")[1].split(".")[0], 16)
+                raw = open(os.path.join(d, f[:-4] + ".bin"), "rb").read()
+                m.write_ram(MYSTUB + 0x40,
+                            bytes([0xF3, 0x01, cfg, 0x7F, 0xED, 0x49, 0x18, 0xFE]))
+                m.set_pc(MYSTUB + 0x40)
+                for _ in range(80):
+                    m.run_us(1)
+                got = read_bank(m, 0x4000, len(raw))
+                wrong += sum(1 for a, b in zip(got, raw) if a != b)
+            bad += wrong
+            print(f"    {lvl:<20}{kind}  {len(streams)} banks"
+                  f"   {us * 4:9d} T = {us / 1e6:.2f} s"
+                  f"   {'ok' if not wrong else str(wrong) + ' WRONG'}")
+    check("LEVEL_LOAD brings every bank off the disc byte-exact",
+          bad == 0 and not missing, f"{bad} wrong bytes")
+
+
 def main():
     sym = symbols()
     if "UNPACK_BANK" not in sym:
@@ -153,6 +212,8 @@ def main():
                 wrong.append((sym_name, f"not at &{addr:04X} of bank &{bank:02X}"))
     check("banks.inc points at the blob it says", not wrong,
           f"{len(wrong)} bad" + (f": {wrong[:3]}" if wrong else ""))
+
+    disc_check(m, sym)
 
     worst = max(total_cost.items(), key=lambda kv: kv[1])
     print(f"\n  worst level change: {worst[0]} at {worst[1]} T "

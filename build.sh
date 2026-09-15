@@ -40,6 +40,11 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         --inc "$BUILD/title_palette.asm" \
         --preview "$BUILD/title_preview.png" --dither
 
+# Where the level streams will sit on the disc. The layout comes from
+# their sizes alone, so the include can be written before RASM runs and
+# the image patched after iDSK has built it.
+python3 "$ROOT/tools/dskdata.py" --inc
+
 # --- code -------------------------------------------------------------
 python3 "$ROOT/tools/make_placeholder_level.py"
 python3 "$ROOT/tools/png2tiles.py" "$ROOT/assets/placeholder/city_tiles.png" \
@@ -69,4 +74,7 @@ iDSK "$DSK" -i disc.bas -t 0 -f >/dev/null
 rm -f disc.bas
 
 echo "--- $DSK ---"
+# ... and now the level streams go in as raw sectors, past the files.
+python3 "$ROOT/tools/dskdata.py" --dsk
+
 iDSK "$DSK" -l

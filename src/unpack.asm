@@ -79,3 +79,75 @@ UNPACK_LIST:    ld   a,(hl)
 
 UNPACK_CFG:     db 0
 UNPACK_NEXT:    dw 0
+
+; ---------------------------------------------------------------------
+; LEVEL_LOAD - a whole level's art, from the disc into its banks.
+;
+; IN : A = index into DISC_LEVEL_SETS - the level number times two, plus
+;      one for its set pieces
+; OUT: carry SET on success, and the window left paged at the last bank.
+;      Carry clear means the disc read failed and (DISC_ST) says why.
+;      destroys everything, INTERRUPTS OFF ON RETURN
+;
+; Interrupts stay off for the whole load: the 765 has no FIFO and an
+; overrun loses the sector (src/disc.asm). Nothing is being drawn during
+; a level change, but the caller has to re-anchor the raster gates
+; afterwards - WAIT_VSYNC and a fresh FRAME_TICK0 - because the tick
+; count has been standing still.
+;
+; About 1.3 s: 0.3 reading and 0.8-1.05 unpacking, per CLAUDE.md 7.5.
+; ---------------------------------------------------------------------
+LEVEL_LOAD:     di
+                add  a,a
+                ld   e,a
+                ld   d,0
+                ld   hl,DISC_LEVEL_SETS
+                add  hl,de
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)
+                ld   a,d
+                or   e
+                scf
+                ret  z                      ; this level has no such set
+                ex   de,hl
+
+                ld   a,(hl)                 ; how many banks
+                inc  hl
+                ld   (LEVEL_BANKS),a
+
+.bank:          ld   a,(hl)                 ; the RAM configuration
+                inc  hl
+                ld   (LEVEL_CFG),a
+                ld   a,(hl)                 ; track
+                inc  hl
+                ld   (DISC_TRACK),a
+                ld   a,(hl)                 ; first sector
+                inc  hl
+                ld   (DISC_SECT),a
+                ld   a,(hl)                 ; how many sectors
+                inc  hl
+                ld   (DISC_COUNT),a
+                ld   (LEVEL_NEXT),hl
+
+                ld   hl,LEVEL_STAGE         ; ... which is outside the window,
+                ld   (DISC_PTR),hl          ; so the unpack can page freely
+                call DISC_READ
+                ret  nc
+
+                ld   a,(LEVEL_CFG)
+                ld   hl,LEVEL_STAGE
+                call UNPACK_BANK
+
+                ld   hl,LEVEL_BANKS
+                dec  (hl)
+                ld   hl,(LEVEL_NEXT)
+                jr   nz,.bank
+
+                call DISC_MOTOR_OFF
+                scf
+                ret
+
+LEVEL_BANKS:    db 0
+LEVEL_CFG:      db 0
+LEVEL_NEXT:     dw 0
