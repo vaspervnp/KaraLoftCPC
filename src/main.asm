@@ -33,6 +33,8 @@
 ; not in the core image, so they cost nothing on disc.
 KARA_SAVE       equ &8000               ; 384 bytes
 BUL_SAVE        equ &8180               ; 56 bytes
+SPAN_SCRIPT     equ &8200               ; the span blitter's erase script,
+                                        ; which is also its save-under
 
 KARA_HOME_Y     equ 112
 STRIPE_TOP      equ 64
@@ -684,6 +686,7 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "screen.asm"
                 include "palette.asm"
                 include "sprite.asm"
+                include "spanblit.asm"
                 include "bullets.asm"
                 include "input.asm"
                 include "collide.asm"
@@ -705,6 +708,15 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 assert SCR_CHARS * 2 == SCREEN_WIDTH_BYTES
                 ; SCR_ADDR indexes ROW_OFFSETS with ADD A,L over 64 bytes.
                 assert (ROW_OFFSETS AND 63) == 0
+                ; SPAN_EMIT indexes SPAN_ENTRY by writing the count into
+                ; the low byte of the address it reads, and patches only
+                ; the low byte of the jump into SPAN_RUN. So the table
+                ; has to start a page and the whole run has to stay in
+                ; one - both are alignment accidents waiting to happen
+                ; the next time anything above them grows.
+                assert (SPAN_ENTRY AND 255) == 0
+                assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
+                assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
 
 ; ---------------------------------------------------------------------
 ; Core variables

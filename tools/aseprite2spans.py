@@ -25,24 +25,44 @@ whatever address the bank window happens to be:
     <frame 1>
     ...
 
-and one frame is
+and one frame is a header and then GROUPS of lines:
 
     db  y0                       first line of the box with any pixels
-    db  lines                    lines stored; trailing empty ones dropped
-    then `lines` records, top to bottom:
-        db  skip                 bytes from the box's left edge to the span
-        db  count                bytes in the span, 0 for an empty line
-        db  mask, data           ... count times, interleaved so the
-                                     blitter walks both with one pointer
+    db  lines                    lines stored; empty ones off the ends dropped
+    then groups, until nlines = 0:
+        db  nlines               consecutive lines that share this span
+        db  count                bytes in the span, 0 for blank lines
+        dw  dskip                this group's skip minus the last one's,
+                                 SIGNED and sign-extended to 16 bits so the
+                                 blitter can add it to a screen address with
+                                 ADD/ADC and no branch on the sign. The first
+                                 group's "last one" is 0; a blank group's is
+                                 0 too, since it moves no skip.
+        db  mask, data           ... nlines x count times, interleaved so
+                                     the blitter walks both with one pointer
+    db  0                        end of frame
+
+**Lines are grouped because the per-line bookkeeping, not the
+composite, is what the blitter spends its time on.** Measured on the
+real art: 58 lines of a heaviest frame carry 329 span bytes, so 5.7
+bytes a line against ~300 T of reading (skip, count), computing the
+entry into the unrolled run, and testing for the 2 KB seam. Consecutive
+lines share a span 3.5 times out of 4, so saying it once per group and
+not once per line takes that off ~60% of the lines.
 
 The interleave is the same convention as the old full-box format:
 mask bits SET where the background shows through, so the blitter does
 SCREEN = (SCREEN AND MASK) OR DATA.
 
-ONE FACING IS STORED. Mirroring a Mode 0 byte is the fixed bit
-permutation 7<->6, 5<->4, 3<->2, 1<->0, so the engine mirrors a span at
-draw time through a 256-byte table rather than doubling the data.
-`--mirror-table` writes that table out.
+BOTH FACINGS ARE STORED, and `--mirror` is how the second one is made.
+Mirroring a Mode 0 byte is the fixed permutation 7<->6, 5<->4, 3<->2,
+1<->0, so doing it at DRAW time is one table lookup - except that the
+lookup needs an index register and the blitter has none spare: HL has
+to hold the mask/data because only (HL) works with AND/OR, DE the
+screen, BC the save. Every way round it measured 96-136 T a byte
+against 72, or about +7,900 T a frame, which the frame does not have.
+Mirroring at export time costs a bank instead, and after the --drop
+list there is a bank. See CLAUDE.md 7.1.
 
 Usage:
     aseprite2spans.py sheet.json -o out.bin --inc out.inc --name KARA
@@ -93,7 +113,7 @@ def mirror_byte(b):
     return out
 
 
-def encode_frame(rgba, box, palette):
+def encode_frame(rgba, box, palette, mirror=False):
     """One frame of the sheet -> its span record, and some statistics.
 
     Returns (bytes, span_bytes, box_bytes). A pixel is transparent where
@@ -126,6 +146,15 @@ def encode_frame(rgba, box, palette):
         last = max(i for i, r in enumerate(run) if r[2])
         lines.append((first, [(m, d) for m, d, _ in run[first:last + 1]]))
 
+    if mirror:
+        # The box flips, so a span at [skip, skip+count) lands at
+        # [bw-skip-count, bw-skip), its bytes reversed and each one's
+        # two pixels swapped.
+        lines = [(bw - skip - len(span), [(mirror_byte(m), mirror_byte(d))
+                                          for m, d in reversed(span)])
+                 if span else (0, [])
+                 for skip, span in lines]
+
     # Drop empty lines off the top and the bottom. Interior ones stay,
     # as count = 0: a gap between her arm and her boot is one byte, and
     # a second index to skip it would cost more than it saves.
@@ -133,16 +162,31 @@ def encode_frame(rgba, box, palette):
     if top is None:
         raise SystemExit("frame is entirely transparent")
     bottom = max(i for i, (_, s) in enumerate(lines) if s)
+    lines = lines[top:bottom + 1]
 
-    out = bytearray([top, bottom - top + 1])
+    out = bytearray([top, len(lines)])
     span_bytes = 0
-    for skip, span in lines[top:bottom + 1]:
-        out.append(skip)
-        out.append(len(span))
-        span_bytes += len(span)
-        for mask, data in span:
-            out.append(mask)
-            out.append(data)
+    prev_skip = i = 0
+    while i < len(lines):
+        skip, span = lines[i]
+        count = len(span)
+        j = i + 1                       # how far the same span runs
+        while (j < len(lines) and len(lines[j][1]) == count
+               and (count == 0 or lines[j][0] == skip)):
+            j += 1
+        if count == 0:
+            out += bytes([j - i, 0, 0, 0])      # blank lines: just step past
+        else:
+            d = skip - prev_skip
+            out += bytes([j - i, count, d & 0xFF, 0xFF if d < 0 else 0])
+            prev_skip = skip
+            for k in range(i, j):
+                span_bytes += count
+                for mask, data in lines[k][1]:
+                    out.append(mask)
+                    out.append(data)
+        i = j
+    out.append(0)                               # end of frame
     return bytes(out), span_bytes, bw * h
 
 
@@ -157,8 +201,19 @@ def main():
     ap.add_argument("--inc", required=True)
     ap.add_argument("--name", required=True, help="symbol prefix, e.g. KARA")
     ap.add_argument("--palette", default=None)
+    ap.add_argument("--mirror", action="store_true",
+                    help="emit the LEFT-facing blob: every frame flipped in "
+                         "its box. See the header for why this is done here "
+                         "and not in the blitter.")
     ap.add_argument("--mirror-table", default=None,
                     help="also write the 256-byte Mode 0 pixel-swap table")
+    ap.add_argument("--drop", action="append", default=[], metavar="TAG=N,N",
+                    help="drop these frames of a tag, NUMBERED FROM 1 as the "
+                         "artist counts them in the sheet row. The dropped "
+                         "frame's hold time is added to the one before it, so "
+                         "thinning a cycle makes it coarser and not faster - "
+                         "which matters for a walk, where the feet have to "
+                         "keep up with the distance travelled.")
     ap.add_argument("--tags", default=None,
                     help="comma-separated tags to emit, in this order. The "
                          "sheet is bigger than a 16 KB bank, so it is split "
@@ -178,6 +233,61 @@ def main():
     rgba = Image.open(sheet).convert("RGBA")
 
     tags = meta["meta"].get("frameTags", [])
+
+    # ---- thin the tags the artist asked to thin -------------------
+    drops, keep_dur = {}, {}
+    for spec in args.drop:
+        if "=" not in spec:
+            raise SystemExit(f"--drop wants TAG=N,N, got {spec!r}")
+        tag, nums = spec.split("=", 1)
+        drops[tag.strip()] = {int(n) for n in nums.split(",") if n.strip()}
+    known = {t["name"] for t in tags}
+    unknown = [t for t in drops if t not in known]
+    if unknown:
+        raise SystemExit(f"{args.json}: no such tag to drop from: "
+                         f"{', '.join(unknown)}")
+    if drops:
+        keep, newtags = [], []
+        for t in tags:
+            gone = drops.get(t["name"], set())
+            bad = [n for n in gone if not 1 <= n <= t["to"] - t["from"] + 1]
+            if bad:
+                raise SystemExit(f"{t['name']} has {t['to'] - t['from'] + 1} "
+                                 f"frames; cannot drop {bad}")
+            first = len(keep)
+            for n in range(1, t["to"] - t["from"] + 2):
+                i = t["from"] + n - 1
+                if n in gone:
+                    # Give its time to the frame before it - or after, if
+                    # it WAS the first - so the cycle still lasts as long
+                    # as it did and only gets coarser.
+                    host = keep[-1] if keep and len(keep) > first else None
+                    if host is None:
+                        nxt = next((t["from"] + k - 1
+                                    for k in range(n + 1, t["to"] - t["from"] + 2)
+                                    if k not in gone), None)
+                        host = nxt
+                        if host is not None:
+                            keep_dur[host] = keep_dur.get(
+                                host, frames[host].get("duration", FRAME_MS))
+                    if host is not None:
+                        keep_dur[host] = (keep_dur.get(
+                            host, frames[host].get("duration", FRAME_MS))
+                            + frames[i].get("duration", FRAME_MS))
+                    continue
+                keep.append(i)
+            newtags.append({**t, "from": first, "to": len(keep) - 1})
+            if len(keep) == first:
+                raise SystemExit(f"{t['name']}: every frame dropped")
+        frames = [dict(frames[i], duration=keep_dur.get(i,
+                       frames[i].get("duration", FRAME_MS))) for i in keep]
+        tags = newtags
+        kept_source = keep
+        print(f"  dropped {sum(len(v) for v in drops.values())} frames: "
+              + "; ".join(f"{k} {sorted(v)}" for k, v in drops.items()))
+    else:
+        kept_source = list(range(len(frames)))
+
     if args.tags:
         wanted = [t.strip() for t in args.tags.split(",")]
         by_name = {t["name"]: t for t in tags}
@@ -192,6 +302,7 @@ def main():
             tags.append({**t, "from": first, "to": first + n - 1})
             first += n
         frames = [frames[i] for i in keep]
+        kept_source = [kept_source[i] for i in keep]
 
     boxes = {(f["frame"]["w"], f["frame"]["h"]) for f in frames}
     if len(boxes) != 1:
@@ -200,7 +311,7 @@ def main():
 
     blobs, span_total, box_total = [], 0, 0
     for f in frames:
-        blob, span, box = encode_frame(rgba, f["frame"], palette)
+        blob, span, box = encode_frame(rgba, f["frame"], palette, args.mirror)
         blobs.append(blob)
         span_total += span
         box_total += box
@@ -246,6 +357,20 @@ def main():
         inc.append("                db " + ", ".join(str(d) for d in durs[i:i + 16]))
     open(args.inc, "w").write("\n".join(inc) + "\n")
 
+    # Which sheet frames actually made it in, so the acceptance test
+    # checks the blob against the SAME frames rather than re-deriving
+    # the --drop list and drifting from it.
+    side = os.path.splitext(args.out)[0] + "_frames.json"
+    json.dump({"sheet": os.path.relpath(os.path.abspath(args.json),
+                                       os.path.join(here, "..")),
+               "name": name,
+               "mirrored": bool(args.mirror),
+               "box": [fw // 2, fh],
+               "source_frames": kept_source,
+               "tags": [{"name": t["name"], "from": t["from"], "to": t["to"]}
+                        for t in tags]},
+              open(side, "w"), indent=1)
+
     if args.mirror_table:
         open(args.mirror_table, "wb").write(bytes(mirror_byte(b) for b in range(256)))
 
@@ -261,6 +386,7 @@ def main():
     print(f"  -> {args.out}  {len(out)} bytes, {bank - len(out)} spare - {fit} "
           f"(a full-box build would be {2 * box_total})")
     print(f"  -> {args.inc}")
+    print(f"  -> {side}")
     if args.mirror_table:
         print(f"  -> {args.mirror_table}  256 bytes")
     return 0

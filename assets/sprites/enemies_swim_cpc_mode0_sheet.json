@@ -1,0 +1,130 @@
+{ "frames": [
+   {
+    "filename": "enemies_swim_cpc_mode0 #diver_swim 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #diver_swim 1.aseprite",
+    "frame": { "x": 64, "y": 0, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #diver_swim 2.aseprite",
+    "frame": { "x": 128, "y": 0, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #diver_swim 3.aseprite",
+    "frame": { "x": 192, "y": 0, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #diver_fire 0.aseprite",
+    "frame": { "x": 0, "y": 24, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 180
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #diver_fire 1.aseprite",
+    "frame": { "x": 64, "y": 24, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 90
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #frogman_swim 0.aseprite",
+    "frame": { "x": 0, "y": 48, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #frogman_swim 1.aseprite",
+    "frame": { "x": 64, "y": 48, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #frogman_swim 2.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #frogman_swim 3.aseprite",
+    "frame": { "x": 192, "y": 48, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 120
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #frogman_fire 0.aseprite",
+    "frame": { "x": 0, "y": 72, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 180
+   },
+   {
+    "filename": "enemies_swim_cpc_mode0 #frogman_fire 1.aseprite",
+    "frame": { "x": 64, "y": 72, "w": 64, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 24 },
+    "sourceSize": { "w": 64, "h": 24 },
+    "duration": 90
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "enemies_swim_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 256, "h": 96 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "diver_swim", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "diver_fire", "from": 4, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "frogman_swim", "from": 6, "to": 9, "direction": "forward", "color": "#000000ff" },
+   { "name": "frogman_fire", "from": 10, "to": 11, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "heroine", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

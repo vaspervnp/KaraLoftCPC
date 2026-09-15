@@ -1,380 +1,349 @@
 { "frames": [
    {
-    "filename": "heroine_cpc_mode0 #idle 0.aseprite",
+    "filename": "enemies_cpc_mode0 #merc_walk 0.aseprite",
     "frame": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 250
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #idle 1.aseprite",
+    "filename": "enemies_cpc_mode0 #merc_walk 1.aseprite",
     "frame": { "x": 24, "y": 0, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 250
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #idle 2.aseprite",
+    "filename": "enemies_cpc_mode0 #merc_walk 2.aseprite",
     "frame": { "x": 48, "y": 0, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 250
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #idle 3.aseprite",
+    "filename": "enemies_cpc_mode0 #merc_walk 3.aseprite",
     "frame": { "x": 72, "y": 0, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 250
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #walk 0.aseprite",
+    "filename": "enemies_cpc_mode0 #merc_fire 0.aseprite",
     "frame": { "x": 0, "y": 64, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
+    "duration": 180
    },
    {
-    "filename": "heroine_cpc_mode0 #walk 1.aseprite",
+    "filename": "enemies_cpc_mode0 #merc_fire 1.aseprite",
     "frame": { "x": 24, "y": 64, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
+    "duration": 90
    },
    {
-    "filename": "heroine_cpc_mode0 #walk 2.aseprite",
-    "frame": { "x": 48, "y": 64, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #walk 3.aseprite",
-    "frame": { "x": 72, "y": 64, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #walk 4.aseprite",
-    "frame": { "x": 96, "y": 64, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #walk 5.aseprite",
-    "frame": { "x": 120, "y": 64, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #walk 6.aseprite",
-    "frame": { "x": 144, "y": 64, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #walk 7.aseprite",
-    "frame": { "x": 168, "y": 64, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #run 0.aseprite",
+    "filename": "enemies_cpc_mode0 #hunter_walk 0.aseprite",
     "frame": { "x": 0, "y": 128, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #run 1.aseprite",
+    "filename": "enemies_cpc_mode0 #hunter_walk 1.aseprite",
     "frame": { "x": 24, "y": 128, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #run 2.aseprite",
+    "filename": "enemies_cpc_mode0 #hunter_walk 2.aseprite",
     "frame": { "x": 48, "y": 128, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #run 3.aseprite",
+    "filename": "enemies_cpc_mode0 #hunter_walk 3.aseprite",
     "frame": { "x": 72, "y": 128, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #run 4.aseprite",
-    "frame": { "x": 96, "y": 128, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
-   },
-   {
-    "filename": "heroine_cpc_mode0 #run 5.aseprite",
-    "frame": { "x": 120, "y": 128, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
-   },
-   {
-    "filename": "heroine_cpc_mode0 #run 6.aseprite",
-    "frame": { "x": 144, "y": 128, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
-   },
-   {
-    "filename": "heroine_cpc_mode0 #run 7.aseprite",
-    "frame": { "x": 168, "y": 128, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
-   },
-   {
-    "filename": "heroine_cpc_mode0 #jump 0.aseprite",
+    "filename": "enemies_cpc_mode0 #hunter_fire 0.aseprite",
     "frame": { "x": 0, "y": 192, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 90
+    "duration": 180
    },
    {
-    "filename": "heroine_cpc_mode0 #jump 1.aseprite",
+    "filename": "enemies_cpc_mode0 #hunter_fire 1.aseprite",
     "frame": { "x": 24, "y": 192, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 80
+    "duration": 90
    },
    {
-    "filename": "heroine_cpc_mode0 #jump 2.aseprite",
-    "frame": { "x": 48, "y": 192, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #jump 3.aseprite",
-    "frame": { "x": 72, "y": 192, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 120
-   },
-   {
-    "filename": "heroine_cpc_mode0 #jump 4.aseprite",
-    "frame": { "x": 96, "y": 192, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 100
-   },
-   {
-    "filename": "heroine_cpc_mode0 #jump 5.aseprite",
-    "frame": { "x": 120, "y": 192, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 110
-   },
-   {
-    "filename": "heroine_cpc_mode0 #roll 0.aseprite",
+    "filename": "enemies_cpc_mode0 #commando_walk 0.aseprite",
     "frame": { "x": 0, "y": 256, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 80
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #roll 1.aseprite",
+    "filename": "enemies_cpc_mode0 #commando_walk 1.aseprite",
     "frame": { "x": 24, "y": 256, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #roll 2.aseprite",
+    "filename": "enemies_cpc_mode0 #commando_walk 2.aseprite",
     "frame": { "x": 48, "y": 256, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #roll 3.aseprite",
+    "filename": "enemies_cpc_mode0 #commando_walk 3.aseprite",
     "frame": { "x": 72, "y": 256, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #roll 4.aseprite",
-    "frame": { "x": 96, "y": 256, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
-   },
-   {
-    "filename": "heroine_cpc_mode0 #roll 5.aseprite",
-    "frame": { "x": 120, "y": 256, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
-   },
-   {
-    "filename": "heroine_cpc_mode0 #roll 6.aseprite",
-    "frame": { "x": 144, "y": 256, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 70
-   },
-   {
-    "filename": "heroine_cpc_mode0 #roll 7.aseprite",
-    "frame": { "x": 168, "y": 256, "w": 24, "h": 64 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
-    "sourceSize": { "w": 24, "h": 64 },
-    "duration": 90
-   },
-   {
-    "filename": "heroine_cpc_mode0 #shoot_draw 0.aseprite",
+    "filename": "enemies_cpc_mode0 #commando_fire 0.aseprite",
     "frame": { "x": 0, "y": 320, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 90
+    "duration": 180
    },
    {
-    "filename": "heroine_cpc_mode0 #shoot_draw 1.aseprite",
+    "filename": "enemies_cpc_mode0 #commando_fire 1.aseprite",
     "frame": { "x": 24, "y": 320, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 80
+    "duration": 90
    },
    {
-    "filename": "heroine_cpc_mode0 #shoot 0.aseprite",
+    "filename": "enemies_cpc_mode0 #guard_walk 0.aseprite",
     "frame": { "x": 0, "y": 384, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #shoot 1.aseprite",
+    "filename": "enemies_cpc_mode0 #guard_walk 1.aseprite",
     "frame": { "x": 24, "y": 384, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 80
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #shoot 2.aseprite",
+    "filename": "enemies_cpc_mode0 #guard_walk 2.aseprite",
     "frame": { "x": 48, "y": 384, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 60
+    "duration": 140
    },
    {
-    "filename": "heroine_cpc_mode0 #shoot 3.aseprite",
+    "filename": "enemies_cpc_mode0 #guard_walk 3.aseprite",
     "frame": { "x": 72, "y": 384, "w": 24, "h": 64 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
-    "duration": 80
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #guard_fire 0.aseprite",
+    "frame": { "x": 0, "y": 448, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 180
+   },
+   {
+    "filename": "enemies_cpc_mode0 #guard_fire 1.aseprite",
+    "frame": { "x": 24, "y": 448, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 90
+   },
+   {
+    "filename": "enemies_cpc_mode0 #raider_walk 0.aseprite",
+    "frame": { "x": 0, "y": 512, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #raider_walk 1.aseprite",
+    "frame": { "x": 24, "y": 512, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #raider_walk 2.aseprite",
+    "frame": { "x": 48, "y": 512, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #raider_walk 3.aseprite",
+    "frame": { "x": 72, "y": 512, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #raider_fire 0.aseprite",
+    "frame": { "x": 0, "y": 576, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 180
+   },
+   {
+    "filename": "enemies_cpc_mode0 #raider_fire 1.aseprite",
+    "frame": { "x": 24, "y": 576, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 90
+   },
+   {
+    "filename": "enemies_cpc_mode0 #heavy_walk 0.aseprite",
+    "frame": { "x": 0, "y": 640, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #heavy_walk 1.aseprite",
+    "frame": { "x": 24, "y": 640, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #heavy_walk 2.aseprite",
+    "frame": { "x": 48, "y": 640, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #heavy_walk 3.aseprite",
+    "frame": { "x": 72, "y": 640, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 140
+   },
+   {
+    "filename": "enemies_cpc_mode0 #heavy_fire 0.aseprite",
+    "frame": { "x": 0, "y": 704, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 180
+   },
+   {
+    "filename": "enemies_cpc_mode0 #heavy_fire 1.aseprite",
+    "frame": { "x": 24, "y": 704, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 90
    }
  ],
  "meta": {
   "app": "https://www.aseprite.org/",
   "version": "1.3.18.5-dev",
-  "image": "heroine_cpc_mode0_sheet.png",
+  "image": "enemies_cpc_mode0_sheet.png",
   "format": "I8",
-  "size": { "w": 192, "h": 448 },
+  "size": { "w": 96, "h": 768 },
   "scale": "1",
   "frameTags": [
-   { "name": "idle", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
-   { "name": "walk", "from": 4, "to": 11, "direction": "forward", "color": "#000000ff" },
-   { "name": "run", "from": 12, "to": 19, "direction": "forward", "color": "#000000ff" },
-   { "name": "jump", "from": 20, "to": 25, "direction": "forward", "color": "#000000ff" },
-   { "name": "roll", "from": 26, "to": 33, "direction": "forward", "color": "#000000ff" },
-   { "name": "shoot_draw", "from": 34, "to": 35, "direction": "forward", "color": "#000000ff", "data": "draw_offset_x=4" },
-   { "name": "shoot", "from": 36, "to": 39, "direction": "forward", "color": "#000000ff", "data": "draw_offset_x=4" }
+   { "name": "merc_walk", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "merc_fire", "from": 4, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "hunter_walk", "from": 6, "to": 9, "direction": "forward", "color": "#000000ff" },
+   { "name": "hunter_fire", "from": 10, "to": 11, "direction": "forward", "color": "#000000ff" },
+   { "name": "commando_walk", "from": 12, "to": 15, "direction": "forward", "color": "#000000ff" },
+   { "name": "commando_fire", "from": 16, "to": 17, "direction": "forward", "color": "#000000ff" },
+   { "name": "guard_walk", "from": 18, "to": 21, "direction": "forward", "color": "#000000ff" },
+   { "name": "guard_fire", "from": 22, "to": 23, "direction": "forward", "color": "#000000ff" },
+   { "name": "raider_walk", "from": 24, "to": 27, "direction": "forward", "color": "#000000ff" },
+   { "name": "raider_fire", "from": 28, "to": 29, "direction": "forward", "color": "#000000ff" },
+   { "name": "heavy_walk", "from": 30, "to": 33, "direction": "forward", "color": "#000000ff" },
+   { "name": "heavy_fire", "from": 34, "to": 35, "direction": "forward", "color": "#000000ff" }
   ],
   "layers": [
    { "name": "heroine", "opacity": 255, "blendMode": "normal" }

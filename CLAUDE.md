@@ -16,12 +16,12 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-`./tools/run_tests.sh` runs every acceptance suite. Five pass;
-`test_module4.py` reports a residue from the one thing still missing — a sprite
-that is partly off the display is not clipped, and its addresses fold onto the
-top of the picture. Nothing in normal play reaches that state, because the
-camera keeps her clear of both edges; the suite's vertical driver does, because
-it pokes `V_REQUEST` with no player behind it. See §8.2.
+`./tools/run_tests.sh` runs every acceptance suite. Seven pass;
+`test_spanblit.py` reports one failure on purpose — the span blitter is
+correct and at its floor, but a scrolling frame does not close on
+Kara's heaviest animation frames, and the 7,448 T have to come out of
+`DRAW_COLUMN` rather than out of the blitter. The numbers are in §9 and
+it is the next item in §11.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -31,6 +31,7 @@ src/screen.asm    Mode 0 addressing, block fill, palette, vsync
 src/palette.asm   the 16 pens + solid-pen byte table
 src/sprite.asm    scroll-aware masked blitter, save-under restore
 src/bullets.asm   dual pistols, 14-round pool, reloading
+src/spanblit.asm  the span-compressed blitter and its erase script
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
 src/collide.asm   tile attributes, box-against-map probes
@@ -41,6 +42,8 @@ tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
 tools/png2sprite.py        sprite sheet  -> data+mask binary (the placeholder)
 tools/aseprite2spans.py    Aseprite sheet+JSON -> span-compressed bank
+tools/spawns.py            projectile spawn points -> build/spawns.inc
+tools/pack.py              ZX0 for everything that goes on the disc
 tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
 tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
@@ -178,18 +181,36 @@ window changes in the configurations this project uses:
 | Config | `&0000` | `&4000` | `&8000` | `&C000` | Project use |
 |---|---|---|---|---|---|
 | `&C0` | 0 | 1 | 2 | 3 | default / `BANK_RESTORE` |
-| `&C4` | 0 | 4 | 2 | 3 | The CURRENT level's tiles and tilemap |
-| `&C5` | 0 | 5 | 2 | 3 | Kara `idle`/`walk`/`jump`/`shoot_draw`/`shoot`, 15,678 B |
-| `&C6` | 0 | 6 | 2 | 3 | Kara `run`/`roll` 9,454 B + the swim set 6,296 B |
-| `&C7` | 0 | 7 | 2 | 3 | Title buffer; then enemies + NPC dialogue in-game |
+| `&C4` | 0 | 4 | 2 | 3 | Tiles, tilemap, projectiles, one enemy type, level logic |
+| `&C5` | 0 | 5 | 2 | 3 | Kara facing **right** + a second enemy type, right |
+| `&C6` | 0 | 6 | 2 | 3 | Kara facing **left** + that enemy type, left |
+| `&C7` | 0 | 7 | 2 | 3 | Title buffer; then Kara `run`/`roll`, both facings |
+
+A land level with two enemy types, measured from the built blobs:
+
+| bank | contents | bytes | spare |
+|---|---|---:|---:|
+| `&C4` | tiles 2,048 + map 1,024 + bullet/spear 556 + `merc` both facings 7,868 | 11,496 | 4,888 for level logic |
+| `&C5` | `kara_core` right 10,926 + `guard` right 3,390 | 14,316 | 2,068 |
+| `&C6` | `kara_core` left 10,926 + `guard` left 3,390 | 14,316 | 2,068 |
+| `&C7` | `kara_extra` right + left 14,310 | 14,310 | 2,074 |
+
+Only the `&4000` window changes, so a frame that draws Kara facing left
+and an enemy facing right pages twice — two `OUT`s, which is nothing.
+Put the enemy type that shares her screen most in `&C5`/`&C6` so the
+common case pages once.
 
 **The banks are reloaded from disc at every level transition, and that
 is what makes this fit.** The earlier map gave a bank to each PAIR of
 levels' tiles, which only works while the tiles are the only large
-asset. Kara's own frames are 31 KB span-compressed (§7.1) and need two
-banks of their own; one level's tiles need well under one. Since only
-one level is ever loaded, "levels 1-2 / 3-4 / 5-6" was paying three
-banks for something one bank holds at a time.
+asset. Kara alone is 36 KB across both facings (§7.1) and the six enemy
+types are another 23 KB; one level's tiles are 3 KB. Since only one
+level is ever loaded, "levels 1-2 / 3-4 / 5-6" was paying three banks
+for something one bank holds at a time.
+
+**Everything on the disc is ZX0-packed** (§7.4), so a level transition
+reads about 10 KB rather than 55 KB and unpacks it into the banks in
+under a second.
 
 `&C7` is the title buffer only while the title is on screen. By the
 time the first level runs it is free, which is where the enemy frames
@@ -341,17 +362,25 @@ to the music without a re-trigger click.
 
 **Kara is 24×64 pixels** — 12 bytes wide × 64 lines — in
 `assets/sprites/heroine_cpc_mode0.aseprite`, exported by Aseprite as a
-sheet plus a JSON with the frame boxes and the animation tags. 40 frames:
+sheet plus a JSON with the frame boxes and the animation tags. The
+sheet has 40 frames and **nine of them are deliberately not shipped**:
 
-| tag | frames | sheet rows |
-|---|---:|---|
-| `idle` | 4 | 0-3 |
-| `walk` | 8 | 4-11 |
-| `run` | 8 | 12-19 |
-| `jump` | 6 | 20-25 |
-| `roll` | 8 | 26-33 |
-| `shoot_draw` | 2 | 34-35 |
-| `shoot` | 4 | 36-39 |
+| tag | drawn | shipped | dropped (1-based, as the artist counts them) |
+|---|---:|---:|---|
+| `idle` | 4 | 3 | 3 — it is pixel-identical to 4 |
+| `walk` | 8 | 5 | 2, 4, 6 |
+| `run` | 8 | 5 | 2, 4, 6 |
+| `jump` | 6 | 4 | 3, 5 |
+| `roll` | 8 | 8 | |
+| `shoot_draw` | 2 | 2 | |
+| `shoot` | 4 | 4 | |
+
+`build.sh` passes the list to the exporter as `--drop tag=n,n`.
+**A dropped frame's hold time is added to the frame before it**, so a
+thinned cycle gets coarser and not faster — which matters for the walk,
+where the feet have to keep up with the two pixels a frame she travels.
+`build/kara_core_frames.json` records which sheet frames actually went
+in, and `test_spans.py` reads it rather than re-deriving the list.
 
 and a separate swimming sheet, `heroine_cpc_mode0_swim.aseprite`, of 12
 frames at **64×24** — she is horizontal in the water — tagged `swim`
@@ -364,28 +393,40 @@ A full box would be 12 × 64 = 768 bytes of data and as much mask, so
 banks, and the machine has four in total. It would also cost 49,152 T
 to composite, which is 62% of a frame before anything else runs.
 
-Measured over the real art, **only 34% of the box is occupied**: 10,415
-span bytes out of 30,720, and 489 of the 2,560 lines are entirely empty.
-So each line is stored as `(skip, count)` followed by `count` interleaved
-mask/data pairs, and both numbers fall by two thirds:
+Measured over the real art, **only about a third of the box is
+occupied**, and a fifth of the lines are entirely empty. So the frame
+stores the bytes that are actually drawn and nothing else:
 
 | | full box | span | measured |
 |---|---:|---:|---|
-| 40 land frames | 61,440 B | **25,132 B** | 34% occupancy |
-| 12 swim frames | 18,432 B | **6,296 B** | 31% |
-| composite, one frame | 49,152 T | **~18,500 T** | |
+| 31 shipped land frames | 47,616 B | **18,065 B** | 34% occupancy |
+| 12 swim frames | 18,432 B | **6,464 B** | 31% |
+| composite, heaviest frame | 49,152 T | **23,688 T** | 329 span bytes |
 
 `tools/aseprite2spans.py` does it, reading the Aseprite JSON for the
-frame boxes and the tags. One frame is
+frame boxes and the tags. One frame is a header and then **groups of
+lines that share a span**:
 
 ```
 db  y0        first line of the box with any pixels
 db  lines     lines stored; empty ones off the top and bottom dropped
-then `lines` records, top to bottom:
-    db  skip      bytes from the box's left edge to the span
-    db  count     bytes in the span, 0 for an empty line
-    db  mask,data ... count times, interleaved
+then groups, until nlines = 0:
+    db  nlines    consecutive lines with this same span
+    db  count     bytes in the span, 0 for blank lines
+    dw  dskip     this group's skip minus the last one's, signed and
+                  sign-extended so ADD/ADC takes it without branching
+    db  mask,data ... nlines x count times, interleaved
+db  0         end of frame
 ```
+
+**Lines are grouped because the per-line bookkeeping, not the
+composite, is what the blitter spends its time on.** The first version
+walked line by line and cost 43,136 T on the heaviest frame — 131 T for
+each of its 329 span bytes, where the composite itself is 72. At 5.7
+bytes a line, reading `(skip, count)`, computing the entry into the
+unrolled run and testing for the seam dominate. Consecutive lines share
+a span 3.5 times in 4, so saying all of that once per group took the
+same frame to 39,496 T.
 
 and a blob is a table of `dw` frame offsets — relative, so the loader
 can drop it at whatever address the bank window is — followed by the
@@ -399,9 +440,9 @@ its frames from zero, so each bank is self-contained:
 
 | blob | tags | bytes | spare in a 16 KB bank |
 |---|---|---:|---:|
-| `kara_core.bin` | idle, walk, jump, shoot_draw, shoot | 15,678 | 706 |
-| `kara_extra.bin` | run, roll | 9,454 | — |
-| `kara_swim.bin` | swim, swim_shoot | 6,296 | 634 with `extra` |
+| `kara_core.bin` / `_l` | idle, walk, jump, shoot_draw, shoot | 10,910 | 5,474 |
+| `kara_extra.bin` / `_l` | run, roll | 7,155 | 2,074 for the pair |
+| `kara_swim.bin` / `_l` | swim, swim_shoot | 6,464 | 3,456 for the pair |
 
 **That makes the 24×64 sprite CHEAPER to draw than the 16×48 one it
 replaces** (30,072 T), which is the opposite of what §9 concluded when
@@ -409,14 +450,39 @@ it rejected span blitting — and the reason is in that entry: "It would
 pay for a shorter sprite." It pays for a *sparser* one. At 16×48 the
 placeholder filled 59% of its box; this art fills 34%.
 
-#### One facing is stored; the other is mirrored at draw time
+#### BOTH facings are stored — mirroring at draw time costs a register it has not got
 
-Storing both doubles everything for no new information. A Mode 0 byte
-holds two pixels whose bits interleave as `p0 = 7,5,3,1` and
-`p1 = 6,4,2,0`, so mirroring the pair is the fixed permutation
-`7↔6, 5↔4, 3↔2, 1↔0` — one 256-byte lookup. A mirrored blit walks the
-span right to left through that table: about 8 T a byte, ~2,000 T a
-frame, against 32 KB of RAM.
+The earlier plan here was to store one facing and mirror through a
+256-byte table at ~8 T a byte, ~2,000 T a frame. **That was wrong by a
+factor of four, and the reason is register pressure, not arithmetic.**
+Mirroring a Mode 0 byte is the fixed permutation `7↔6, 5↔4, 3↔2, 1↔0`,
+which is one lookup — but the lookup needs an index register and the
+inner loop has none: `HL` must hold the mask/data because only `(HL)`
+works with `AND`/`OR`, `DE` is the screen and `BC` the save. Every way
+round it was costed:
+
+| | T a byte |
+|---|---:|
+| unmirrored | **72** |
+| `IX` = frame, `HL` = table, `INC IX` twice a byte | 120 |
+| `IX` = frame with fixed displacements, reloaded per line | 96 |
+| self-modified absolute lookup, `LD (.p+1),A : LD A,(TBL)` | 136 |
+| arithmetic swap, no table | needs two temporaries |
+
+At 329 span bytes the cheapest of those is **+7,896 T a frame**, which
+the frame has not got (§9). Mirroring at export time costs a bank
+instead — and after the nine dropped frames there is a bank:
+
+| | one facing | both |
+|---|---:|---:|
+| `kara_core` idle/walk/jump/shoot | 10,910 B | 21,820 B — two banks |
+| `kara_extra` run/roll | 7,155 B | 14,310 B — one bank |
+| `kara_swim` | 6,464 B | 12,928 B — one bank |
+
+`--mirror` emits the left-facing blob: each line's span moves to
+`BOX_W - skip - count`, its bytes reverse, and each byte's two pixels
+swap. `test_spans.py` checks those blobs against the art flipped, not
+merely against themselves.
 
 #### Mask convention
 
@@ -462,6 +528,49 @@ deliberately kept** — level 2 is a forest and it is the only mid green
 in the set. The two spent pens were the only genuinely free ones, so
 the next new colour costs a used one.
 
+#### The enemies and the projectiles
+
+Same sheets, same format, same exporter. Six land types share
+`enemies_cpc_mode0.aseprite` — `merc`, `hunter`, `commando`, `guard`,
+`raider`, `heavy` — each with a 4-frame walk and a 2-frame fire at
+24×64; `enemies_swim_cpc_mode0.aseprite` adds `diver` and `frogman` at
+64×24. `spear_cpc_mode0` (16×5) and `bullet_cpc_mode0` (6×3, with a
+`bullet_water` variant) are what they throw.
+
+**One blob per enemy type, not one for the sheet.** All six together
+are 23,278 bytes — half as much again as a bank — and no level wants
+all six. `build.sh` exports `enemy_<type>.bin` / `_l.bin` with
+`--tags <type>_walk,<type>_fire`, so the loader takes the types that
+level uses:
+
+| type | bytes, one facing | packed |
+|---|---:|---:|
+| `commando` | 3,448 | 629 |
+| `guard` | 3,390 | 665 |
+| `merc` | 3,934 | 774 |
+| `raider` | 4,116 | 695 |
+| `hunter` | 4,146 | 815 |
+| `heavy` | 4,244 | 880 |
+| `diver` / `frogman` | 3,858 / 3,750 | 853 / 850 |
+
+**Where a shot leaves is art, not code.**
+`assets/sprites/projectile_spawn_points.json` marks, per firing frame,
+the pixel the projectile's left edge sits on, and `tools/spawns.py`
+turns it into `build/spawns.inc`:
+
+```
+KCORE_SPAWNS:           ; 24x64
+                db 14, 18, 17, PROJ_BULLET      ; shoot
+                db 16, 18, 11, PROJ_BULLET      ; shoot
+                db SPAWN_END
+```
+
+The frame numbers are the **blob's**, not the sheet's — `--drop` and
+`--tags` renumber, so the tool maps them through the exporter's
+`*_frames.json` sidecar. Left-facing sprites mirror the x to
+`frame_width - 1 - x`, which is one subtraction against doubling the
+table.
+
 ### 7.2 Aseprite
 
 plan.md assumed an Aseprite MCP server and §3 records that there is no
@@ -470,6 +579,42 @@ art arrives as an **exported sheet plus its JSON**, which is the same
 thing the MCP server would have produced. `png2sprite.py` reads the
 JSON for the frame boxes and the tags rather than assuming a grid, so
 re-exporting with different frame counts needs no code change.
+
+### 7.4 Compression — ZX0, and it is not close
+
+Every blob that goes on the disc is ZX0-packed by `tools/pack.py`
+through RASM's own cruncher, and unpacked into its bank at the level
+transition by `dzx0_fast` from `/home/vasilhs/rasm/decrunch`.
+
+Nine crunchers were measured on `kara_core.bin` (10,910 bytes), each
+one **run on a 6128 and compared byte for byte** with the original:
+
+| algorithm | packed | ratio | depacker | T a byte | frames |
+|---|---:|---:|---:|---:|---:|
+| **ZX0, `dzx0_fast`** | **2,129** | **19.5%** | 189 B | **49.0** | 6.7 |
+| ZX0, `dzx0_standard` | 2,129 | 19.5% | 70 B | 62.4 | 8.5 |
+| Exomizer | 2,101 | 19.3% | 332 B | 153.7 | 21.0 |
+| aPLib, fast | 2,153 | 19.7% | 238 B | 64.9 | 8.9 |
+| ZX7 turbo | 2,284 | 20.9% | 90 B | 67.4 | 9.2 |
+| LZ49 | 4,261 | 39.1% | 108 B | 53.2 | 7.3 |
+| LZ48 | 4,583 | 42.0% | 72 B | 49.6 | 6.8 |
+
+Exomizer packs 28 bytes tighter for three times the depack time and 143
+more bytes of depacker; LZ48 is as fast and packs half as well. **ZX0
+wins on both axes at once**, which is unusual and is why there is no
+trade-off to argue about. Use `dzx0_standard` instead only if 119 bytes
+of core image ever matter more than two frames of load time.
+
+The whole asset set is **140,602 bytes raw, 40,177 packed — 28.6%**.
+Sprite data packs hardest (17-29%) because the masks are nearly all
+`&00` or `&FF` and adjacent frames share most of their bytes; the
+dithered title screen packs worst (59%) because dithering is noise.
+
+**This buys disc and load time, not frame time.** The blitter
+composites from uncompressed bytes in a bank; it does not move the
+budget in §9 by one T-state. `test_spans.py` depacks all 28 blobs on
+the emulator and compares them, so a cruncher/depacker mismatch cannot
+ship.
 
 ### 7.3 Blender
 
@@ -777,6 +922,51 @@ anything that must be **behind** it against the late one.
    because the anchor came from the interrupt. Stamping at the top of the loop
    instead shifts every gate in that frame by a whole tick.
 
+### The span blitter, measured — and the frame that does not close
+
+`src/spanblit.asm` replaces the 16×48 full-box blitter. It is correct
+(`tools/test_spanblit.py` composites 20 placements against an
+independent v-model, including spans that straddle the 2 KB fold, and
+checks the erase restores every byte) and it is **at its floor**: the
+composite is nine instructions, all 8 T after the gate array's padding,
+so 72 T a byte is not negotiable.
+
+| | span bytes | draw | erase | both |
+|---|---:|---:|---:|---:|
+| lightest frame (a `jump`) | 203 | 28,192 | 9,612 | 37,804 |
+| mean of 18 `kara_core` frames | | | | 46,313 |
+| heaviest (a `shoot`) | 329 | 39,496 | 13,500 | **52,996** |
+| the 16×48 pair it replaces | 384 | 30,072 | 11,592 | 41,664 |
+
+It moves FEWER bytes than the old sprite and costs more, because 64
+lines of 5.7 bytes carry far more per-line bookkeeping than 48 lines of
+8. Grouping equal spans (§7.1) took the heaviest frame from 43,136 to
+39,496; the remaining per-line cost is 168 T — a 64 T script header, a
+32 T address step, a 24 T seam test, a 24 T loop and a 12 T dispatch —
+and everything left on the table is worth about 2,000 T in total.
+
+**A scrolling frame therefore does not close on her heaviest frames**,
+measured end to end:
+
+| | T |
+|---|---:|
+| the incoming column, `H_HEAD` + `H_TAIL` | 27,244 |
+| input, player, camera, bullets, logic | 7,080 |
+| + Kara, lightest | 72,128 — **fits** |
+| + Kara, heaviest | 87,320 — **over by 7,448** |
+
+**The lever is the column, not the blitter.** `DRAW_COLUMN` spends
+**71 T a byte** copying 384 bytes out of the tile bank; a plain
+`LD A,(HL) / LD (DE),A` pair is 32 and `LDI` is 20. Its inner raster is
+76 T for 2 bytes, which is defensible; the other 8,880 T are per-
+character-row setup, ~370 T a row for 608 T of work. Halving that
+setup and moving the inner loop toward `LDI` is worth 10,000-14,000 T,
+which closes the frame with margin. That is the next piece of work and
+it is tilemap work.
+
+Until it is done `test_spanblit.py` reports the overrun rather than
+hiding it behind a threshold.
+
 ### What did not work, with the numbers
 
 * **§9 remedy 1, "restore from the tilemap instead of saving under", is a
@@ -784,15 +974,21 @@ anything that must be **behind** it against the late one.
   cost that is 25,248 T against `SPR_RESTORE`'s 13,856, and the save-under only
   costs ~6,100 T on the draw side. `LDI` moves a byte in 20 T; `DRAW_CELL`
   manages 56. A tilemap repaint cannot beat it.
-* **Span-limited blitting (remedy 3) did not pay on the PLACEHOLDER, and
-  does pay on the real art — the entry below was right about why, and
-  wrong about which way it would go.** The placeholder filled 59% of its
-  16×48 box, so the ~130 T a line of span bookkeeping ate most of the
-  saving. The drawn 24×64 art fills **34%**, and there the same
-  bookkeeping turns a 49,152 T composite into ~18,500 — a bigger sprite
-  that is cheaper to draw than the one it replaces. See §7.1. The lesson
-  is that this remedy is decided by how SPARSE a sprite is, not how
-  large, and measuring it on stand-in art measured the wrong thing.
+* **Span-limited blitting (remedy 3) pays on data size and NOT on
+  time, which is the opposite of what both earlier entries here said.**
+  The placeholder filled 59% of its 16×48 box; the drawn art fills 34%
+  of a 24×64 one. That takes the 40 land frames from 61,440 bytes to
+  18,065 — the difference between four banks and one — and it takes the
+  composite from 49,152 T to 23,688. But "~18,500 T a frame" was a
+  composite-only figure with the per-line bookkeeping left out, and the
+  bookkeeping is 40% of the real cost. Measured: 52,996 T for draw plus
+  erase against the old 41,664. **The remedy is decided by sparseness
+  for SIZE and by bytes-per-line for TIME, and those are different
+  questions.**
+* **Mirroring at draw time costs a register the inner loop has not
+  got** — 96-136 T a byte against 72, or ~7,900 T a frame, not the
+  "~8 T a byte" §7.1 first claimed. Both facings are stored instead.
+  See §7.1.
 * **Compiled sprites (remedy 4)** would be ~10 KB for four frames against 7,808
   bytes of headroom below `&4000`. They would have to live in a bank.
 
@@ -848,18 +1044,29 @@ the next one starts.
    In progress. Done: scroll-aware sprite addressing and clipping (§8.2,
    §7.1), input, tile collision, the player's physics, the camera.
    Still to do, in this order:
-   1. ~~the exporter~~ — done: `aseprite2spans.py`, split into the two
-      banks, with `test_spans.py` compositing every frame back over a
-      random background through the blitter's own
-      `(SCREEN AND MASK) OR DATA` and checking all 22,984 opaque pixels.
-      Five deliberate corruptions of the format each fail it;
-   2. the span blitter and the mirror table, replacing the 16×48
-      full-box one;
-   3. the action state machine and its controls (§8.3);
-   4. the entity table and the five interaction handlers, with the AABB;
-   5. bullet-against-tile collision (`src/bullets.asm:130`) and the game
+   1. ~~the exporter~~ — done: `aseprite2spans.py`, one blob per bank
+      and per facing, with `test_spans.py` compositing every frame of
+      all 26 blobs back over a random background through the blitter's
+      own `(SCREEN AND MASK) OR DATA`. Five deliberate corruptions of
+      the format each fail it;
+   2. ~~the span blitter~~ — done: `src/spanblit.asm`, correct and
+      measured (§9), with `tools/test_spanblit.py`. **It is not yet
+      wired into the game**: `KARA_DRAW` still runs the 16×48 path,
+      because switching over needs the bank loader below;
+   3. **the column, `DRAW_COLUMN` at 71 T a byte** — the frame does not
+      close on Kara's heaviest frames until this comes down (§9). It is
+      the next thing, ahead of the state machine, because everything
+      after it is measured against a frame that has room;
+   4. the bank loader: ZX0-unpack the level's blobs into `&C4`-`&C7`
+      per the map in §6.2, then switch `KARA_DRAW`/`KARA_ERASE` to
+      `SPAN_DRAW`/`SPAN_ERASE` and retire `png2sprite.py`;
+   5. the action state machine and its controls (§8.3);
+   6. the entity table and the five interaction handlers, with the AABB;
+   7. the enemies: six land types and two divers (§7.1), their fire
+      using the generated spawn points in `build/spawns.inc`;
+   8. bullet-against-tile collision (`src/bullets.asm:130`) and the game
       state of §8.5;
-   6. `tools/test_module5.py`.
+   9. `tools/test_module5.py`.
 6. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 7. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

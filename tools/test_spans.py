@@ -28,13 +28,26 @@ from aseprite2spans import game_palette, mirror_byte
 from PIL import Image
 
 ROOT = os.path.join(HERE, "..")
-# What the build actually ships, splits and all: the sheet is bigger
-# than a 16 KB bank, so it is exported twice with different tags.
-SHEETS = [("KCORE",  "heroine_cpc_mode0_sheet",      "kara_core.bin",
-           ["idle", "walk", "jump", "shoot_draw", "shoot"]),
-          ("KEXTRA", "heroine_cpc_mode0_sheet",      "kara_extra.bin",
-           ["run", "roll"]),
-          ("KSWIM",  "heroine_cpc_mode0_swim_sheet", "kara_swim.bin", None)]
+
+
+def sheets():
+    """Every blob the build actually produced, from its own sidecar.
+
+    Not a hand-written list: the exporter records which sheet a blob
+    came from, which frames of it survived --tags and --drop, and
+    whether it is the mirrored facing. Add an enemy to build.sh and it
+    is tested without touching this file.
+    """
+    out = []
+    for f in sorted(os.listdir(os.path.join(ROOT, "build"))):
+        if not f.endswith("_frames.json"):
+            continue
+        side = json.load(open(os.path.join(ROOT, "build", f)))
+        out.append((side["name"], side["sheet"], f[:-12] + ".bin",
+                    [t["name"] for t in side["tags"]], side["mirrored"],
+                    side["source_frames"]))
+    return out
+
 
 fails = []
 
@@ -67,39 +80,112 @@ def decode_blob(blob, n_frames, bw, bh):
         # and not just some pen.
         rng = random.Random(f)
         bg = [[rng.randrange(16) for _ in range(2 * bw)] for _ in range(bh)]
-        for i in range(lines):
-            skip, count = blob[p], blob[p + 1]
-            p += 2
-            y = y0 + i
-            # A span that leaves the box would make the blitter write
-            # into the next screen row, which is the whole reason the
-            # engine clips - so it is a fault here, not an exception.
-            if skip + count > bw or y >= bh:
-                malformed.append((f, f"line {y}: skip {skip} + count {count} "
-                                     f"leaves a {bw}-byte box"))
-                p += 2 * count
-                continue
-            for b in range(count):
-                mask, data = blob[p], blob[p + 1]
-                p += 2
-                x = 2 * (skip + b)
-                under = cpclib.encode_pixels(bg[y][x], bg[y][x + 1])
-                out = (under & mask) | data
-                lo, hi = cpclib.decode_byte(out)
-                grid[y][x] = (lo, bg[y][x])
-                grid[y][x + 1] = (hi, bg[y][x + 1])
+        y, skip, seen = y0, 0, 0
+        while True:
+            nlines = blob[p]
+            if nlines == 0:                     # end of frame
+                p += 1
+                break
+            count = blob[p + 1]
+            dskip = blob[p + 2] | (blob[p + 3] << 8)
+            p += 4
+            seen += nlines
+            if count:
+                skip += dskip - 65536 if dskip > 32767 else dskip
+            for k in range(nlines):
+                # A span that leaves the box would make the blitter write
+                # into the next screen row, which is the whole reason the
+                # engine clips - so it is a fault here, not an exception.
+                if count and (not 0 <= skip or skip + count > bw or y >= bh):
+                    malformed.append((f, f"line {y}: skip {skip} + count "
+                                         f"{count} leaves a {bw}-byte box"))
+                    p += 2 * count
+                    y += 1
+                    continue
+                for b in range(count):
+                    mask, data = blob[p], blob[p + 1]
+                    p += 2
+                    x = 2 * (skip + b)
+                    under = cpclib.encode_pixels(bg[y][x], bg[y][x + 1])
+                    out = (under & mask) | data
+                    lo, hi = cpclib.decode_byte(out)
+                    grid[y][x] = (lo, bg[y][x])
+                    grid[y][x + 1] = (hi, bg[y][x + 1])
+                y += 1
+        if seen != lines:
+            malformed.append((f, f"groups cover {seen} lines, header says {lines}"))
         frames.append((grid, bg, p - off))
     return frames, malformed
 
 
-def expected(rgba, box, palette):
+def expected(rgba, box, palette, mirror=False):
     """What the art says each pixel should be: a pen, or None if clear."""
     x0, y0, w, h = box["x"], box["y"], box["w"], box["h"]
     crop = rgba.crop((x0, y0, x0 + w, y0 + h))
+    if mirror:
+        crop = crop.transpose(Image.FLIP_LEFT_RIGHT)
     pens = cpclib.quantise(crop, palette)
     px = crop.load()
     return [[pens[y][x] if px[x, y][3] else None for x in range(w)]
             for y in range(h)]
+
+
+def zx0_check():
+    """Depack every .zx0 on the emulator and compare with its source."""
+    import re
+    import subprocess
+    try:
+        sys.path.insert(0, "/home/vasilhs/cpcemu")
+        from cpc import CPC
+    except Exception as e:                      # no emulator: say so, do not
+        check("ZX0 blobs depack byte-exact", True, f"skipped ({e})")
+        return
+    dec = "/home/vasilhs/rasm/decrunch/dzx0_fast.asm"
+    tmp = os.environ.get("TMPDIR", "/tmp")
+    CODE, DST = 0x8000, 0x4000                  # &0000-&3FFF is the OS ROM
+    print("\n  ZX0, depacked by dzx0_fast on a 6128:")
+    bad, total, cost = [], 0, 0
+    for f in sorted(os.listdir(os.path.join(ROOT, "build"))):
+        if not f.endswith(".zx0"):
+            continue
+        orig = open(os.path.join(ROOT, "build", f[:-4] + ".bin"), "rb").read()
+        if len(orig) > 0x3F00:                  # will not fit under the code
+            continue
+        a = os.path.join(tmp, "_zx0.asm")
+        o, sy = os.path.join(tmp, "_zx0.bin"), os.path.join(tmp, "_zx0.sym")
+        open(a, "w").write(
+            f'        org &{CODE:04X}\n        include "{dec}"\n'
+            f'        di\n        ld hl,DATA\n        ld de,&{DST:04X}\n'
+            f'        call DEP\nSPIN:   jp SPIN\nDEP:    DecompressZX0\n'
+            f'DATA:   incbin "{os.path.join(ROOT, "build", f)}"\n')
+        r = subprocess.run(["rasm", a, "-amper", "-ob", o, "-s", "-sa", "-os", sy],
+                           capture_output=True, text=True)
+        if r.returncode:
+            bad.append((f, "did not assemble"))
+            continue
+        sym = {m.group(1): int(m.group(2), 16) for m in
+               (re.match(r"^(\S+)\s+#([0-9A-F]+)", l) for l in open(sy)) if m}
+        m = CPC()
+        m.run_frames(80)
+        m.write_ram(CODE, open(o, "rb").read())
+        m.set_pc(CODE)
+        us = None
+        for t in range(1, 1_000_000):
+            m.run_us(1)
+            if m.pc == sym["SPIN"]:
+                us = t
+                break
+        got = bytes(m.read_ram(DST, len(orig)))
+        total += 1
+        cost += (us or 0) * 4
+        if got != orig:
+            bad.append((f, "ran away" if us is None else "wrong bytes"))
+        print(f"    {f:<20}{os.path.getsize(os.path.join(ROOT, 'build', f)):6d}"
+              f" -> {len(orig):6d}  {(us or 0) * 4:8d} T"
+              f"   {'ok' if got == orig else 'FAILED'}")
+    check("every ZX0 blob depacks byte-exact", not bad,
+          f"{total} blobs, {cost} T in all = {cost / 79872:.0f} frames at a "
+          f"level load" + (f"; bad: {bad}" if bad else ""))
 
 
 def main():
@@ -117,8 +203,9 @@ def main():
     if os.path.exists(path):
         check("the emitted table matches", open(path, "rb").read() == bytes(tbl))
 
-    for name, stem, binname, tags in SHEETS:
-        js = os.path.join(ROOT, "assets", "sprites", stem + ".json")
+    for name, sheet, binname, tags, mirror, source in sheets():
+        js = os.path.join(ROOT, sheet)
+        stem = os.path.basename(sheet)[:-5]
         blob_path = os.path.join(ROOT, "build", binname)
         if not os.path.exists(blob_path):
             check(f"{name}: {binname} exists", False, "run build.sh first")
@@ -127,10 +214,10 @@ def main():
         info = meta["frames"]
         if isinstance(info, dict):
             info = [info[k] for k in sorted(info)]
-        if tags:                        # the same subset, in the same order
-            by_name = {t["name"]: t for t in meta["meta"]["frameTags"]}
-            info = [info[i] for w in tags
-                    for i in range(by_name[w]["from"], by_name[w]["to"] + 1)]
+        # Which sheet frames the exporter actually kept - tag selection
+        # AND the artist's --drop list. Read rather than re-derived, so
+        # the test cannot agree with a stale idea of the drop list.
+        info = [info[i] for i in source]
         rgba = Image.open(os.path.join(os.path.dirname(js),
                                        meta["meta"]["image"])).convert("RGBA")
         blob = open(blob_path, "rb").read()
@@ -138,6 +225,7 @@ def main():
         bw = fw // 2
         print(f"\n  {name} from {stem}: {len(info)} frames of {fw}x{fh}, "
               f"blob {len(blob)} bytes"
+              + (", MIRRORED" if mirror else "")
               + (f", tags {','.join(tags)}" if tags else ""))
         check(f"{name}: fits a 16 KB bank", len(blob) <= 16384,
               f"{len(blob)} bytes, {16384 - len(blob)} spare")
@@ -158,7 +246,7 @@ def main():
         wrong = bad_frames = 0
         opaque = 0
         for i, f in enumerate(info):
-            want = expected(rgba, f["frame"], palette)
+            want = expected(rgba, f["frame"], palette, mirror)
             grid, bg, _ = decoded[i]
             n = 0
             for y in range(fh):
@@ -194,6 +282,12 @@ def main():
                   and eq(f"{name}_BOX_W") == bw and eq(f"{name}_BOX_H") == fh,
                   f"FRAMES={eq(name + '_FRAMES')} SIZE={eq(name + '_BLOB_SIZE')} "
                   f"BOX={eq(name + '_BOX_W')}x{eq(name + '_BOX_H')}")
+
+    # ---- the ZX0 blobs, depacked on a real 6128 -------------------
+    # A cruncher that packs and a depacker that unpacks are two claims,
+    # and only the pair matters. Every shipped blob goes through the
+    # depacker the loader will use and is compared byte for byte.
+    zx0_check()
 
     print()
     if fails:

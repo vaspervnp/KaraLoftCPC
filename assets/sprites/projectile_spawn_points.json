@@ -1,0 +1,131 @@
+{
+  "_about": "x = Mode 0 pixel column, y = row, from the top-left of the frame; frame = 1-based frame number in that .aseprite file. Place the projectile's left edge, vertically centred, on this pixel (mirror x for left-facing sprites: frame_width - 1 - x).",
+  "heroine_cpc_mode0": {
+    "frame_size": [
+      24,
+      64
+    ],
+    "spawns": [
+      {
+        "tag": "shoot",
+        "frame": 37,
+        "tag_frame": 1,
+        "x": 18,
+        "y": 17,
+        "projectile": "bullet"
+      },
+      {
+        "tag": "shoot",
+        "frame": 39,
+        "tag_frame": 3,
+        "x": 18,
+        "y": 11,
+        "projectile": "bullet"
+      }
+    ]
+  },
+  "heroine_cpc_mode0_swim": {
+    "frame_size": [
+      64,
+      24
+    ],
+    "spawns": [
+      {
+        "tag": "swim_shoot",
+        "frame": 9,
+        "tag_frame": 1,
+        "x": 47,
+        "y": 10,
+        "projectile": "bullet_water"
+      },
+      {
+        "tag": "swim_shoot",
+        "frame": 11,
+        "tag_frame": 3,
+        "x": 47,
+        "y": 5,
+        "projectile": "bullet_water"
+      }
+    ]
+  },
+  "enemies_cpc_mode0": {
+    "frame_size": [
+      24,
+      64
+    ],
+    "spawns": [
+      {
+        "tag": "merc_fire",
+        "frame": 6,
+        "tag_frame": 2,
+        "x": 17,
+        "y": 17,
+        "projectile": "bullet"
+      },
+      {
+        "tag": "hunter_fire",
+        "frame": 12,
+        "tag_frame": 2,
+        "x": 18,
+        "y": 16,
+        "projectile": "bullet"
+      },
+      {
+        "tag": "commando_fire",
+        "frame": 18,
+        "tag_frame": 2,
+        "x": 15,
+        "y": 18,
+        "projectile": "bullet"
+      },
+      {
+        "tag": "guard_fire",
+        "frame": 24,
+        "tag_frame": 2,
+        "x": 19,
+        "y": 15,
+        "projectile": "bullet"
+      },
+      {
+        "tag": "raider_fire",
+        "frame": 30,
+        "tag_frame": 2,
+        "x": 19,
+        "y": 16,
+        "projectile": "bullet"
+      },
+      {
+        "tag": "heavy_fire",
+        "frame": 36,
+        "tag_frame": 2,
+        "x": 18,
+        "y": 17,
+        "projectile": "bullet"
+      }
+    ]
+  },
+  "enemies_swim_cpc_mode0": {
+    "frame_size": [
+      64,
+      24
+    ],
+    "spawns": [
+      {
+        "tag": "diver_fire",
+        "frame": 6,
+        "tag_frame": 2,
+        "x": 47,
+        "y": 12,
+        "projectile": "spear"
+      },
+      {
+        "tag": "frogman_fire",
+        "frame": 12,
+        "tag_frame": 2,
+        "x": 47,
+        "y": 12,
+        "projectile": "bullet_water"
+      }
+    ]
+  }
+}
