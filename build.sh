@@ -22,6 +22,22 @@ python3 "$ROOT/tools/png2sprite.py" "$ROOT/assets/placeholder/kara_sheet.png" \
         --inc "$BUILD/kara_sprites.inc" \
         --preview "$BUILD/kara_preview.png"
 
+# The drawn heroine, span-compressed. Two blobs out of one sheet because
+# 24x64 does not fit a 16 KB bank whole - see CLAUDE.md 6.2 and 7.1. The
+# span blitter is not written yet, so nothing INCBINs these; they are
+# built every time so the format and the art cannot drift apart, and
+# tools/test_spans.py checks them.
+ASE="$ROOT/assets/sprites"
+python3 "$ROOT/tools/aseprite2spans.py" "$ASE/heroine_cpc_mode0_sheet.json" \
+        -o "$BUILD/kara_core.bin" --inc "$BUILD/kara_core.inc" --name KCORE \
+        --tags idle,walk,jump,shoot_draw,shoot \
+        --mirror-table "$BUILD/mode0_mirror.bin"
+python3 "$ROOT/tools/aseprite2spans.py" "$ASE/heroine_cpc_mode0_sheet.json" \
+        -o "$BUILD/kara_extra.bin" --inc "$BUILD/kara_extra.inc" --name KEXTRA \
+        --tags run,roll
+python3 "$ROOT/tools/aseprite2spans.py" "$ASE/heroine_cpc_mode0_swim_sheet.json" \
+        -o "$BUILD/kara_swim.bin" --inc "$BUILD/kara_swim.inc" --name KSWIM
+
 python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         -o "$BUILD/overscan.bin" \
         --inc "$BUILD/title_palette.asm" \

@@ -39,7 +39,8 @@ disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
-tools/png2sprite.py        sprite sheet  -> data+mask binary
+tools/png2sprite.py        sprite sheet  -> data+mask binary (the placeholder)
+tools/aseprite2spans.py    Aseprite sheet+JSON -> span-compressed bank
 tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
 tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
@@ -178,8 +179,8 @@ window changes in the configurations this project uses:
 |---|---|---|---|---|---|
 | `&C0` | 0 | 1 | 2 | 3 | default / `BANK_RESTORE` |
 | `&C4` | 0 | 4 | 2 | 3 | The CURRENT level's tiles and tilemap |
-| `&C5` | 0 | 5 | 2 | 3 | Kara: `idle`, `walk`, `jump`, `shoot_draw`, `shoot` |
-| `&C6` | 0 | 6 | 2 | 3 | Kara: `run`, `roll`, and the swim set |
+| `&C5` | 0 | 5 | 2 | 3 | Kara `idle`/`walk`/`jump`/`shoot_draw`/`shoot`, 15,678 B |
+| `&C6` | 0 | 6 | 2 | 3 | Kara `run`/`roll` 9,454 B + the swim set 6,296 B |
 | `&C7` | 0 | 7 | 2 | 3 | Title buffer; then enemies + NPC dialogue in-game |
 
 **The banks are reloaded from disc at every level transition, and that
@@ -368,11 +369,39 @@ span bytes out of 30,720, and 489 of the 2,560 lines are entirely empty.
 So each line is stored as `(skip, count)` followed by `count` interleaved
 mask/data pairs, and both numbers fall by two thirds:
 
-| | full box | span |
-|---|---:|---:|
-| 40 land frames | 61,440 B | **~25,000 B** |
-| 12 swim frames | 18,432 B | **~6,400 B** |
-| composite, one frame | 49,152 T | **~18,500 T** |
+| | full box | span | measured |
+|---|---:|---:|---|
+| 40 land frames | 61,440 B | **25,132 B** | 34% occupancy |
+| 12 swim frames | 18,432 B | **6,296 B** | 31% |
+| composite, one frame | 49,152 T | **~18,500 T** | |
+
+`tools/aseprite2spans.py` does it, reading the Aseprite JSON for the
+frame boxes and the tags. One frame is
+
+```
+db  y0        first line of the box with any pixels
+db  lines     lines stored; empty ones off the top and bottom dropped
+then `lines` records, top to bottom:
+    db  skip      bytes from the box's left edge to the span
+    db  count     bytes in the span, 0 for an empty line
+    db  mask,data ... count times, interleaved
+```
+
+and a blob is a table of `dw` frame offsets — relative, so the loader
+can drop it at whatever address the bank window is — followed by the
+frames. Interior empty lines stay as `count = 0`: the gap between her
+arm and her boot is one byte, and a second index to skip it would cost
+more than it saves.
+
+**The sheet is split at export time**, because 24×64 does not fit one
+bank whole. `--tags` picks which animations go into a blob and numbers
+its frames from zero, so each bank is self-contained:
+
+| blob | tags | bytes | spare in a 16 KB bank |
+|---|---|---:|---:|
+| `kara_core.bin` | idle, walk, jump, shoot_draw, shoot | 15,678 | 706 |
+| `kara_extra.bin` | run, roll | 9,454 | — |
+| `kara_swim.bin` | swim, swim_shoot | 6,296 | 634 with `extra` |
 
 **That makes the 24×64 sprite CHEAPER to draw than the 16×48 one it
 replaces** (30,072 T), which is the opposite of what §9 concluded when
@@ -819,8 +848,11 @@ the next one starts.
    In progress. Done: scroll-aware sprite addressing and clipping (§8.2,
    §7.1), input, tile collision, the player's physics, the camera.
    Still to do, in this order:
-   1. `png2sprite.py` for the 24×64 span format and the Aseprite JSON
-      (the two palette pens it needs are done);
+   1. ~~the exporter~~ — done: `aseprite2spans.py`, split into the two
+      banks, with `test_spans.py` compositing every frame back over a
+      random background through the blitter's own
+      `(SCREEN AND MASK) OR DATA` and checking all 22,984 opaque pixels.
+      Five deliberate corruptions of the format each fail it;
    2. the span blitter and the mirror table, replacing the 16×48
       full-box one;
    3. the action state machine and its controls (§8.3);
