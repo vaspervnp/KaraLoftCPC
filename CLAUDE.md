@@ -177,10 +177,26 @@ window changes in the configurations this project uses:
 | Config | `&0000` | `&4000` | `&8000` | `&C000` | Project use |
 |---|---|---|---|---|---|
 | `&C0` | 0 | 1 | 2 | 3 | default / `BANK_RESTORE` |
-| `&C4` | 0 | 4 | 2 | 3 | Levels 1–2 tiles, tilemaps, palette animation |
-| `&C5` | 0 | 5 | 2 | 3 | Levels 3–4 tiles, subsea physics tables |
-| `&C6` | 0 | 6 | 2 | 3 | Levels 5–6 tiles, space station assets |
-| `&C7` | 0 | 7 | 2 | 3 | Overscan title buffer + NPC dialogue tables |
+| `&C4` | 0 | 4 | 2 | 3 | The CURRENT level's tiles and tilemap |
+| `&C5` | 0 | 5 | 2 | 3 | Kara: `idle`, `walk`, `jump`, `shoot_draw`, `shoot` |
+| `&C6` | 0 | 6 | 2 | 3 | Kara: `run`, `roll`, and the swim set |
+| `&C7` | 0 | 7 | 2 | 3 | Title buffer; then enemies + NPC dialogue in-game |
+
+**The banks are reloaded from disc at every level transition, and that
+is what makes this fit.** The earlier map gave a bank to each PAIR of
+levels' tiles, which only works while the tiles are the only large
+asset. Kara's own frames are 31 KB span-compressed (§7.1) and need two
+banks of their own; one level's tiles need well under one. Since only
+one level is ever loaded, "levels 1-2 / 3-4 / 5-6" was paying three
+banks for something one bank holds at a time.
+
+`&C7` is the title buffer only while the title is on screen. By the
+time the first level runs it is free, which is where the enemy frames
+and the dialogue tables go.
+
+Kara's core set is in `&C5` and stays paged in through normal play;
+`&C6` is only needed when she runs, rolls or swims. A level that has no
+water never pages it.
 
 ```asm
 BANK_SET_C4:    ld   bc,&7FC4
@@ -197,7 +213,8 @@ BANK_SET_C4:    ld   bc,&7FC4
 3. Any data structure read across a bank switch must be copied to base RAM first.
 
 The overscan title screen is 26,112 bytes and does not fit one 16 KB bank; it is split
-across two banks and assembled into VRAM in two passes.
+across two banks and assembled into VRAM in two passes — which it can
+do freely, because no level is loaded while the title is up.
 
 ### 6.3 Mode 0 pixel encoding — VERIFIED
 
@@ -321,15 +338,60 @@ to the music without a re-trigger click.
 
 ### 7.1 Sprites
 
-Kara Loft is 16×48 pixels → 8 bytes wide × 48 lines.
+**Kara is 24×64 pixels** — 12 bytes wide × 64 lines — in
+`assets/sprites/heroine_cpc_mode0.aseprite`, exported by Aseprite as a
+sheet plus a JSON with the frame boxes and the animation tags. 40 frames:
 
-```
-data frame : 8 × 48 = 384 bytes
-AND mask   : 8 × 48 = 384 bytes
-total      : 768 bytes per frame
-```
+| tag | frames | sheet rows |
+|---|---:|---|
+| `idle` | 4 | 0-3 |
+| `walk` | 8 | 4-11 |
+| `run` | 8 | 12-19 |
+| `jump` | 6 | 20-25 |
+| `roll` | 8 | 26-33 |
+| `shoot_draw` | 2 | 34-35 |
+| `shoot` | 4 | 36-39 |
 
-Mask convention: mask bits **set where the background shows through**, clear where the
+and a separate swimming sheet, `heroine_cpc_mode0_swim.aseprite`, of 12
+frames at **64×24** — she is horizontal in the water — tagged `swim`
+(8) and `swim_shoot` (4).
+
+#### Frames are stored as SPANS, not boxes
+
+A full box would be 12 × 64 = 768 bytes of data and as much mask, so
+1,536 bytes a frame and **61,440 for the 40 land frames alone** — four
+banks, and the machine has four in total. It would also cost 49,152 T
+to composite, which is 62% of a frame before anything else runs.
+
+Measured over the real art, **only 34% of the box is occupied**: 10,415
+span bytes out of 30,720, and 489 of the 2,560 lines are entirely empty.
+So each line is stored as `(skip, count)` followed by `count` interleaved
+mask/data pairs, and both numbers fall by two thirds:
+
+| | full box | span |
+|---|---:|---:|
+| 40 land frames | 61,440 B | **~25,000 B** |
+| 12 swim frames | 18,432 B | **~6,400 B** |
+| composite, one frame | 49,152 T | **~18,500 T** |
+
+**That makes the 24×64 sprite CHEAPER to draw than the 16×48 one it
+replaces** (30,072 T), which is the opposite of what §9 concluded when
+it rejected span blitting — and the reason is in that entry: "It would
+pay for a shorter sprite." It pays for a *sparser* one. At 16×48 the
+placeholder filled 59% of its box; this art fills 34%.
+
+#### One facing is stored; the other is mirrored at draw time
+
+Storing both doubles everything for no new information. A Mode 0 byte
+holds two pixels whose bits interleave as `p0 = 7,5,3,1` and
+`p1 = 6,4,2,0`, so mirroring the pair is the fixed permutation
+`7↔6, 5↔4, 3↔2, 1↔0` — one 256-byte lookup. A mirrored blit walks the
+span right to left through that table: about 8 T a byte, ~2,000 T a
+frame, against 32 KB of RAM.
+
+#### Mask convention
+
+Mask bits **set where the background shows through**, clear where the
 sprite pixel is opaque, so the blitter does:
 
 ```
@@ -353,11 +415,22 @@ Produced by `tools/png2sprite.py`, emitted for `INCBIN`, with a generated `.inc`
 frame count and sizes. Sprites are quantised against the pens in `src/palette.asm`,
 not against their own image, so they match the level they are drawn over.
 
-### 7.2 Aseprite is not available
+**The art needs two pens the palette does not have yet.** Its 11 colours
+map cleanly onto the game's 16 except that `(255,128,128)` and
+`(255,128,0)` both land on pen 13 (Orange), and the first is 116 units
+away from it — it is Pink, hardware colour 7. `(128,255,255)` is Pastel
+Cyan, hardware 27, and is 114 from the nearest pen it has. Two of the
+16 pens have to be given to those before the exporter runs, or her
+skin and her highlights come out the same colour as her muzzle flash.
 
-plan.md assumes an Aseprite MCP server. Nothing on this machine provides Aseprite, so
-the sprite front end reads PNG sheets via Pillow instead. Swapping in Aseprite later
-changes nothing downstream — the output format is unaffected.
+### 7.2 Aseprite
+
+plan.md assumed an Aseprite MCP server and §3 records that there is no
+Aseprite on this machine. That is still true and no longer matters: the
+art arrives as an **exported sheet plus its JSON**, which is the same
+thing the MCP server would have produced. `png2sprite.py` reads the
+JSON for the frame boxes and the tags rather than assuming a grid, so
+re-exporting with different frame counts needs no code change.
 
 ### 7.3 Blender
 
@@ -486,7 +559,51 @@ and 4 will not be so kind; Module 6 needs a real clip.
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
-### 8.3 Dual pistols
+### 8.3 Kara's actions
+
+The art decides the state machine, so it is written down here next to
+the frame counts in §7.1 rather than inferred at each call site.
+
+| State | Frames | Entered by | Leaves when |
+|---|---|---|---|
+| `IDLE` | `idle` 4 | no direction held, on the ground | a direction, a jump, a roll or the gun |
+| `WALK` | `walk` 8 | left/right on the ground | the key goes, or SHIFT is added |
+| `RUN` | `run` 8 | **SHIFT + left/right** | SHIFT or the direction goes |
+| `JUMP` | `jump` 6 | UP pressed while grounded | she lands |
+| `ROLL` | `roll` 8 | **Z**, on the ground | the 8 frames are done |
+| `AIM` | `shoot_draw` 2 then hold | **SPACE held** | SPACE released |
+| `FIRE` | `shoot` 4 | **SPACE released** from `AIM` | the 4 frames are done |
+| `SWIM` | `swim` 8 | level 4, in water | out of the water |
+| `SWIM_FIRE` | `swim_shoot` 4 | SPACE released while swimming | the 4 frames are done |
+
+**The gun is draw-hold-release, not a trigger.** SPACE going down plays
+`shoot_draw` and then holds its last frame; SPACE coming up plays
+`shoot` and fires on its first frame. That is what the two-frame
+`shoot_draw` tag is for, and its `draw_offset_x=4` in the JSON is the
+muzzle's X inside the box — the bullet spawns there, not at the edge of
+the sprite.
+
+A roll is committed: it runs its 8 frames whatever the input does, which
+is what makes it a dodge. It cannot start in the air.
+
+**The input byte is now full**, and the two new controls cost the two
+spare bits. Bits 0-3 have to stay in the joystick's own order — that is
+what lets row 9 fold in with no shifting (`input.asm`) — so:
+
+```
+0 UP  1 DOWN  2 LEFT  3 RIGHT  4 FIRE(SPACE)  5 ROLL(Z)  6 PAUSE(ESC)  7 RUN(SHIFT)
+```
+
+Z was `IN_ACTION`, a second interact key alongside RETURN; it is the
+roll now, and RETURN goes with it. Interact is `UP` alone, which is what
+plan.md §5.2 asked for in the first place ("αν πατηθεί UP"). A ninth
+control needs a second byte, not a re-shuffle.
+
+`RUN` moves her 2 bytes a frame, which is exactly the CRTC's scroll
+step, so inside the camera's push zone a run scrolls every frame and a
+walk every other one — see §8.2.
+
+### 8.4 Dual pistols
 
 ```
 MAG_LEFT     0-7      rounds in left pistol
@@ -500,7 +617,7 @@ AMMO_RESERVE bytes    clips add 14
 Bullets move 4 pixels/frame and die on a solid tile. Reload is manual (Down+Fire) or
 automatic when both magazines hit 0; during reload the player is slowed or frozen.
 
-### 8.4 Game state
+### 8.5 Game state
 
 ```asm
 PLAYER_HP:        db 100     ; 0-100, medkit restores 35, capped at 100
@@ -628,12 +745,15 @@ anything that must be **behind** it against the late one.
   cost that is 25,248 T against `SPR_RESTORE`'s 13,856, and the save-under only
   costs ~6,100 T on the draw side. `LDI` moves a byte in 20 T; `DRAW_CELL`
   manages 56. A tilemap repaint cannot beat it.
-* **Span-limited blitting (remedy 3) does not pay at 48 lines.** Only 59% of
-  Kara's bounding box is inside her occupied span, which looks like a 10,000 T
-  saving — but per-line span bookkeeping costs ~130 T against 48 lines, so the
-  net is under 4,000 T for a large rise in complexity. It would pay for a
-  shorter sprite. Grouping the walk by the SCREEN's character rows, which is
-  bookkeeping the address model forces anyway, was the cheaper win.
+* **Span-limited blitting (remedy 3) did not pay on the PLACEHOLDER, and
+  does pay on the real art — the entry below was right about why, and
+  wrong about which way it would go.** The placeholder filled 59% of its
+  16×48 box, so the ~130 T a line of span bookkeeping ate most of the
+  saving. The drawn 24×64 art fills **34%**, and there the same
+  bookkeeping turns a 49,152 T composite into ~18,500 — a bigger sprite
+  that is cheaper to draw than the one it replaces. See §7.1. The lesson
+  is that this remedy is decided by how SPARSE a sprite is, not how
+  large, and measuring it on stand-in art measured the wrong thing.
 * **Compiled sprites (remedy 4)** would be ~10 KB for four frames against 7,808
   bytes of headroom below `&4000`. They would have to live in a bank.
 
@@ -686,11 +806,18 @@ the next one starts.
    per-axis latch ordering, `tools/test_module4.py` with a render-level
    tearing check and a negative control.
 5. **Objects, puzzles, NPCs** — inventory, interaction handlers, AABB.
-   In progress. The scroll-aware sprite addressing it starts with (§8.2) is
-   done, and so are input, tile collision, the player's physics and the
-   camera. Still to do: the entity table, the five interaction handlers,
-   bullet-against-tile collision (`src/bullets.asm:130`), the game state of
-   §8.4, sprite clipping (§8.2), and `tools/test_module5.py`.
+   In progress. Done: scroll-aware sprite addressing and clipping (§8.2,
+   §7.1), input, tile collision, the player's physics, the camera.
+   Still to do, in this order:
+   1. `png2sprite.py` for the 24×64 span format and the Aseprite JSON,
+      and the two palette pens the art needs (§7.1);
+   2. the span blitter and the mirror table, replacing the 16×48
+      full-box one;
+   3. the action state machine and its controls (§8.3);
+   4. the entity table and the five interaction handlers, with the AABB;
+   5. bullet-against-tile collision (`src/bullets.asm:130`) and the game
+      state of §8.5;
+   6. `tools/test_module5.py`.
 6. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 7. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
