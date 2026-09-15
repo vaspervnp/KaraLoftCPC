@@ -46,18 +46,20 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
 python3 "$ROOT/tools/dskdata.py" --inc
 
 # --- code -------------------------------------------------------------
-python3 "$ROOT/tools/make_placeholder_level.py"
-python3 "$ROOT/tools/png2tiles.py" "$ROOT/assets/placeholder/city_tiles.png" \
-        -o "$BUILD/city_tiles.bin" --inc "$BUILD/city_tiles.inc"
-cp "$ROOT/assets/placeholder/city_map.bin" "$BUILD/city_map.bin"
+# The City map, over the DRAWN 8x16 tiles. The tiles themselves are no
+# longer generated or linked: build_levels.py exported them into the
+# level's bank and LEVEL_LOAD unpacks them there, so only the map rides
+# in the core image. Must run AFTER build_levels.py - it reads that
+# export's sidecar to check the tile numbering has not shifted.
+python3 "$ROOT/tools/make_city_map.py"
 
 # ZX0 for everything that goes on the disc. It is the best cruncher RASM
 # ships on BOTH ratio and depack speed - see tools/pack.py for the nine
 # that were measured - and it buys disc space and load time, not frame
 # time: the blitter reads uncompressed bytes out of a bank.
-python3 "$ROOT/tools/pack.py" city_tiles.bin city_map.bin overscan.bin
+python3 "$ROOT/tools/pack.py" city_map.bin overscan.bin
 # ... and it has to come AFTER everything it packs. It used to run
-# before png2tiles and quietly shipped the PREVIOUS build's tiles.
+# before the tile exporter and quietly shipped the PREVIOUS build's tiles.
 
 
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \

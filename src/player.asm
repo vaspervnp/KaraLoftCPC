@@ -40,19 +40,22 @@ P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
                                 ; destination-only probe is only exact
                                 ; while a single step cannot skip a tile
 P_JUMP          equ -8          ; rises 8+7+...+1 = 36 px, about 2.2 tiles
-WORLD_W         equ MAP_W * 8   ; the map in BYTES: 64 tiles of 8
+WORLD_W         equ MAP_W * TILE_W_BYTES    ; 128 tiles of 4 = 512 bytes,
+                                ; the same world the 64x16 map covered
 
 ; ---------------------------------------------------------------------
 ; PLAYER_UPDATE - one frame of movement.
 ;
 ; Reads (INPUT_NOW) and (INPUT_PRESSED); writes KARA_WX, KARA_WY,
-; KARA_VY, KARA_GROUND, KARA_FACING.
+; KARA_VY, KARA_GROUND, KARA_FACING. No paging: see below.
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-PLAYER_UPDATE:  call BANK_SET_C4            ; once, around both axes
-                call PLAYER_X
-                call PLAYER_Y
-                jp   BANK_RESTORE
+                ; NO BANK SWITCH. The map is in base RAM since the 8x16
+                ; art filled C4 (tilemap.asm), so the probes read it
+                ; wherever the window happens to be pointing - and the
+                ; 116 T this used to cost goes back to the frame.
+PLAYER_UPDATE:  call PLAYER_X
+                jp   PLAYER_Y
 
 ; ---------------------------------------------------------------------
 ; PLAYER_X - propose a step, probe the LEADING edge, refuse the whole
@@ -105,7 +108,7 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   e,P_WALK
                 jr   c,.step_r              ; still in the free zone
                 ld   a,(WORLD_X)
-                cp   MAP_W * 8 / 2 - SCR_CHARS
+                cp   WORLD_W / 2 - SCR_CHARS
                 jr   nc,.step_r             ; camera at the map's end: walk on
                 call PUSH_PHASE
                 ret  z                      ; the camera's off frame: hold
@@ -312,7 +315,7 @@ CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
                 cp   CAM_RIGHT_EDGE
                 jr   c,.check_left
                 ld   a,(WORLD_X)
-                cp   MAP_W * 8 / 2 - SCR_CHARS
+                cp   WORLD_W / 2 - SCR_CHARS
                 ret  nc                     ; at the right edge of the map
                 jp   H_REQUEST_RIGHT
 

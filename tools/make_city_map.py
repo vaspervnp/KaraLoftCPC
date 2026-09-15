@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""The City map, over the DRAWN 8x16 tiles.
+
+This replaces make_placeholder_level.py's stand-in sheet: the tiles are
+now the artist's, exported by build_levels.py into the level's own bank,
+and only the MAP is generated here. It is still scaffolding - a designed
+level comes from the editor (docs/editor.md) once the format is read by
+the engine - but it is scaffolding built out of the real art, so what is
+on screen is what the game will look like.
+
+TILE NUMBERS ARE THE SHEET'S FRAME ORDER, which the manifest spells out
+and build/levels/level1_city/citytiles_frames.json confirms. They are
+read from that sidecar rather than hard-coded, so a re-export with a
+different frame count cannot quietly shift the map by one tile.
+
+THE ROOFTOP IS ONE CONTINUOUS RUN AT ONE HEIGHT. A tile is 16 pixels
+tall and she walks 2 a frame, so any step up in the roof line is a wall
+that stops her dead - and a player who cannot walk is a camera that
+cannot scroll, which makes every scrolling test vacuous WITHOUT failing
+it. The variety is in the skyline above, the windows below and the props
+on the roof, none of which is in her way.
+"""
+import json
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.join(HERE, "..")
+
+MAP_W, MAP_H = 128, 16          # both powers of two: the map wraps with AND
+                                # 128 tiles of 8 pixels = 1024 world pixels,
+                                # the same world the 64x16 map of 16x16 tiles
+                                # covered, at twice the horizontal resolution
+
+ROW_SKY_TOP  = 0
+ROW_SKY_MID  = 1
+ROW_SKY_LOW  = 2
+ROW_FAR_TOP  = 3
+ROW_ROOFLINE = 4                # props stand here, on top of the roof
+ROW_ROOF     = 5                # <- the walkable surface, world y = 80
+ROW_WALL_TOP = 6
+ROW_PAVEMENT = 12
+ROW_CURB     = 13
+ROW_STREET   = 14
+
+
+def tile_names():
+    """Frame order, straight out of the manifest's description field."""
+    man = json.load(open(os.path.join(
+        ROOT, "assets", "sprites", "level1_city", "manifest.json")))
+    sheet = next(s for s in man["sheets"] if s["name"] == "city_tiles")
+    order = sheet["description"].split("frame order:", 1)[1]
+    order = order.split(".", 1)[0]
+    names = [n.strip() for n in order.split(",")]
+    return {n: i for i, n in enumerate(names)}, names
+
+
+def main():
+    T, names = tile_names()
+    side = os.path.join(ROOT, "build", "levels", "level1_city",
+                        "citytiles_frames.json")
+    exported = json.load(open(side))
+    assert exported["tiles"] and exported["box"] == [4, 16], exported["box"]
+    n_exported = 1 + max(t["to"] for t in exported["tags"])
+    if n_exported != len(names):
+        raise SystemExit(f"the sheet exports {n_exported} tiles but the "
+                         f"manifest names {len(names)} - one of them moved")
+
+    g = [[T["void"]] * MAP_W for _ in range(MAP_H)]
+
+    for x in range(MAP_W):
+        # ---- sky, three bands, stars thinning out near the horizon ----
+        g[ROW_SKY_TOP][x] = T["sky_stars"] if (x * 7) % 11 == 0 else T["void"]
+        g[ROW_SKY_MID][x] = T["sky_mid"]
+        g[ROW_SKY_LOW][x] = T["sky_low"]
+
+        # ---- the far skyline: tops over fill ------------------------
+        g[ROW_FAR_TOP][x] = (T["far_tower"], T["far_block"], T["far_step"],
+                             T["far_block"])[(x // 3) % 4]
+        g[ROW_ROOFLINE][x] = T["far_fill"]
+
+        # ---- the roof she walks on, one height, all the way ---------
+        # roof_l / roof_m... / roof_r reads as a row of separate
+        # buildings standing shoulder to shoulder, which is variety that
+        # costs her nothing: the SURFACE is flat whatever tile draws it.
+        p = x % 16
+        g[ROW_ROOF][x] = (T["roof_l"] if p == 0 else
+                          T["roof_r"] if p == 15 else T["roof_m"])
+
+        # ---- the wall below, with lit and dark windows --------------
+        g[ROW_WALL_TOP][x] = T["brick_top"]
+        for y in range(ROW_WALL_TOP + 1, ROW_PAVEMENT):
+            lit = ((x // 2 + y) % 3 == 0)
+            g[y][x] = (T["brick_win_lit"] if lit and (x + y) % 2 == 0 else
+                       T["brick_win_dark"] if lit else T["brick"])
+
+        # ---- street level ------------------------------------------
+        g[ROW_PAVEMENT][x] = T["sidewalk"]
+        g[ROW_CURB][x] = T["curb"]
+        for y in range(ROW_STREET, MAP_H):
+            g[y][x] = T["street_line"] if (x % 8) < 2 and y == ROW_STREET \
+                else T["street"]
+
+    # ---- ladders down the face of a building every so often ---------
+    for x in range(11, MAP_W, 23):
+        for y in range(ROW_WALL_TOP, ROW_PAVEMENT):
+            g[y][x] = T["ladder"]
+
+    # ---- props on the roof, standing on ROW_ROOFLINE ----------------
+    # Decoration only: TILE_ATTR gives them no attributes, so she walks
+    # straight through them. A solid prop on the runway is the step that
+    # stops the camera.
+    for x in range(5, MAP_W, 16):
+        g[ROW_ROOFLINE][x] = T["ac_unit"]
+    for x in range(9, MAP_W, 16):
+        g[ROW_ROOFLINE][x] = T["chimney"]
+    for x in range(13, MAP_W, 32):
+        g[ROW_ROOFLINE][x] = T["antenna"]
+
+    # ---- the water tank: a 2 wide x 3 tall group, tank_RC row-major --
+    for x0 in range(20, MAP_W, 48):
+        for r in range(3):
+            for c in range(2):
+                y = ROW_ROOFLINE - 2 + r
+                if x0 + c < MAP_W:
+                    g[y][x0 + c] = T[f"tank_{r}{c}"]
+
+    # ---- a lamp on the pavement -------------------------------------
+    for x in range(6, MAP_W, 24):
+        g[ROW_PAVEMENT - 1][x] = T["lamp_top"]
+        g[ROW_PAVEMENT][x] = T["lamp_pole"]
+
+    # ---- the garage: 4 wide x 5 tall, closed, down at street level ---
+    # manifest: row0 jamb_l sign_p lock_(red|green) jamb_r; rows 1-3 two
+    # shutters between the jambs; row4 shutter_bottom.
+    for i, x0 in enumerate(range(30, MAP_W - 4, 60)):
+        top = ROW_PAVEMENT - 5
+        lock = T["lock_red"] if i == 0 else T["lock_green"]
+        g[top][x0:x0 + 4] = [T["jamb_l"], T["sign_p"], lock, T["jamb_r"]]
+        for r in range(1, 4):
+            g[top + r][x0:x0 + 4] = [T["jamb_l"], T["shutter"],
+                                     T["shutter"], T["jamb_r"]]
+        g[top + 4][x0:x0 + 4] = [T["jamb_l"], T["shutter_bottom"],
+                                 T["shutter_bottom"], T["jamb_r"]]
+
+    # ---- a crate or two on the pavement ------------------------------
+    for x in range(17, MAP_W, 37):
+        g[ROW_PAVEMENT - 1][x] = T["crate"]
+
+    blob = bytes(b for row in g for b in row)
+    assert len(blob) == MAP_W * MAP_H
+    assert max(blob) < len(names), "a tile index ran past the sheet"
+    out = os.path.join(ROOT, "build", "city_map.bin")
+    open(out, "wb").write(blob)
+    print(f"-> city_map.bin    {MAP_W}x{MAP_H} = {len(blob)} bytes, "
+          f"{len(set(blob))} distinct tiles of {len(names)}")
+    print(f"   roof at map row {ROW_ROOF} = world y {ROW_ROOF * 16}, "
+          f"continuous across all {MAP_W} columns")
+
+
+if __name__ == "__main__":
+    main()

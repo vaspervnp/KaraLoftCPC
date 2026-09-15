@@ -7,7 +7,9 @@ corrections and why.
 
 ## 1. Status
 
-**Modules 1-4 done; Module 5 in progress.** `./build.sh` regenerates the assets,
+**Modules 1-4 done; Module 5 in progress, and the playfield is the
+drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
+of the level. `./build.sh` regenerates the assets,
 assembles, and produces `build/kara.dsk`. It boots, relocates, passes its bank
 self-test, runs Kara walking and firing over a striped background with full
 save-under restore, and then hands over to the scrolling city: a tilemap in bank
@@ -57,8 +59,7 @@ tools/build_levels.py      the level art packages -> blobs, both facings
 tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
 tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
-tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
-tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
+tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
 src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
@@ -1073,7 +1074,7 @@ while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
 | `HUD_UPDATE` (dirty) | 49,040 | **15,560** | one pass per row, not 7 `DRAW_BLOCK` calls |
 | `DRAW_BLOCK` (3×8) | 3,308 | **1,696** | address computed once, not per scanline |
 | `DRAW_COLUMN` (24 rows) | 29,620 | **16,052** | a tile an iteration, stepped address, map in `BC`, column-major tiles |
-| `DRAW_ROW` (40 cells) | 49,208 | **31,008** | same, split across two frames, column-major tiles |
+| `DRAW_ROW` (40 cells) | 49,208 | **33,456** | same, split across two frames, column-major tiles. Back up 2,448 at 8x16: a tile is two character columns, so the map is read twice as often across a row |
 | `KARA_DRAW` | 30,948 | **30,072** | scroll-aware, and grouped by character row |
 | `KARA_ERASE` | 13,584 | **11,592** | a whole row unrolled: 8 `LDI` + 24 T a line |
 | `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |

@@ -223,8 +223,7 @@ SCROLL_DEMO:    di
                 ; a photograph. See docs/AmstradDskReadHowTo.md.
                 xor  a
 .loaded:        ld   (LEVEL_OK),a
-                call TILES_INSTALL          ; ... back over the level's C4
-                call SCROLL_INIT
+                call SCROLL_INIT            ; ... which installs the map
                 ld   a,(LEVEL_OK)
                 or   a
                 call z,DISC_DIAG
@@ -824,6 +823,13 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 ; low byte, so the four have to be adjacent and in one
                 ; page. Move one and the drain writes ST1 over whatever
                 ; happens to follow.
+                ; MAP_CELL builds the map address by shifting a page
+                ; number left three times, so the map has to start on
+                ; a 2 KB boundary - and it must not be inside the
+                ; staging buffer a level load writes over.
+                assert (MAP_ADDR AND 2047) == 0
+                assert MAP_ADDR >= LEVEL_STAGE + LEVEL_STAGE_MAX
+                assert MAP_ADDR + MAP_W * MAP_H <= STACK_TOP - 256
                 assert DISC_ST1 == DISC_ST0 + 1
                 assert DISC_ST2 == DISC_ST0 + 2
                 assert DISC_SPILL == DISC_ST0 + 3
@@ -873,11 +879,15 @@ KARA_SPRITES:   incbin "kara_sprites.bin"
                 ; The fast blitter lane walks a 16-byte line with INC L.
                 assert (KARA_SPRITES AND 15) == 0
 
-                ; Level data rides inside the core image, so the boot
+                ; The MAP rides inside the core image, so the boot
                 ; relocation lands it in base RAM - which is the only
-                ; reason TILES_INSTALL can LDIR it into the &4000 window.
-                ; The two must stay adjacent and in this order.
-CITY_TILES:     incbin "city_tiles.bin"
+                ; reason MAP_INSTALL can LDIR it to MAP_ADDR.
+                ;
+                ; THE TILES DO NOT COME THIS WAY ANY MORE. They are the
+                ; level's own, unpacked into bank C4 by LEVEL_LOAD
+                ; (tools/level_banks.py pins them at &4000 of it), and
+                ; the 2 KB the stand-in sheet used to take of the core
+                ; image goes back to the engine.
 CITY_MAP:       incbin "city_map.bin"
 
 CORE_END:

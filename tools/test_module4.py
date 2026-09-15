@@ -40,15 +40,18 @@ FRAME_T = 79872
 SCR_CHARS = 40
 SCR_CHAR_ROWS = 24
 SCR_LINES = SCR_CHAR_ROWS * 8
-MAP_W, MAP_H = 64, 16
+MAP_W, MAP_H = 128, 16           # the drawn tiles are 8x16, not 16x16
 SCREEN_WIDTH_BYTES = 80
 KARA_W, KARA_H = 12, 64          # the drawn sprite, stored as spans
 KARA_RASTER_SAFE = 10            # the highest line she can be DRAWN FROM and
                                  # still beat the beam to her own last line.
                                  # Measured by the check in main(), not assumed.
-TILE_BYTES = 128
-TILES_LEN = 16 * TILE_BYTES
-BLOB_LEN = TILES_LEN + MAP_W * MAP_H
+TILE_W_BYTES = 4                 # 8 pixels
+TILE_BYTES = TILE_W_BYTES * 16   # 64 - column-major, 2 char columns of 32
+COL_HEAD = 14                    # rows of the incoming column painted behind
+                                 # the beam; tilemap.asm derives it
+N_TILES = 41                     # the City sheet
+MAP_ADDR = 0xA000                # base RAM: bank C4 belongs to the art
 
 fails = []
 def check(name, ok, detail=""):
@@ -179,7 +182,7 @@ def pump_h(machine, sym):
     the test then measures a fault it created itself. If she walks into
     a wall the camera stops and the test goes vacuous rather than failing,
     which is why the placeholder city now has one continuous rooftop -
-    see tools/make_placeholder_level.py.
+    see tools/make_city_map.py.
     """
     machine.joystick(0x08)
 
@@ -300,13 +303,14 @@ def paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x):
     The address model from CLAUDE.md 6.4 written out in full: MA masked
     to 10 bits, raster in bits 11-13, word times two.
     """
-    # Tiles are column-major: char_column * 32 + line * 2 + byte.
+    # Tiles are column-major: char_column * 32 + line * 2 + byte, and an
+    # 8x16 tile is TWO character columns, not four.
     wr = (world_cr + cr) & 0xFF
     map_row = (wr >> 1) & (MAP_H - 1)
     line_off = (wr & 1) * 16
     wc = (world_x + x) & 0xFF
-    tile = level_map[map_row * MAP_W + ((wc >> 2) & (MAP_W - 1))]
-    src = tile * TILE_BYTES + line_off + (wc & 3) * 32
+    tile = level_map[map_row * MAP_W + ((wc >> 1) & (MAP_W - 1))]
+    src = tile * TILE_BYTES + line_off + (wc & 1) * 32
     word = (scroll + cr * SCR_CHARS + x) & 0x3FF
     for raster in range(8):
         addr = 0xC000 + (raster << 11) + word * 2
@@ -322,8 +326,6 @@ def expected_screen(tiles, level_map, scroll, world_x, world_cr):
             paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x)
     return want
 
-
-COL_HEAD = 18
 
 def overlay_head(want, tiles, level_map, world_cr, pending):
     """The top COL_HEAD rows of a pending step's column, painted a frame
@@ -443,24 +445,28 @@ def find_display_top(machine, candidates, pen_to_hw):
     return best, best_hit, 8 * 32
 
 
-def read_bank(machine, sym):
-    """Copy bank C4's first 3K out through the window and read it back.
+def read_tile_bank(machine, sym, n):
+    """The first n bytes of bank C4, copied out where read_ram can see them.
 
-    run_code() only sets PC -- it does not save one -- so the blob ends
-    in a spin rather than a RET and the caller's PC is put back by hand.
+    read_ram() ignores banking and always returns bank 1, so the bytes
+    have to be moved into base RAM by the machine itself. The scratch is
+    &9000 - inside the level staging buffer, which is free once a level
+    has finished loading, and NOT &A000, which is the map.
 
-    It goes back to the TOP of WAIT_VSYNC, not to the address that was
-    interrupted. The spin is "in a,(c)" with BC preloaded by the
-    instruction above it, and the blob leaves BC pointing at the gate
-    array; resuming mid-spin polls the wrong chip and hangs forever.
+    The blob is entered with a JP and its last instruction is a spin
+    rather than a RET, so the caller's PC is put back by hand - to the
+    TOP of WAIT_VSYNC and not to the address that was interrupted. The
+    spin is "in a,(c)" with BC preloaded by the instruction above it,
+    and the blob leaves BC pointing at the gate array; resuming mid-spin
+    polls the wrong chip and hangs forever.
     """
     machine.run_code(0x8000, bytes([
-        0x01, 0xC4, 0x7F, 0xED, 0x49,           # ld bc,&7FC4 : out (c),c
-        0x21, 0x00, 0x40, 0x11, 0x00, 0xA0,     # ld hl,&4000 : ld de,&A000
-        0x01, 0x00, 0x0C, 0xED, 0xB0,           # ld bc,3072  : ldir
-        0x01, 0xC0, 0x7F, 0xED, 0x49,           # ld bc,&7FC0 : out (c),c
-        0x18, 0xFE]))                           # jr $
-    out = machine.read_ram(0xA000, BLOB_LEN)
+        0x01, 0xC4, 0x7F, 0xED, 0x49,                       # ld bc,&7FC4:out
+        0x21, 0x00, 0x40, 0x11, 0x00, 0x90,                 # hl=&4000 de=&9000
+        0x01, n & 0xFF, n >> 8, 0xED, 0xB0,                 # bc=n : ldir
+        0x01, 0xC0, 0x7F, 0xED, 0x49,                       # ld bc,&7FC0:out
+        0x18, 0xFE]))                                       # jr $
+    out = machine.read_ram(0x9000, n)
     machine.set_pc(sym["WAIT_VSYNC"])
     return out
 
@@ -468,8 +474,8 @@ def read_bank(machine, sym):
 def column_sweep(m, sym):
     """DRAW_COLUMN against the address model, over a map with no repeats.
 
-    This goes last because it overwrites bank C4 with a pseudo-random
-    map, and that is the point: the placeholder level is a continuous
+    This goes last because it overwrites the map with a pseudo-random
+    one, and that is the point: the city level is a continuous
     rooftop, so most of its cells hold the same tile and a column that
     reads the WRONG map row still matches. That is exactly how a
     COL_FIRST * 40 written as COL_FIRST * 36 survived - the head starts
@@ -484,7 +490,7 @@ def column_sweep(m, sym):
     screen with noise before every placement, which also makes "nothing
     outside the column was touched" free to check.
     """
-    TILES, MAPA, STUB = 0x4000, 0x4800, 0x9000
+    TILES, MAPA, STUB = 0x4000, MAP_ADDR, 0x9800
 
     def page(cfg):
         m.write_ram(STUB, bytes([0xF3, 0x01, cfg, 0x7F, 0xED, 0x49, 0x18, 0xFE]))
@@ -505,13 +511,15 @@ def column_sweep(m, sym):
             if m.pc == STUB + len(code) - 2:
                 return
 
-    # a map where every cell differs from its neighbours in both axes
-    page(0xC4)
+    # a map where every cell differs from its neighbours in both axes.
+    # The map is base RAM, so it needs no paging; the TILES do.
     rng = random.Random(99)
-    m.write_ram(MAPA, bytes(rng.randrange(16) for _ in range(1024)))
-    tiles = [[m.peek(TILES + t * 128 + i) for i in range(128)] for t in range(16)]
-    mp = [m.peek(MAPA + i) for i in range(1024)]
+    m.write_ram(MAPA, bytes(rng.randrange(N_TILES) for _ in range(MAP_W * MAP_H)))
+    page(0xC4)
+    tiles = [[m.peek(TILES + t * TILE_BYTES + i) for i in range(TILE_BYTES)]
+             for t in range(N_TILES)]
     page(0xC0)
+    mp = [m.peek(MAPA + i) for i in range(MAP_W * MAP_H)]
 
     bad = cases = stray = 0
     for scroll in (0, 1, 39, 40, 512, 1000, 1023):
@@ -529,8 +537,9 @@ def column_sweep(m, sym):
                 written = set()
                 for r in range(first, first + n):
                     wc, wr = wx + col, wcr + r
-                    t = mp[((wr >> 1) & 15) * 64 + ((wc >> 2) & 63)]
-                    off = (wc & 3) * 32 + (16 if wr & 1 else 0)
+                    t = mp[((wr >> 1) & (MAP_H - 1)) * MAP_W
+                           + ((wc >> 1) & (MAP_W - 1))]
+                    off = (wc & 1) * 32 + (16 if wr & 1 else 0)
                     addr = 0xC000 + (((scroll + col + r * 40) * 2) & 0x7FF)
                     for line in range(8):
                         for byte in range(2):
@@ -572,10 +581,15 @@ def main():
           f"WY={machine.peek(sym['KARA_WY'])}")
 
     blobs = load_blobs()
-    tiles = machine.read_ram(sym["CITY_TILES"], TILES_LEN)
+    # The tiles are the LEVEL'S own now, unpacked into bank C4 by
+    # LEVEL_LOAD - and read_ram() ignores banking, so they come from the
+    # exporter's output instead. test_levels.py is what proves the bytes
+    # in the bank are these bytes.
+    tiles = open(os.path.join(ROOT, "build", "levels", "level1_city",
+                              "citytiles.bin"), "rb").read()
     level_map = machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H)
     check("level blob is intact in base RAM",
-          len(set(level_map)) > 1 and max(level_map) < 16,
+          len(set(level_map)) > 1 and max(level_map) < N_TILES,
           f"{len(set(level_map))} distinct tiles, max index {max(level_map)}")
 
     pal = machine.read_ram(sym["PALETTE_DATA"], 16)
@@ -593,9 +607,17 @@ def main():
           f"{work * T_PER_LINE} of {FRAME_T} T")
 
     check("test can sync to the top of a frame", sync_to_frame_top(machine, sym))
-    check("tiles and map reached bank C4",
-          bytes(read_bank(machine, sym)) == bytes(tiles) + bytes(level_map),
-          "3072 bytes compared")
+    # The tiles come off the DISC into C4 now, and the map is installed
+    # into base RAM - two different paths, so two checks.
+    in_bank = bytes(read_tile_bank(machine, sym, len(tiles)))
+    check("the level's own tiles are in bank C4",
+          in_bank == bytes(tiles),
+          f"{sum(1 for a, b in zip(in_bank, tiles) if a != b)} of "
+          f"{len(tiles)} bytes differ")
+    installed = bytes(machine.read_ram(MAP_ADDR, MAP_W * MAP_H))
+    check("the map is installed in base RAM, clear of the staging buffer",
+          installed == bytes(level_map),
+          f"{sum(1 for a, b in zip(installed, level_map) if a != b)} bytes differ")
 
     # ---------------------------------------------------------------
     # 0. Kara's screen column while the camera follows her

@@ -46,20 +46,43 @@
 ; is why the acceptance test compares the RENDERED framebuffer and not
 ; just video RAM.
 ;
-; Tiles and the map are read from bank C4 through the &4000 window,
-; which is what Module 1's banking was built for.
+; Tiles are read from bank C4 through the &4000 window, which is what
+; Module 1's banking was built for. The MAP is in base RAM - see the
+; note by MAP_ADDR.
 ; =====================================================================
 
-TILES_ADDR      equ BANK_WINDOW             ; &4000  16 tiles * 128 bytes
-MAP_ADDR        equ BANK_WINDOW + 2048      ; &4800  64 * 16 bytes
-TILE_BLOB_SIZE  equ 2048 + 1024
+; ---------------------------------------------------------------------
+; A TILE IS 8x16 PIXELS - 4 bytes by 16 lines (CLAUDE.md 8.3). That is
+; the size the art is drawn at, and it is what puts 20 tiles across the
+; 160-pixel display and 11 of them above a 16-line HUD.
+;
+; It covers TWO CRTC character columns and TWO character rows, where the
+; 16x16 tile this replaced covered four and two. Everything below that
+; masks a column or a row is that change.
+;
+; THE TILES LIVE IN BANK C4 AND THE MAP DOES NOT. LEVEL_LOAD unpacks
+; the level's own tile blob to &4000 of C4 (tools/level_banks.py pins it
+; there, like Kara's two facings) - and by the time it has, C4 is full:
+; the city's tiles, her run/roll set, her actions, the pickups and a
+; projectile fill it to &7FC2. So the 2 KB map goes to base RAM, which
+; is where CLAUDE.md 6.2 already said the level's own data would have to
+; live once five banks went to art.
+;
+; &A000 and not &8000: LEVEL_STAGE is &8000 and takes 8 KB while a level
+; is loading, deliberately over the save-under buffers. It must be 2048
+; -aligned, because MAP_CELL builds the address by shifting.
+; ---------------------------------------------------------------------
+TILES_ADDR      equ BANK_WINDOW             ; &4000 in C4, 41 tiles x 64
+MAP_ADDR        equ &A000                   ; base RAM, 128 * 16 bytes
+TILE_BLOB_SIZE  equ 2048                    ; the map alone travels in the
+                                            ; core image now
 
-MAP_W           equ 64
+MAP_W           equ 128
 MAP_H           equ 16
 MAP_COL_MASK    equ MAP_W - 1               ; both dimensions are powers of
 MAP_ROW_MASK    equ MAP_H - 1               ; two, so the map wraps with AND
 
-TILE_BYTES      equ 128                     ; 8 bytes * 16 lines
+TILE_BYTES      equ 64                      ; 4 bytes * 16 lines
 ; ---------------------------------------------------------------------
 ; TILES ARE STORED COLUMN-MAJOR: for each character column of the tile,
 ; all sixteen lines' two bytes, consecutively.
@@ -67,22 +90,17 @@ TILE_BYTES      equ 128                     ; 8 bytes * 16 lines
 ;       offset = char_column * 32 + line * 2 + byte
 ;
 ; Every blitter here paints a character column at a time - 2 bytes a
-; raster for 8 rasters - so in row-major order the source had to step 8
-; bytes a line, which is LD A,L / ADD A,7 / LD L,A. Column-major it is
+; raster for 8 rasters - so in row-major order the source had to step 4
+; bytes a line, which is LD A,L / ADD A,3 / LD L,A. Column-major it is
 ; one INC L: 64 T a raster instead of 76, 2,300 T off a column, and it
-; costs nothing because it is the same 128 bytes in a different order.
+; costs nothing because it is the same 64 bytes in a different order.
 ; ---------------------------------------------------------------------
 TILE_H          equ 16
 TILE_COL_BYTES  equ TILE_H * 2              ; 32 - one character column
 TILE_HALF_BYTES equ 8 * 2                   ; 16 - its lower half, 8 lines on
 
-TILE_W_BYTES    equ 8                       ; a tile line, in screen bytes.
-                                            ; The drawn art is 8x16 = 4
-                                            ; bytes (CLAUDE.md 8.3); the
-                                            ; blitters take their stride
-                                            ; from here so the change is
-                                            ; this constant plus the map
-                                            ; dimensions.
+TILE_W_BYTES    equ 4                       ; a tile line, in screen bytes
+TILE_CHAR_COLS  equ TILE_W_BYTES / 2        ; 2 - CRTC characters across it
 SCR_CHARS       equ 40                      ; R1 - characters across
 SCR_CHAR_ROWS   equ 24                      ; R6 - see EDGE 2 above
 SCR_LINES       equ SCR_CHAR_ROWS * 8       ; 192 displayed scanlines
@@ -121,23 +139,24 @@ SCROLL_INIT:    ld   b,CRTC_R6
                 ld   (SCROLL),hl
                 call SCROLL_APPLY
 
-                call TILES_INSTALL
+                call MAP_INSTALL
                 jp   DRAW_PLAYFIELD
 
 ; ---------------------------------------------------------------------
-; TILES_INSTALL - copy the tile sheet and the map into bank C4.
+; MAP_INSTALL - put the level map where the blitters read it.
 ;
-; The blob travels inside the core image, so the bootstrap's relocation
-; has already put it in base RAM at CITY_TILES - outside the &4000
-; window, which is the only reason a plain LDIR into the window works.
+; IT IS BASE RAM AND NOT A BANK, which is the whole reason this is an
+; LDIR and not a paged copy: bank C4 belongs to the level's art now (see
+; the note by MAP_ADDR), and the tiles are already in it - LEVEL_LOAD
+; unpacked them there. Only the map travels inside the core image, where
+; the bootstrap's relocation has already put it in base RAM.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-TILES_INSTALL:  call BANK_SET_C4
-                ld   hl,CITY_TILES
-                ld   de,TILES_ADDR
-                ld   bc,TILE_BLOB_SIZE
+MAP_INSTALL:    ld   hl,CITY_MAP
+                ld   de,MAP_ADDR
+                ld   bc,MAP_W * MAP_H
                 ldir
-                jp   BANK_RESTORE
+                ret
 
 ; ---------------------------------------------------------------------
 ; SCROLL_APPLY - push SCROLL into R12/R13.
@@ -182,11 +201,11 @@ SCROLL_APPLY:   ld   hl,(SCROLL)
 ; TILE_SRC - locate the two bytes of tile graphics that belong at one
 ; character cell.
 ;
-; A tile is 16x16 = 8 bytes x 16 lines, so it covers 4 character
-; columns and 2 character rows:
+; A tile is 8x16 = 4 bytes x 16 lines, so it covers 2 character columns
+; and 2 character rows:
 ;
-;       map column = (wc >> 2) & 63      byte pair = (wc & 3) * 2
-;       map row    = (wr >> 1) & 15      line pair = (wr & 1) * 64
+;       map column = (wc >> 1) & 127     byte pair = (wc & 1) * 2
+;       map row    = (wr >> 1) & 15      line pair = (wr & 1) * 32
 ;
 ; Both map dimensions being powers of two is what keeps this to a few
 ; rotates - it runs once per cell, 24 times per scrolled column.
@@ -194,32 +213,32 @@ SCROLL_APPLY:   ld   hl,(SCROLL)
 ; IN:  C = world char column, B = world char row   (low bytes suffice:
 ;      the map repeats every 256 char columns and every 32 char rows,
 ;      which IS the wrap we want)
-; OUT: HL = address in bank C4 of the cell's first byte
+; OUT: HL = address of the cell's first byte - the MAP read is base RAM,
+;      the tile read needs bank C4 paged in by the caller
 ; Clobbers AF, DE.  B and C are preserved.
 ; ---------------------------------------------------------------------
 TILE_SRC:       ld   a,b
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
-                rrca
-                rrca                        ; -> (row&3)<<6 | row>>2
+                rrca                        ; -> (row&1)<<7 | row>>1
                 ld   d,a
-                and  &C0
+                and  &80
                 ld   e,a
                 ld   a,c
                 rrca
-                rrca
-                and  &3F                    ; map column 0-63
+                and  &7F                    ; map column 0-127
                 or   e
-                ld   l,a                    ; low  = (row&3)*64 + col
+                ld   l,a                    ; low  = (row&1)*128 + col
                 ld   a,d
-                and  3
-                add  a,MAP_ADDR / 256
-                ld   h,a                    ; high = &48 + row/4
-                ld   a,(hl)                 ; the tile index, 0-15
+                and  7
+                add  a,MAP_ADDR >> 8
+                ld   h,a                    ; high = &A0 + row/2
+                ld   a,(hl)                 ; the tile index
 
-                rrca                        ; -> (tile&1)<<7 | tile>>1
+                rrca                        ; -> (tile&3)<<6 | tile>>2
+                rrca
                 ld   d,a
-                and  &80                    ; (tile & 1) * 128
+                and  &C0                    ; (tile & 3) * 64
                 ld   e,a
                 ld   a,b
                 and  1
@@ -230,15 +249,15 @@ TILE_SRC:       ld   a,b
                 add  a,e
                 ld   e,a
                 ld   a,c
-                and  3
+                and  1
                 rrca
                 rrca
-                rrca                        ; (wc & 3) * 32 - the character
-                add  a,e                    ; column. Max 128+96+16 = 240,
+                rrca                        ; (wc & 1) * 32 - the character
+                add  a,e                    ; column. Max 192+32+16 = 240,
                 ld   l,a                    ; so it still never carries
                 ld   a,d
-                and  7
-                add  a,TILES_ADDR / 256
+                and  &3F
+                add  a,TILES_ADDR >> 8
                 ld   h,a
                 ret
 
@@ -292,7 +311,7 @@ DRAW_CELL:      ld   a,(CELL_WC)
 ; way. See the horizontal scrolling note above H_REQUEST_RIGHT.
 ;
 ; A tile is 16 pixels tall and a character row is 8, so ONE tile covers
-; two character rows. The map column is fixed for the whole column, so
+; two character rows - that part did not change when the tile narrowed. The map column is fixed for the whole column, so
 ; the map lookup is hoisted: the pointer is computed once and advanced
 ; by one map row every second character row. That is 12 lookups for the
 ; column instead of 24, and it is most of the difference between this
@@ -341,15 +360,14 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 ld   hl,COL_SCOL
                 add  a,(hl)                 ; world character column
                 ld   l,a
-                and  3
+                and  1
                 rrca
                 rrca
-                rrca                        ; (wc AND 3) * 32
+                rrca                        ; (wc AND 1) * 32
                 ld   (COL_BOFF + 1),a       ; ... into the fetch below
                 ld   a,l
                 rrca
-                rrca
-                and  &3F                    ; map column 0-63
+                and  &7F                    ; map column 0-127
                 ld   c,a
 
                 ld   a,(WORLD_CR)
@@ -361,14 +379,13 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 ld   a,l
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
-                rrca
-                rrca                        ; -> (row AND 3)<<6 | row>>2
+                rrca                        ; -> (row AND 1)<<7 | row>>1
                 ld   b,a
-                and  &C0
+                and  &80
                 or   c
                 ld   c,a
                 ld   a,b
-                and  3
+                and  7
                 add  a,MAP_ADDR >> 8
                 ld   b,a                    ; BC = map pointer
 
@@ -455,14 +472,14 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 ld   d,a
 
                 ; the pair is done, so the map goes down a row. It is
-                ; 1024 bytes at &4800, so RES 2 folds &4C00 back to
-                ; &4800 - the 16-row wrap, free.
+                ; 2048 bytes at &A000, so RES 3 folds &A800 back to
+                ; &A000 - the 16-row wrap, free.
                 ld   a,c                    ; 4
                 add  a,MAP_W                ; 8
                 ld   c,a                    ; 4
                 jr   nc,.same_page          ; 12/8
                 inc  b                      ; 4
-.same_page:     res  2,b                    ; 8
+.same_page:     res  3,b                    ; 8
                 call COL_FETCH
                 jp   .pair
 
@@ -475,14 +492,15 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
 ; RRCA and two masks, not a multiply.
 ;                                IN: BC = map pointer.  Clobbers AF, HL
 ; ---------------------------------------------------------------------
-COL_FETCH:      ld   a,(bc)                 ; 8   tile index 0-15
-                rrca                        ; 4   -> (t AND 1)<<7 | t>>1
+COL_FETCH:      ld   a,(bc)                 ; 8   tile index
+                rrca                        ; 4   -> (t AND 3)<<6 | t>>2
+                rrca                        ; 4
                 ld   h,a                    ; 4
-                and  &80                    ; 8
-COL_BOFF:       add  a,0                    ; 8   + (wc AND 3)*32, patched by
+                and  &C0                    ; 8   (t AND 3) * 64
+COL_BOFF:       add  a,0                    ; 8   + (wc AND 1)*32, patched by
                 ld   l,a                    ; 4   the setup above
                 ld   a,h                    ; 4
-                and  7                      ; 8
+                and  &3F                    ; 8   t >> 2
                 add  a,TILES_ADDR >> 8      ; 8
                 ld   h,a                    ; 4
                 ret                         ; 12
@@ -528,29 +546,27 @@ DRAW_ROW:       ld   e,a
                 ld   a,(WORLD_X)
                 add  a,e                    ; ... and the world column under it
                 ld   c,a
-                and  3
+                and  1
                 rrca
                 rrca
                 rrca
-                ld   (ROW_BYTEOFF),a        ; (wc AND 3) * 32
+                ld   (ROW_BYTEOFF),a        ; (wc AND 1) * 32
 
-                ; map pointer = MAP_ADDR + (map_row << 6) + map_col
+                ; map pointer = MAP_ADDR + (map_row << 7) + map_col
                 ld   a,c
                 rrca
-                rrca
-                and  &3F                    ; map column 0-63
+                and  &7F                    ; map column 0-127
                 ld   e,a
                 ld   a,(ROW_WR)
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
-                rrca
-                rrca                        ; -> (row AND 3)<<6 | row>>2
+                rrca                        ; -> (row AND 1)<<7 | row>>1
                 ld   d,a
-                and  &C0
+                and  &80
                 or   e
                 ld   l,a
                 ld   a,d
-                and  3
+                and  7
                 add  a,MAP_ADDR >> 8
                 ld   h,a
                 ld   (ROW_MAPPTR),hl
@@ -571,7 +587,7 @@ DRAW_ROW:       ld   e,a
 
                 ld   hl,(ROW_TILEBASE)
                 ld   a,(ROW_BYTEOFF)
-                add  a,l                    ; max 128+16+96, never carries
+                add  a,l                    ; max 192+16+32, never carries
                 ld   l,a
 
                 repeat 8
@@ -591,9 +607,9 @@ DRAW_ROW:       ld   e,a
                 inc  bc                     ; right one character
                 ld   a,(ROW_BYTEOFF)
                 add  a,TILE_COL_BYTES
-                cp   TILE_BYTES             ; 4 character columns of 32
+                cp   TILE_BYTES             ; 2 character columns of 32
                 jr   c,.same_tile           ; still inside this tile
-                call ROW_NEXT_TILE          ; every 4th character column
+                call ROW_NEXT_TILE          ; every 2nd character column
                 xor  a
 .same_tile:     ld   (ROW_BYTEOFF),a
                 ld   hl,ROW_COUNT
@@ -606,16 +622,17 @@ DRAW_ROW:       ld   e,a
 ; line offset folded in.                Clobbers AF, HL
 ; ---------------------------------------------------------------------
 ROW_FETCH:      ld   hl,(ROW_MAPPTR)
-                ld   a,(hl)                 ; tile index 0-15
-                rrca                        ; -> (tile AND 1)<<7 | tile>>1
+                ld   a,(hl)                 ; tile index
+                rrca                        ; -> (tile AND 3)<<6 | tile>>2
+                rrca
                 ld   h,a
-                and  &80
+                and  &C0
                 ld   l,a
                 ld   a,(ROW_LINEOFF)
                 add  a,l
                 ld   l,a
                 ld   a,h
-                and  7
+                and  &3F
                 add  a,TILES_ADDR >> 8
                 ld   h,a
                 ld   (ROW_TILEBASE),hl
@@ -623,17 +640,17 @@ ROW_FETCH:      ld   hl,(ROW_MAPPTR)
 
 ; ---------------------------------------------------------------------
 ; ROW_NEXT_TILE - step the map pointer right one tile, wrapping inside
-; the map row: bits 0-5 of the low byte are the column, bits 6-7 carry
+; the map row: bits 0-6 of the low byte are the column and bit 7 carries
 ; part of the row, so the wrap is a mask rather than a compare.
 ;                                Clobbers AF, DE, HL
 ; ---------------------------------------------------------------------
 ROW_NEXT_TILE:  ld   hl,(ROW_MAPPTR)
                 ld   a,l
                 inc  a
-                and  &3F
+                and  &7F
                 ld   e,a
                 ld   a,l
-                and  &C0
+                and  &80
                 or   e
                 ld   l,a
                 ld   (ROW_MAPPTR),hl
