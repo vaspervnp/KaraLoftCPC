@@ -164,14 +164,25 @@ MAIN_LOOP:      call WAIT_VSYNC
 ; not doing it - see CLAUDE.md 8.2.
 ; =====================================================================
 ; ---------------------------------------------------------------------
-; KARA_Y limits of the erase gate. The beam finishes her last line at
-; 18,432 + 256 (Y + 48) T on the late (72-border) model, and the erase
-; waits for the first interrupt tick at or after that. EQUs, and they
-; sit here because RASM evaluates them eagerly in source order.
+; WHICH OF KARA'S LINES THE ERASE HAS TO WAIT FOR.
+;
+; The erase walks top-down and so does the beam, so whether the first or
+; the last line is the binding one is decided by which of them is
+; faster per line. The raster spends 256 T on a line. Measured:
+;
+;   full-width restore, 8 LDIs a line     241 T a line  - FASTER
+;   clipped restore, per-line overhead    336-466 T     - SLOWER
+;
+; A restore that is faster than the beam starts behind it and closes the
+; gap, so its LAST line is the one that must already have been
+; displayed. A restore that is slower can only fall further behind, so
+; clearing its FIRST line is enough - and that is worth having, because
+; her first line can be 47 lines and 12,000 T earlier than her last.
+;
+; Waiting on the last line in both cases would be safe but would put a
+; clipped erase after tick 6 with 22,000 T of work and only 16,800 T of
+; frame left.
 ; ---------------------------------------------------------------------
-ERASE_TICK4_Y   equ 38                      ; 18,432 + 256 * 86  <= 40,468
-ERASE_TICK5_Y   equ 90                      ; 18,432 + 256 * 138 <= 53,780
-KARA_Y_MAX      equ 142                     ; 18,432 + 256 * 190 <= 67,088
                 ; ... and the erase has to fit between tick 6 and the END
                 ; of the next VSYNC pulse, not its start. SPR_RESTORE is
                 ; 11,628 T, 14,172 when a character row straddles the
@@ -262,22 +273,71 @@ SCROLL_DEMO:    di
 
                 ld   a,MARK_IDLE
                 call BORDER_SET
-                ld   a,(KARA_LAST_Y)        ; the first tick after the beam
-                ld   c,4                    ; has left her last line
-                cp   ERASE_TICK4_Y + 1
-                jr   c,.erase
-                inc  c
-                cp   ERASE_TICK5_Y + 1
-                jr   c,.erase
-                inc  c
-.erase:         call TICK_WAIT
+                ld   hl,(KARA_LAST_ADDR)    ; culled: nothing to wait for
+                ld   a,h
+                or   l
+                jr   z,.erased
+                ld   a,(KARA_CLIP_W)        ; WHICH of her lines binds depends
+                cp   SPR_WIDTH_BYTES        ; on which lane the erase will use
+                ld   a,(KARA_LAST_BOT)      ; - see below
+                jr   z,.gate
+                ld   a,(KARA_LAST_TOP)
+.gate:          call RASTER_WAIT
                 ld   a,MARK_ERASE
                 call BORDER_SET
                 call KARA_ERASE
+.erased:
 
                 ld   hl,FRAME_COUNT
                 inc  (hl)
                 jp   .loop
+
+; ---------------------------------------------------------------------
+; RASTER_WAIT - spin until the beam has FINISHED display line A.
+;
+; The CPC has no raster register, so this is the IM 1 interrupt as an
+; anchor plus a counted delay for the remainder. The interrupts fall at
+; scanlines 2, 54, 106, 158, 210 and 262 after the VSYNC exit - measured,
+; not assumed - and line A is finished at scanline A + 73 on the late
+; (72-border) model. So: wait for the last tick at or before that, then
+; delay the difference at 8 turns of a 32 T loop a scanline.
+;
+; *** ONE OF THESE PER FRAME, AND IT MUST BE THE LAST THING THAT WAITS.
+; The delay can only count from the moment it starts, so a second call
+; with work in between adds its whole remainder on top of that work.
+; That is exactly how the erase came to run 13,600 T late and drop a
+; frame on 12 scrolling frames out of 58. ***
+;
+; Arriving late is otherwise safe: the remainder is counted from a tick
+; that has already gone by, so the answer is only ever later than asked
+; for, never earlier.
+;
+; IN : A = display line 0-191                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+RASTER_WAIT:    add  a,73 - 2               ; scanlines past tick 1 (line 2)
+                ld   c,1
+.tick:          cp   52                     ; one tick is 52 scanlines
+                jr   c,.rem
+                sub  52
+                inc  c
+                jr   .tick
+.rem:           ld   l,a                    ; C = the tick, A = lines past it
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; 8 turns of 32 T = 256 T = a line
+                push hl
+                call TICK_WAIT
+                pop  hl
+                ld   a,h
+                or   l
+                ret  z
+.delay:         dec  hl                     ; 8
+                nop                         ; 4   measured at 28 T without it
+                ld   a,h                    ; 4
+                or   l                      ; 4
+                jr   nz,.delay              ; 12  = 32 T a turn
+                ret
 
 ; ---------------------------------------------------------------------
 ; TICK_WAIT - spin until C interrupt ticks have passed since FRAME_TICK0.
@@ -661,7 +721,19 @@ KARA_FRAME:     db 0
 KARA_FACING:    db 1                    ; 1 = right, 0 = left
 KARA_STEP:      db 0
 KARA_LAST_ADDR: dw 0
-KARA_LAST_Y:    db 0
+KARA_LAST_TOP:  db 0            ; her first and last DRAWN screen lines,
+KARA_LAST_BOT:  db 0            ; which clipping makes different from Y, Y+47
+KARA_SAVE_PTR:  dw 0            ; where in KARA_SAVE the drawn part starts
+KARA_CLIP_W:    db 0            ; the drawn rectangle, so KARA_ERASE can
+KARA_CLIP_H:    db 0            ; replay exactly what KARA_DRAW wrote
+CLIP_SY0:       db 0            ; ... and the working state both lanes use
+CLIP_SX0:       db 0
+CLIP_SLINE:     db 0
+CLIP_OFF:       dw 0
+CLIP_ADDR:      dw 0
+CLIP_SPR:       dw 0
+CLIP_SAVE:      dw 0
+CLIP_STEP:      dw 0
 FIRE_TIMER:     db 0
 DEMO_TIMER:     dw 600                  ; frames of Module 1-3 screen
 DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up

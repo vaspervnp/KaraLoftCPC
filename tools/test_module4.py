@@ -153,7 +153,13 @@ def drive(machine, sym, phase):
         machine.run_frames(20)               # so every later frame scrolls
         return
     machine.joystick(0)                      # the camera must not also step
-    drive.want = 1 if phase == 1 else 2      # while a vertical step is measured
+    machine.poke(sym["V_REQUEST"], 0)        # while a vertical step is measured.
+    drive.want = 1 if phase == 1 else 2      # And clear any request the last
+                                             # phase left: the engine now defers
+                                             # a vertical step while a
+                                             # horizontal one is in flight, so a
+                                             # request can outlive its phase and
+                                             # fire as the wrong direction here.
 
 
 def pump_h(machine, sym):
@@ -207,25 +213,72 @@ def overlay_kara(want, sprites, scroll, kara_x, kara_y, frame):
     Same formula the Z80 uses, so a sprite drawn with the Module 3 flat
     model (or one that mishandles the 2047 seam) will not match.
     """
-    if kara_y >= SCR_LINES:
-        return want                 # culled: KARA_DRAW refuses to draw her
-                                    # off the display, because her addresses
-                                    # would fold back over the picture
+    rect = clip_rect(kara_x, kara_y)
+    if rect is None:
+        return want                 # culled: entirely off the display
+    sy0, height, sline, sx0, width, scol = rect
     base = frame * SPR_FRAME_SIZE
-    cr, raster = divmod(kara_y, 8)
-    v = (2 * scroll + 80 * (cr & 0x1F) + kara_x) & 0x7FF
-    for line in range(SPR_HEIGHT):
-        for b in range(SPR_WIDTH):
-            addr = 0xC000 + (raster << 11) + ((v + b) & 0x7FF)
-            mask = sprites[base + line * 16 + b * 2]
-            data = sprites[base + line * 16 + b * 2 + 1]
+    cr, raster = divmod(sline, 8)
+    v = (2 * scroll + 80 * (cr & 0x1F) + scol) & 0x7FF
+    for i in range(height):
+        for j in range(width):
+            addr = 0xC000 + (raster << 11) + ((v + j) & 0x7FF)
+            off = base + (sy0 + i) * 16 + (sx0 + j) * 2
             if addr in want:
-                want[addr] = (want[addr] & mask) | data
+                want[addr] = (want[addr] & sprites[off]) | sprites[off + 1]
         raster += 1
         if raster == 8:
             raster = 0
             v = (v + 80) & 0x7FF
     return want
+
+
+def first_opaque(sprites, frame, rect):
+    """Screen line of her first line that actually puts pixels down.
+
+    Not the top of her box: lines 0 and 1 of every frame are entirely
+    transparent, so unclipped she first shows two lines down. Clip two
+    or more lines off her top and she shows from the very first one -
+    which is a correct difference, not a drift, and the check would
+    otherwise read it as one.
+    """
+    sy0, height, sline, sx0, width, _ = rect
+    for i in range(height):
+        row = sprites[frame * SPR_FRAME_SIZE + (sy0 + i) * 16:][:16]
+        if any(row[(sx0 + j) * 2] != 0xFF for j in range(width)):
+            return sline + i
+    return sline
+
+
+def clip_rect(kara_x, kara_y):
+    """What KARA_DRAW will actually draw: (sy0, h, screen line, sx0, w, col).
+
+    The same four cases per axis the blitter uses, and the model has to
+    agree with it exactly or the render checks below measure the model.
+    Vertically the world wraps at 256 while the display shows 192, so a
+    screen line of 192-255 is the hidden band - below the bottom and
+    above the top at once. Horizontally nothing wraps: byte 80 of a
+    character row is byte 0 of the next one down, so it is clipped.
+    """
+    if kara_y <= SCR_LINES - SPR_HEIGHT:
+        sy0, height, sline = 0, SPR_HEIGHT, kara_y
+    elif kara_y < SCR_LINES:
+        sy0, height, sline = 0, SCR_LINES - kara_y, kara_y
+    else:
+        skip = (256 - kara_y) & 0xFF
+        if skip >= SPR_HEIGHT:
+            return None
+        sy0, height, sline = skip, SPR_HEIGHT - skip, 0
+    if kara_x <= SCREEN_WIDTH_BYTES - SPR_WIDTH:
+        sx0, width, scol = 0, SPR_WIDTH, kara_x
+    elif kara_x < SCREEN_WIDTH_BYTES:
+        sx0, width, scol = 0, SCREEN_WIDTH_BYTES - kara_x, kara_x
+    else:
+        skip = (256 - kara_x) & 0xFF
+        if skip >= SPR_WIDTH:
+            return None
+        sx0, width, scol = skip, SPR_WIDTH - skip, 0
+    return sy0, height, sline, sx0, width, scol
 
 
 def paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x):
@@ -566,12 +619,19 @@ def main():
             (vstep if phase else pump_h)(machine, sym)
             sync_to_vsync(machine, sym)
             history.append(state(machine, sym))   # mid-step frames included
+        # Kara is drawn at the top of a frame from the position the frame
+        # before worked out, so the frame that ended at sample i showed
+        # sample i's view with sample i-1's Kara. i-2 is allowed as well:
+        # sync_to_vsync searches coarsely and then finely for the instant
+        # after VSYNC and can land a frame further on, which shifts the
+        # whole pairing and has nothing to do with the engine.
         scores = [(render_mismatch(machine,
                                    expected_pens(model(tiles, level_map, sprites, history[i], True,
-                                                       kara_st=history[i - 1]), history[i][0]),
+                                                       kara_st=history[k]), history[i][0]),
                                    pen_to_hw, y0), history[i])
-                  for i in range(max(1, len(history) - 3), len(history))]
-        bad, st = min(scores)
+                  for i in range(max(1, len(history) - 3), len(history))
+                  for k in (i - 1, i - 2) if k >= 0]
+        bad, st = min(scores, key=lambda t: t[0])   # states carry None fields
         print(f"    {name:<14} scroll={st[0]:>4} world=({st[1]:>3},{st[2]:>3}) "
               f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
               f"{bad:>6} wrong pixels  (best of {len(scores)} candidate views)")
@@ -605,11 +665,11 @@ def main():
             rows = [y for y, row in enumerate(bare)
                     if any(fb[(y0 + y) * FB_W + 64 + x * 4] != pen_to_hw[p]
                            for x, p in enumerate(row))]
-            ky = prev[4]                     # the Y she was DRAWN from
-            if ky >= SCR_LINES:              # culled: nothing of her to find
+            rect = clip_rect(prev[3], prev[4])   # the Y she was DRAWN from
+            if rect is None:                     # culled: nothing to find
                 prev = st
                 continue
-            tops.add(rows[0] - ky if rows else None)
+            tops.add(rows[0] - first_opaque(sprites, prev[5], rect) if rows else None)
             prev = st
         seen = sorted(o for o in tops if o is not None)
         print(f"    {name:<14} rendered top minus KARA_Y: {seen}")

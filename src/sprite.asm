@@ -148,6 +148,8 @@ GROUP_LINES:    ld   a,d
 ; IN : HL = frame data (16-byte aligned)
 ;      DE = screen address of the top-left byte (from SCR_ADDR)
 ;      BC = save-under buffer, SPR_SAVE_SIZE bytes
+;      SPR_DRAW_SAVE_N: A = lines, for a sprite clipped by the bottom or
+;      the top edge of the display.
 ; OUT: HL = frame + 768, DE = one scanline past the sprite,
 ;      BC = save + 384
 ;      destroys AF,BC,DE,HL and B',C' (the counters).
@@ -160,8 +162,10 @@ GROUP_LINES:    ld   a,d
 ; Fast byte group 64 T, last byte of a line 68 T, line bookkeeping ~60 T
 ; against 120 for the per-line seam test this replaced.
 ; ---------------------------------------------------------------------
-SPR_DRAW_SAVE:  exx
-                ld   b,SPR_HEIGHT       ; lines remaining
+SPR_DRAW_SAVE:  ld   a,SPR_HEIGHT
+SPR_DRAW_SAVE_N:                        ; A = lines, for a clipped sprite
+                exx
+                ld   b,a                ; lines remaining
                 exx
 
 .group:         call GROUP_LINES        ; C' = lines in this row
@@ -237,10 +241,8 @@ SPR_DRAW_SAVE:  exx
 ; SPR_RESTORE / SPR_RESTORE_N - put the saved background back.
 ;
 ; IN : HL = save-under buffer, DE = screen address (KARA_LAST_ADDR)
-;      SPR_RESTORE_N: B = lines to restore, leaving DE and HL where a
-;      second call would carry on. Nothing needs the partial form today -
-;      see the raster-gate note in main.asm for why splitting the erase
-;      across two waits did not work.
+;      SPR_RESTORE_N: A = lines to restore, for a sprite clipped by the
+;      bottom or top edge of the display.
 ; OUT: HL = save + 8 * lines, DE = one scanline past the last line
 ;      destroys AF,BC,DE,HL and B',C'.  Not reentrant - see SPR_DRAW_SAVE.
 ;      BC is UNDEFINED on exit: LDI counts it down and nothing reads it.
@@ -263,9 +265,8 @@ SPR_DRAW_SAVE:  exx
 ; erase runs after the beam has passed Kara, so it has to fit between
 ; her last line and the next VSYNC - see the schedule in main.asm.
 ; ---------------------------------------------------------------------
-SPR_RESTORE:    ld   b,SPR_HEIGHT
-SPR_RESTORE_N:  ld   a,b
-                exx
+SPR_RESTORE:    ld   a,SPR_HEIGHT
+SPR_RESTORE_N:  exx
                 ld   b,a                ; lines remaining
                 exx
 .group:         call GROUP_LINES        ; A = C' = lines in this row
@@ -344,6 +345,262 @@ SPR_RESTORE_N:  ld   a,b
                 exx
                 or   a
                 jp   nz,.group
+                ret
+
+; =====================================================================
+; CLIPPING
+;
+; The two axes clip for different reasons, and it matters which.
+;
+; VERTICALLY the world wraps at 256 pixels while the display shows 192
+; of them, so a screen line of 192-255 is the 64-pixel band that is not
+; displayed - which in a wrapping world is below the bottom and above
+; the top at the same time. Three cases follow from that, and they are
+; exhaustive:
+;
+;   Y <=      144   all 48 lines fit
+;   Y = 145..191    her feet run past line 191, where the words go into
+;                   the 64-word margin and then fold onto the TOP of the
+;                   picture. Draw 192 - Y lines.
+;   Y = 192..208    entirely inside the hidden band. Draw nothing.
+;   Y = 209..255    she is 256 - Y pixels above line 0 and the rest of
+;                   her shows. Skip those lines of the SPRITE and draw
+;                   from screen line 0.
+;
+; HORIZONTALLY nothing wraps - the artifact is pure video RAM. Screen
+; byte 80 of character row cr is the same word as byte 0 of row cr+1,
+; so a byte past the right edge draws at the LEFT edge one row down:
+;
+;   X <=       72   all 8 bytes fit
+;   X =  73..79    draw 80 - X bytes
+;   X =  80..248   entirely off. Draw nothing.
+;   X = 249..255   she is 256 - X bytes off the left; skip those bytes
+;                  of the SPRITE and draw from screen byte 0.
+;
+; The save-under buffer keeps its 8-bytes-by-48-lines layout whatever is
+; clipped, so the offset of a byte in it is always line * 8 + byte and
+; only the parts that were drawn are ever saved or put back. KARA_ERASE
+; replays the same rectangle out of (KARA_CLIP_W) and (KARA_CLIP_H).
+;
+; A sprite clipped only in Y - the common case, because the camera holds
+; her X inside 16..56 and only the level's horizontal limits let that
+; go - still uses the FAST lane with a shorter line count. Only a
+; horizontally clipped one pays for the general lane below.
+; =====================================================================
+
+; ---------------------------------------------------------------------
+; THE COUNT IS THE ENTRY POINT. Both lanes below blit a run of
+; (KARA_CLIP_W) bytes out of an unrolled block of eight identical byte
+; groups, entered at group 8 - W. The groups carry no index - they just
+; step three pointers - so where you jump in decides only HOW MANY run,
+; and the pointers you jump in with decide WHICH bytes. A run clipped
+; off the left and one clipped off the right are the same code.
+;
+; That is what keeps a clipped sprite affordable: 64 T a byte in the
+; draw and 20 in the restore, the same as the unclipped lanes, against
+; the 128 T of a counted loop with a wrap-aware step on every byte.
+;
+; The line start is kept in memory rather than stepped, because after a
+; short row DE is not 8 bytes on and the fast lane's +&07F8 would be
+; wrong. ~264 T a line of overhead, paid at a screen edge only.
+;
+; WHY THE BUDGET SURVIVES IT. Horizontal clipping and horizontal
+; scrolling cannot happen in the same frame. She is only ever past
+; screen byte 72, or before byte 0, when CAMERA_DECIDE has refused to
+; step - which it only does at the level's horizontal limit. So the
+; frame that pays 34,000 T for a 7-byte-wide draw is also the frame
+; that pays nothing for an incoming column.
+; ---------------------------------------------------------------------
+; IN : A = bytes in one group, C = W.   OUT: A = (8 - W) * group size
+;      destroys AF,B,C - C IN PARTICULAR, which is where W came from
+SPR_CLIP_ENTRY:
+                ld   b,a
+                ld   a,SPR_WIDTH_BYTES
+                sub  c                  ; groups to skip = 8 - W
+                jr   z,.at_zero
+                ld   c,a
+                xor  a
+.mul:           add  a,b                ; * the group's size in bytes
+                dec  c
+                jr   nz,.mul
+.at_zero:       ret
+
+; ---------------------------------------------------------------------
+; SPR_DRAW_CLIP - (KARA_CLIP_W) bytes on each of (KARA_CLIP_H) lines.
+;   SCREEN = (SCREEN AND MASK) OR DATA, saving what was underneath.
+;
+; IN : HL = frame data at the first drawn byte of the first drawn line
+;      DE = its screen address, BC = its slot in the save buffer
+;      destroys AF,BC,DE,HL,B',C'
+; ---------------------------------------------------------------------
+SPR_DRAW_CLIP:  push bc                 ; SPR_CLIP_ENTRY wants B and C
+                push hl
+                push de
+                ld   a,(KARA_CLIP_W)
+                ld   c,a
+                ld   a,.group_size
+                call SPR_CLIP_ENTRY
+                ld   hl,.run
+                add  a,l
+                ld   l,a
+                jr   nc,.entry_ok       ; the block is 72 bytes and may well
+                inc  h                  ; straddle a page
+.entry_ok:      ld   (.enter + 1),hl    ; SELF-MODIFIED, once per sprite. So
+                                        ; are the two line deltas below: none
+                                        ; of the three can change inside one
+                                        ; call, and reloading them on all 48
+                                        ; lines costs more than the blit
+                ld   a,(KARA_CLIP_W)
+                add  a,a
+                ld   b,a
+                ld   a,SPR_WIDTH_BYTES * 2
+                sub  b
+                ld   (.spr_delta),a     ; 16 - 2W: a whole sprite line, less
+                ld   a,(KARA_CLIP_W)    ; what the run already walked
+                ld   b,a
+                ld   a,SPR_WIDTH_BYTES
+                sub  b
+                ld   (.sav_delta),a     ; 8 - W: the same for the save buffer
+                ld   a,(KARA_CLIP_H)
+                exx
+                ld   b,a
+                exx
+                pop  de                 ; screen, sprite and save now stay in
+                pop  hl                 ; registers for the whole sprite
+                pop  bc
+
+.line:          ld   (CLIP_ADDR),de     ; the line start, for .tail
+                ld   a,d                ; a line that would fold back over the
+                or   &F8                ; end of the raster block goes to the
+                inc  a                  ; wrap-aware lane, exactly as the
+                jr   nz,.enter          ; unclipped blitter does
+                ld   a,e
+                cp   SPR_SEAM_LO
+                jr   nc,.slow
+.enter:         jp   .run               ; ... W groups from its end
+.run:           repeat SPR_WIDTH_BYTES - 1
+                ld   a,(de)             ; 8
+                ld   (bc),a             ; 8
+                and  (hl)               ; 8
+                inc  l                  ; 4   a sprite line is 16 bytes and
+                or   (hl)               ; 8   16-byte aligned, so it never
+                inc  l                  ; 4   crosses a page: INC L is enough
+                ld   (de),a             ; 8
+                inc  de                 ; 8   v <= 2039 on this lane
+                inc  bc                 ; 8
+                rend                    ;     64 T a byte
+                ld   a,(de)             ; The eighth group is the sixteenth
+                ld   (bc),a             ; increment, which lands on the NEXT
+                and  (hl)               ; sprite line - and that one CAN cross
+                inc  l                  ; a page, so it has to be INC HL.
+                or   (hl)               ; A run clipped off the LEFT always
+                inc  hl                 ; ends here, which is how the left
+                ld   (de),a             ; clip came to lose two bytes of every
+                inc  de                 ; line whose sprite data sat at xxF0.
+                inc  bc                 ; Same nine bytes, so the entry
+                jr   .tail              ; arithmetic below is unchanged.
+.group_size     equ 9                   ; the nine bytes of one group above
+
+.slow:          ld   a,(KARA_CLIP_W)
+                exx
+                ld   c,a
+                exx
+.slow_byte:     ld   a,(de)
+                ld   (bc),a
+                and  (hl)
+                inc  hl
+                or   (hl)
+                inc  hl
+                ld   (de),a
+                inc  bc
+                call SPR_STEP_BYTE      ; the fold, one byte at a time
+                exx
+                dec  c
+                exx
+                jr   nz,.slow_byte
+
+.tail:          ld   a,l                ; both lanes leave HL 2W on and BC W
+.spr_delta      equ $ + 1               ; on, so the same two deltas finish
+                add  a,0                ; the line either way
+                ld   l,a
+                jr   nc,.spr_ok
+                inc  h
+.spr_ok:        ld   a,c
+.sav_delta      equ $ + 1
+                add  a,0
+                ld   c,a
+                jr   nc,.sav_ok
+                inc  b
+.sav_ok:        ld   de,(CLIP_ADDR)
+                call SCR_NEXT_LINE
+                exx
+                dec  b
+                exx
+                jp   nz,.line           ; JP: the unrolled block is in the way
+                ret
+
+; ---------------------------------------------------------------------
+; SPR_RESTORE_CLIP - the same rectangle, put back. One LDI a byte.
+; IN : HL = save buffer at the first drawn byte, DE = its screen address
+;      destroys AF,BC,DE,HL,B',C'
+; ---------------------------------------------------------------------
+SPR_RESTORE_CLIP:
+                ld   (CLIP_ADDR),de
+                ld   a,(KARA_CLIP_W)
+                ld   c,a
+                ld   a,.group_size
+                call SPR_CLIP_ENTRY
+                ld   de,.run
+                add  a,e
+                ld   e,a
+                jr   nc,.entry_ok
+                inc  d
+.entry_ok:      ld   (.enter + 1),de    ; self-modified, once - see the draw
+                ld   a,(KARA_CLIP_W)    ; W again from memory, NOT from C:
+                ld   c,a                ; SPR_CLIP_ENTRY counts the multiply
+                ld   a,SPR_WIDTH_BYTES  ; down in C and leaves it zero
+                sub  c                  ; 8 - W: what the save pointer needs
+                ld   c,a                ; after a short run to reach the next
+                ld   b,0                ; line. Kept in memory and reloaded per
+                ld   (CLIP_STEP),bc     ; line because LDI counts BC DOWN - it
+                                        ; is its own counter as well as a move
+                ld   a,(KARA_CLIP_H)
+                exx
+                ld   b,a
+                exx
+
+.line:          ld   de,(CLIP_ADDR)     ; HL = this line in the save buffer
+                ld   a,d
+                or   &F8
+                inc  a
+                jr   nz,.enter
+                ld   a,e
+                cp   SPR_SEAM_LO
+                jr   nc,.slow
+.enter:         jp   .run               ; W LDIs from its end
+.run:           repeat SPR_WIDTH_BYTES
+                ldi                     ; 20  BC is only LDI's own counter here
+                rend
+                jr   .tail
+.group_size     equ 2                   ; LDI is two bytes
+
+.slow:          ld   a,(KARA_CLIP_W)    ; the fold, one byte at a time
+                ld   b,a
+.slow_byte:     ld   a,(hl)
+                ld   (de),a
+                inc  hl
+                call SPR_STEP_BYTE
+                djnz .slow_byte
+
+.tail:          ld   bc,(CLIP_STEP)     ; back to the start of the run, then on
+                add  hl,bc              ; by a whole save line
+                ld   de,(CLIP_ADDR)
+                call SCR_NEXT_LINE
+                ld   (CLIP_ADDR),de
+                exx
+                dec  b
+                exx
+                jp   nz,.line
                 ret
 
 ; ---------------------------------------------------------------------
@@ -456,8 +713,10 @@ SPR_STEP_BYTE:  inc  e                  ; 4
 ; KARA_DRAW - the player sprite.
 ;
 ; IN : none.  Reads KARA_X, KARA_Y, KARA_FRAME, SCROLL.
-; OUT: KARA_LAST_ADDR = the absolute address she was drawn at,
-;      KARA_LAST_Y = the screen line, for the erase gate.
+; OUT: KARA_LAST_ADDR = the absolute address she was drawn at, or 0 if
+;      she was culled; KARA_LAST_BOT = her last drawn screen line, for
+;      the erase gate; KARA_CLIP_W / KARA_CLIP_H / KARA_SAVE_PTR = the
+;      rectangle, for KARA_ERASE to replay.
 ;      destroys AF,BC,DE,HL,B',C'.
 ;
 ; KARA_LAST_ADDR is an ABSOLUTE RAM address and stays valid across a
@@ -466,46 +725,110 @@ SPR_STEP_BYTE:  inc  e                  ; 4
 ; her, which the camera's edge margins rule out (CAM_RIGHT_EDGE + 8
 ; bytes leaves 7 characters to the incoming column).
 ; ---------------------------------------------------------------------
-KARA_DRAW:      ld   a,(KARA_Y)
-                cp   SCR_CHAR_ROWS * 8  ; entirely off the display?
-                jr   c,.on_screen
-                ld   hl,0               ; ... then do not draw her at all, and
-                ld   (KARA_LAST_ADDR),hl ; tell the erase there is nothing to
-                ret                     ; put back
-                ; Not an optimisation - a correctness fix. Her Y is an
-                ; unsigned screen line and the camera can carry her off
-                ; either edge during a vertical scroll, which wraps it to
-                ; 192-255. Drawn there, her 48 lines run past the 24
-                ; displayed character rows, through the 64-word margin,
-                ; and fold back over the TOP of the screen - and because
-                ; the fold can land two of her own lines on one address,
-                ; the save-under holds the first line's output as the
-                ; second one's background and the erase leaves her debris
-                ; behind. Measured: 32 to 56 bytes of video RAM left wrong
-                ; per frame, accumulating, with her at Y = 196..244.
-                ;
-                ; STILL MISSING: clipping. A sprite that is PARTLY off the
-                ; bottom still writes into the margin and, past character
-                ; row 23, folds onto the top of the picture. The camera
-                ; keeps her away from both edges today; levels 3 and 4
-                ; will not, so Module 6 needs a real clip.
-.on_screen:     ld   (KARA_LAST_Y),a    ; the erase gate needs the line she
-                ld   b,a                ; is ON
-                ld   a,(KARA_X)
-                ld   c,a
+KARA_DRAW:      ; ---- vertical: how much of her is on the display ----
+                xor  a
+                ld   (CLIP_SY0),a
+                ld   a,SPR_HEIGHT
+                ld   (KARA_CLIP_H),a
+                ld   a,(KARA_Y)
+                cp   SCR_LINES - SPR_HEIGHT + 1
+                jr   c,.v_done                  ; 0..144: all of her fits
+                cp   SCR_LINES
+                jr   c,.v_bottom                ; 145..191: her feet run off
+                neg                             ; 192..255: she is 256 - Y
+                cp   SPR_HEIGHT                 ; pixels above line 0
+                jp   nc,.cull                   ; ... by more than her height
+                ld   (CLIP_SY0),a
+                ld   b,a
+                ld   a,SPR_HEIGHT
+                sub  b
+                ld   (KARA_CLIP_H),a
+                xor  a                          ; drawn from screen line 0
+                jr   .v_done
+.v_bottom:      ld   b,a
+                ld   a,SCR_LINES
+                sub  b
+                ld   (KARA_CLIP_H),a
                 ld   a,b
-                call SCR_ADDR           ; HL = top-left, under SCROLL
+.v_done:        ld   (CLIP_SLINE),a
+
+                ; ---- horizontal: same question, different answer ----
+                xor  a
+                ld   (CLIP_SX0),a
+                ld   a,SPR_WIDTH_BYTES
+                ld   (KARA_CLIP_W),a
+                ld   a,(KARA_X)
+                cp   SCREEN_WIDTH_BYTES - SPR_WIDTH_BYTES + 1
+                jr   c,.h_done                  ; 0..72: all of her fits
+                cp   SCREEN_WIDTH_BYTES
+                jr   c,.h_right                 ; 73..79: her right runs off
+                neg                             ; 80..255: off to the left by
+                cp   SPR_WIDTH_BYTES            ; 256 - X bytes, or gone
+                jp   nc,.cull
+                ld   (CLIP_SX0),a
+                ld   b,a
+                ld   a,SPR_WIDTH_BYTES
+                sub  b
+                ld   (KARA_CLIP_W),a
+                xor  a                          ; drawn from screen byte 0
+                jr   .h_done
+.h_right:       ld   b,a
+                ld   a,SCREEN_WIDTH_BYTES
+                sub  b
+                ld   (KARA_CLIP_W),a
+                ld   a,b
+.h_done:        ld   c,a                        ; C = screen byte column
+
+                ; ---- where she lands, and what the erase gate needs ----
+                ld   a,(CLIP_SLINE)
+                call SCR_ADDR                   ; HL = top-left; C preserved
                 ld   (KARA_LAST_ADDR),hl
-                ex   de,hl              ; DE = screen
+                ld   a,(CLIP_SLINE)
+                ld   (KARA_LAST_TOP),a
+                ld   b,a
+                ld   a,(KARA_CLIP_H)
+                add  a,b
+                dec  a
+                ld   (KARA_LAST_BOT),a          ; her last DRAWN screen line
+
+                ; ---- move both pointers past whatever was clipped off ----
+                ld   a,(CLIP_SY0)               ; offset = SY0 * 8 + SX0, and
+                ld   l,a                        ; the sprite's is twice it
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl
+                ld   a,(CLIP_SX0)
+                add  a,l
+                ld   l,a
+                jr   nc,.off_done
+                inc  h
+.off_done:      ld   (CLIP_OFF),hl
+                ld   de,KARA_SAVE
+                add  hl,de
+                ld   (KARA_SAVE_PTR),hl
                 ld   a,(KARA_FRAME)
-                call KARA_FRAME_PTR     ; HL = frame data; scratches BC, NOT DE
-                ld   bc,KARA_SAVE
-                jp   SPR_DRAW_SAVE
+                call KARA_FRAME_PTR             ; HL = frame; scratches BC
+                ld   de,(CLIP_OFF)
+                add  hl,de                      ; mask and data interleaved, so
+                add  hl,de                      ; two bytes per sprite byte
+                ld   de,(KARA_LAST_ADDR)
+                ld   bc,(KARA_SAVE_PTR)
+
+                ld   a,(KARA_CLIP_W)            ; full width? then the fast
+                cp   SPR_WIDTH_BYTES            ; lane, however few lines
+                ld   a,(KARA_CLIP_H)
+                jp   nz,SPR_DRAW_CLIP
+                jp   SPR_DRAW_SAVE_N
+
+.cull:          ld   hl,0                       ; nothing of her is on screen
+                ld   (KARA_LAST_ADDR),hl        ; - tell the erase so
+                ret
 
 ; ---------------------------------------------------------------------
 ; KARA_ERASE - put the background back.
 ;
-; IN : none.  Reads KARA_LAST_ADDR.
+; IN : none.  Reads KARA_LAST_ADDR, KARA_SAVE_PTR, KARA_CLIP_W/H.
 ;      destroys AF,BC,DE,HL,B',C'.  BC is clobbered by SPR_RESTORE's
 ;      "ld bc,SPR_SAVE_SIZE", not by anything visible here.
 ;
@@ -517,9 +840,13 @@ KARA_DRAW:      ld   a,(KARA_Y)
 KARA_ERASE:     ld   de,(KARA_LAST_ADDR)
                 ld   a,d
                 or   e
-                ret  z                  ; nothing drawn yet
-                ld   hl,KARA_SAVE
-                jp   SPR_RESTORE
+                ret  z                  ; nothing drawn - culled, or no frame
+                ld   hl,(KARA_SAVE_PTR) ; has run yet
+                ld   a,(KARA_CLIP_W)    ; the same rectangle the draw used,
+                cp   SPR_WIDTH_BYTES    ; down to the lane it used
+                ld   a,(KARA_CLIP_H)
+                jp   nz,SPR_RESTORE_CLIP
+                jp   SPR_RESTORE_N
 
 ; IN: A = frame index   OUT: HL = frame data     destroys AF,BC
 ;

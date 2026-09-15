@@ -62,6 +62,7 @@ MAP_ROW_MASK    equ MAP_H - 1               ; two, so the map wraps with AND
 TILE_BYTES      equ 128                     ; 8 bytes * 16 lines
 SCR_CHARS       equ 40                      ; R1 - characters across
 SCR_CHAR_ROWS   equ 24                      ; R6 - see EDGE 2 above
+SCR_LINES       equ SCR_CHAR_ROWS * 8       ; 192 displayed scanlines
 SCR_WORDS       equ SCR_CHARS * SCR_CHAR_ROWS
 CRTC_PAGE       equ &30                     ; MA bits 12-13: page &C000
 
@@ -841,10 +842,17 @@ SCROLL_SERVICE: ld   a,(V_PHASE)
                 ; and 4 drive this from the player's climb or descent; for
                 ; now it is how a test asks for vertical motion without
                 ; hijacking the PC.
-.idle:          ld   a,(V_REQUEST)
-                or   a
-                ret  z
-                dec  a                      ; 1 -> down (A=0), 2 -> up (A=1)
+.idle:          ld   a,(H_PENDING)          ; the other half of the guard in
+                or   a                      ; CAMERA_DECIDE: a horizontal step
+                ret  nz                     ; in flight holds a start address
+                ld   a,(H_TAIL_DUE)         ; worked out before this one, and
+                or   a                      ; committing both in one frame
+                ret  nz                     ; loses whichever went first
+                ld   a,(V_REQUEST)          ; ... and the direction is read
+                or   a                      ; AFTER those, not before: the
+                ret  z                      ; guards land in A too, and a DEC A
+                dec  a                      ; on the wrong one made every step
+                                            ; go up.  1 -> down (A=0), 2 -> up
                 ld   b,a
                 xor  a
                 ld   (V_REQUEST),a

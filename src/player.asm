@@ -40,6 +40,7 @@ P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
                                 ; destination-only probe is only exact
                                 ; while a single step cannot skip a tile
 P_JUMP          equ -8          ; rises 8+7+...+1 = 36 px, about 2.2 tiles
+WORLD_W         equ MAP_W * 8   ; the map in BYTES: 64 tiles of 8
 
 ; ---------------------------------------------------------------------
 ; PLAYER_UPDATE - one frame of movement.
@@ -98,7 +99,23 @@ PLAYER_X:       ld   a,(INPUT_NOW)
 .step_r:        ld   d,0
                 ld   hl,(KARA_WX)
                 add  hl,de                  ; the proposed position
-                push hl
+                ld   de,WORLD_W - SPR_WIDTH_BYTES
+                or   a
+                sbc  hl,de                  ; past the world's right edge?
+                add  hl,de
+                jr   c,.probe_r
+                ex   de,hl                  ; ... then stop exactly on it
+                ; The bound is on her SPRITE, not her collision box, and
+                ; that is what keeps her whole on screen. WORLD_X stops at
+                ; 216 characters = 432 bytes, so a KARA_WX of 504 is screen
+                ; byte 72 and her eighth byte is the last one the display
+                ; has. A box-width bound would let her reach byte 76, where
+                ; the blitter has to clip - which is correct (see
+                ; sprite.asm) but costs 34,412 T against 30,624, and a
+                ; 48-line sprite that slow loses the raster from screen
+                ; line 28 upward. Stopping her four bytes earlier is eight
+                ; pixels of level nobody can see the edge of.
+.probe_r:       push hl
                 ld   de,KARA_BOX_W - 1
                 add  hl,de                  ; ... and its leading edge
                 ld   a,(KARA_WY)
@@ -125,7 +142,17 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   hl,(KARA_WX)
                 or   a
                 sbc  hl,de                  ; the proposed position IS the
-                ld   a,(KARA_WY)            ; leading edge
+                jr   nc,.probe_l            ; leading edge
+                ld   hl,0                   ; ... and 0 is as far as it goes.
+                                            ; Without this she walks off the
+                                            ; left of the world: KARA_WX wraps
+                                            ; to 65535, PLAYER_SCREEN_X reads a
+                                            ; huge column, and CAMERA_DECIDE
+                                            ; then scrolls RIGHT while she walks
+                                            ; left. The map wraps with an AND,
+                                            ; so there is no edge tile to stop
+                                            ; her - the bound has to be here.
+.probe_l:       ld   a,(KARA_WY)
                 push hl
                 call BOX_SOLID_H
                 pop  hl
@@ -251,12 +278,23 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
 ; given the new address at the next VSYNC (H_COMMIT). So the frame that
 ; shows the step also shows Kara drawn from PLAYER_TO_SCREEN below,
 ; which resolves her against that same pending view.
+;
+; It refuses while a vertical step is in flight. Both axes hold a
+; PENDING start address worked out from the one on screen when the step
+; was asked for, and a step on the other axis in between makes that
+; stale by a whole character row: the view jumps 40 words while the map
+; cursor does not, and the picture and the tilemap disagree from then
+; on. No level scrolls both ways (CLAUDE.md 8.1), so the guard costs a
+; frame of delay in a case the game never reaches.
 ;                                destroys AF,HL
 ; ---------------------------------------------------------------------
 CAM_LEFT_EDGE   equ 16          ; screen byte columns
 CAM_RIGHT_EDGE  equ 56
 
-CAMERA_DECIDE:  call PLAYER_SCREEN_X        ; A = screen byte column
+CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
+                or   a                      ; SCROLL_SERVICE in tilemap.asm
+                ret  nz
+                call PLAYER_SCREEN_X        ; A = screen byte column
                 cp   CAM_RIGHT_EDGE
                 jr   c,.check_left
                 ld   a,(WORLD_X)
