@@ -1,0 +1,81 @@
+; =====================================================================
+; unpack.asm - ZX0 into a bank                                 (MODULE 5)
+;
+; Every level's art is a handful of BANK IMAGES: the blobs laid out at
+; fixed addresses inside one 16 KB bank, the whole bank ZX0-packed as a
+; single stream. tools/level_banks.py builds them and writes
+; build/levels/banks.inc, which says which bank and which address each
+; blob ended up at.
+;
+; That makes loading a level three steps per bank - read the file into
+; the staging buffer, page the bank in, unpack - with no directory to
+; walk and no addresses to fix up. It also compresses better than
+; packing each blob on its own, because ZX0 sees the repeats ACROSS
+; blobs (two facings of the same character share most of their bytes)
+; and because the unused tail of a bank is zeros.
+;
+; ZX0 was picked on measurement, not reputation: best ratio AND fastest
+; depacker of the nine RASM ships, each run on a 6128 and compared byte
+; for byte. See CLAUDE.md 7.4 and tools/pack.py.
+;
+; THE STAGING BUFFER MUST NOT BE IN THE WINDOW. The unpacker reads from
+; HL and writes to &4000-&7FFF, which is the bank it just paged in, so
+; the packed stream has to sit in base RAM - &8000 upward, where the
+; save-under buffers live and where nothing is being drawn during a
+; level change.
+; =====================================================================
+
+LEVEL_STAGE     equ &8000       ; the packed stream lands here; the
+                                ; biggest measured is 4,695 bytes and
+                                ; &8000-&9FFF holds 8,192
+LEVEL_STAGE_MAX equ &2000
+
+; ---------------------------------------------------------------------
+; UNPACK_BANK - page a bank in and fill it from a packed stream.
+;
+; IN : A  = RAM configuration, &C0 or &C4-&C7 (see CLAUDE.md 6.2)
+;      HL = the packed stream, anywhere OUTSIDE &4000-&7FFF
+; OUT: the bank holds the unpacked image and is left paged in
+;      destroys AF,BC,DE,HL,AF',BC',DE',HL',IX
+;
+; About 49 T a byte of OUTPUT, so a full 16 KB bank is ~800,000 T -
+; ten frames. A level is four or five of those.
+; ---------------------------------------------------------------------
+UNPACK_BANK:    ld   c,a
+                ld   b,&7F              ; the gate array's RAM select
+                out  (c),c
+                ld   de,&4000
+                ; falls into the depacker, which ends in RET
+
+                include "vendor/dzx0_fast.asm"
+                DecompressZX0
+
+; ---------------------------------------------------------------------
+; UNPACK_LIST - unpack a whole level from a table already in RAM.
+;
+; IN : HL = table of  { db config : dw packed stream }  ending in db 0
+;      destroys everything UNPACK_BANK does
+;
+; Used by the tests and by any path that has the streams resident. The
+; disc path reads one file at a time into LEVEL_STAGE and calls
+; UNPACK_BANK directly, because a level's packed data is ~17 KB and the
+; staging buffer is 8 KB.
+; ---------------------------------------------------------------------
+UNPACK_LIST:    ld   a,(hl)
+                inc  hl
+                or   a
+                ret  z
+                ld   (UNPACK_CFG),a
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)
+                inc  hl
+                ld   (UNPACK_NEXT),hl
+                ex   de,hl
+                ld   a,(UNPACK_CFG)
+                call UNPACK_BANK
+                ld   hl,(UNPACK_NEXT)
+                jr   UNPACK_LIST
+
+UNPACK_CFG:     db 0
+UNPACK_NEXT:    dw 0

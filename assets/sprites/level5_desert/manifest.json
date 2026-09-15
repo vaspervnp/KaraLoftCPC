@@ -1,0 +1,137 @@
+{
+  "level": "level5_desert",
+  "sheets": [
+    {
+      "name": "desert_tiles",
+      "file": "out/frames_desert_tiles.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "bg": 3,
+        "bg_far": 4,
+        "ground": 2,
+        "platform": 4,
+        "hazard": 1,
+        "deco": 3,
+        "pillar": 2,
+        "sign": 2,
+        "tent": 4,
+        "palm": 5,
+        "oasis": 6,
+        "base": 5
+      },
+      "anchor": "tile grid cell (top-left)",
+      "tile_names": [
+        "sky_deep",
+        "sky_pale",
+        "sky_haze",
+        "far_plain",
+        "far_mesa_l",
+        "far_mesa_r",
+        "far_sand",
+        "sand_top",
+        "sand_fill",
+        "rock_l",
+        "rock_m",
+        "rock_r",
+        "rock_fill",
+        "quicksand",
+        "cactus_top",
+        "cactus_bot",
+        "bones",
+        "pillar_top",
+        "pillar_shaft",
+        "sign",
+        "fence",
+        "tent_top",
+        "tent_l",
+        "tent_m",
+        "tent_r",
+        "palm_l",
+        "palm_m",
+        "palm_r",
+        "palm_trunk_hz",
+        "palm_trunk",
+        "pool_l",
+        "pool_m",
+        "pool_r",
+        "pool_deep",
+        "siphon_top",
+        "siphon",
+        "roof_l",
+        "roof_m",
+        "roof_r",
+        "base_wall",
+        "door"
+      ],
+      "description": "Opaque 8x16 desert tileset, seamless left/right. bg: sky bands (flat SKY, 1/2 and 3/4 PCYAN line-dither); bg_far: horizon haze with distant dunes, 2-tile pink mesa, dark khaki far sand; ground: sand top with lip + fill; platform: sandstone ledge l/m/r + rock_fill; hazard: static quicksand; deco: saguaro (2 tall), cow skull; pillar: broken column top (standable) + stackable shaft; sign: restricted-area board, chain-link fence with barbed wire; tent: nomad pavilion (peak + 3-wide skirt); palm: 3-wide crown, trunk on horizon band, trunk on far sand; oasis: pool banks l/r, surface, deep water, 2-tile flooded cave mouth (the siphon outlet); base: sand-buried concrete lintel l/m/r, hazard-striped jamb, sectional blast door (closed variant, 4x4 block)."
+    },
+    {
+      "name": "desert_quicksand",
+      "file": "out/frames_desert_quicksand.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "churn": 4
+      },
+      "anchor": "tile grid cell; replaces 'quicksand' in the ground-top row",
+      "description": "Animated quicksand surface: funnel chevrons sink 2 rows/frame, grains slide into the centre dip. Seamless left/right, loops cleanly, 140 ms/frame. Frame 0 == static tile."
+    },
+    {
+      "name": "desert_coin",
+      "file": "out/frames_desert_coin.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "spin": 4
+      },
+      "anchor": "centred (coin body cols 1-6, rows 2-13)",
+      "description": "Gold coin pickup, black outline, 4-frame spin (face, narrow, edge, narrow mirrored), 110 ms/frame."
+    },
+    {
+      "name": "desert_basedoor",
+      "file": "out/frames_desert_basedoor.txt",
+      "kind": "sprites",
+      "size": [
+        32,
+        64
+      ],
+      "tags": {
+        "open": 4
+      },
+      "anchor": "top-left exactly on the 4x4 'door' tile block",
+      "description": "Bunker blast door rolling up: frame 0 = closed (identical to the tiles), 1-2 rising, 3 open (lit corridor, shutter edge still visible under the lintel). One-shot, 150 ms/frame, hold frame 3. The outer 1-px ring is transparent on purpose: the door tiles' dark frame shows through, so the sprite never needs to redraw the jambs."
+    },
+    {
+      "name": "desert_shuttle",
+      "file": "out/frames_desert_shuttle.txt",
+      "kind": "sprites",
+      "size": [
+        48,
+        96
+      ],
+      "tags": {
+        "idle": 2,
+        "launch": 4
+      },
+      "anchor": "bottom-anchored: row 95 (pad underside) = ground line (sits on top of the sand_top row, like the walkers' feet)",
+      "description": "Illuminati spacecraft on its launch pad with service gantry. idle: 2 frames x 400 ms (beacon / strobes / pad lamps alternate). launch: 4 frames - 1 ignition + first smoke, 2 flame + smoke spreading, 3-4 full thrust with billowing smoke (play 1-2 once, then loop 3-4). Gantry boarding arm is retracted in launch frames."
+    }
+  ],
+  "mockups": [
+    "out/mockup_desert.png",
+    "out/mockup_desert_oasis.png",
+    "out/mockup_desert_base.png",
+    "out/mockup_desert_launch.png"
+  ],
+  "notes": "Band layout the tiles are painted for (playfield rows): 0-3 sky_deep, 4 sky_pale, 5 sky_haze, 6 horizon (far_plain / far_mesa_l+r, horizontally tileable), 7-8 far_sand, 9 ground top (sand_top, quicksand, pool_*, siphon), 10 fill (sand_fill, pool_deep, rock_fill). Deco carries its band's background: cactus, bones, pillar, sign, fence, tent, palm_trunk -> far_sand rows 7-8; palm_l/m/r -> row 5; palm_trunk_hz -> row 6; roof_l/m/r -> row 4. Opaque blocks (rock_*, base_wall, door, pool_deep) work in any row. Groups: tent = tent_top over tent_m, skirt tent_l tent_m tent_r (NPC informant stands beside the doorway); palm = crown palm_l palm_m palm_r (row 5), palm_trunk_hz (row 6), palm_trunk x2 under palm_m; siphon outlet = rock_l rock_m rock_r cap (row 7), rock_fill rock_fill siphon_top (row 8), rock_fill rock_fill siphon (row 9), rock_fill under it; water surface is tile row 3 in pool_*/siphon; bunker = roof_l roof_m x4 roof_r (row 4) over base_wall | door x4 | base_wall (rows 5-8); door block is 32x64 so the 64-row heroine fits; overlay desert_basedoor at the door block's top-left. Collision suggestion: solid = sand_top, sand_fill, rock_*, rock_fill, siphon_top, base_wall, roof_*, door (until opened), pillar_top/pillar_shaft (top is a standable ledge 32 rows above ground); hazard = quicksand (sink, e.g. 1 row per 2-3 frames, jump to escape); water = pool_m/pool_l/pool_r water pixels and pool_deep (swim). Shuttle: pad is part of the sprite, so do lift-off as a cutaway/screen shake after looping launch 3-4; place it with its bottom row on the ground line (x=104 in the mockup); heroine boards via the gantry arm (sprite row 42). Mockups use the lead's real desert characters from levels/_chars/out (mirrored to face the heroine): frames_desert_mercenary.txt (fire frame 6, on the ledge), frames_desert_nomad.txt (talk, beside the tent) and frames_desert_informant.txt (talk, holding a coin, at the oasis). 41 tiles: one over the 40 target because the oasis outlet and bunker groups need their own edge pieces."
+}

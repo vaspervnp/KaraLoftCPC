@@ -1,0 +1,42 @@
+{
+  "city_agent": [
+    {
+      "tag": "fire",
+      "frame": 6,
+      "tag_frame": 2,
+      "x": 19,
+      "y": 15,
+      "projectile": "bullet"
+    }
+  ],
+  "forest_sniper": [
+    {
+      "tag": "fire",
+      "frame": 6,
+      "tag_frame": 2,
+      "x": 20,
+      "y": 30,
+      "projectile": "bullet"
+    }
+  ],
+  "desert_mercenary": [
+    {
+      "tag": "fire",
+      "frame": 6,
+      "tag_frame": 2,
+      "x": 17,
+      "y": 17,
+      "projectile": "bullet"
+    }
+  ],
+  "station_cyber": [
+    {
+      "tag": "fire",
+      "frame": 6,
+      "tag_frame": 2,
+      "x": 18,
+      "y": 14,
+      "projectile": "plasma"
+    }
+  ]
+}

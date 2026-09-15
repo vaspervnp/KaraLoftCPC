@@ -1,0 +1,94 @@
+{ "frames": [
+   {
+    "filename": "cave_books_cpc_mode0 #book_sun 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 400
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_sun 1.aseprite",
+    "frame": { "x": 8, "y": 0, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 120
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_moon 0.aseprite",
+    "frame": { "x": 0, "y": 16, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 400
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_moon 1.aseprite",
+    "frame": { "x": 8, "y": 16, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 120
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_eye 0.aseprite",
+    "frame": { "x": 0, "y": 32, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 400
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_eye 1.aseprite",
+    "frame": { "x": 8, "y": 32, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 120
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_star 0.aseprite",
+    "frame": { "x": 0, "y": 48, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 400
+   },
+   {
+    "filename": "cave_books_cpc_mode0 #book_star 1.aseprite",
+    "frame": { "x": 8, "y": 48, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 120
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "cave_books_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 16, "h": 64 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "book_sun", "from": 0, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "book_moon", "from": 2, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "book_eye", "from": 4, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "book_star", "from": 6, "to": 7, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "cave_books", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

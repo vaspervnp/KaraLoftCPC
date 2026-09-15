@@ -1,0 +1,186 @@
+{
+  "level": "level3_cave",
+  "sheets": [
+    {
+      "name": "cave_tiles",
+      "file": "out/frames_cave_tiles.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "bg": 3,
+        "wall": 5,
+        "platform": 6,
+        "pillar": 3,
+        "ceil": 2,
+        "drip": 3,
+        "pool": 2,
+        "crystal": 2,
+        "beam": 2,
+        "lamp": 2,
+        "ladder": 1,
+        "panel": 2,
+        "gate": 8,
+        "gate_books": 4,
+        "gate_open": 2
+      },
+      "anchor": "tile top-left",
+      "tile_names": [
+        "bg_a",
+        "bg_b",
+        "bg_c",
+        "wall_fill",
+        "wall_l",
+        "wall_l_b",
+        "wall_r",
+        "wall_r_b",
+        "ground",
+        "ledge_l",
+        "ledge_m",
+        "ledge_r",
+        "wall_l_ledge",
+        "wall_r_ledge",
+        "pillar_top",
+        "pillar_body",
+        "pillar_base",
+        "ceil",
+        "ceil_stalactites",
+        "drip_0",
+        "drip_1",
+        "drip_2",
+        "pool_0",
+        "pool_1",
+        "crystal_0",
+        "crystal_1",
+        "beam_top",
+        "beam_post",
+        "lamp_0",
+        "lamp_1",
+        "ladder",
+        "panel_sun_moon",
+        "panel_eye_star",
+        "gate_slot_sun",
+        "gate_slot_moon",
+        "gate_slot_eye",
+        "gate_slot_star",
+        "gate_pillar_l",
+        "gate_door_l",
+        "gate_door_r",
+        "gate_pillar_r",
+        "gate_book_sun",
+        "gate_book_moon",
+        "gate_book_eye",
+        "gate_book_star",
+        "gate_open_l",
+        "gate_open_r"
+      ],
+      "description": "Cave tileset, seamless vertically and horizontally. bg = dark blue/black rock (3 variants, identical borders so they mix freely). wall: wall_fill + inner edges for left (wall_l, wall_l_b) and right walls (wall_r, wall_r_b); the a/b edges stack in any order. platform: ground (top of a rock mass), floating ledge_l/m/r (1 tile thick, walkable top row 0), wall_l_ledge/wall_r_ledge (ledge growing out of a wall edge, joins ledge_m). pillar: stalagmite top (walkable, 6 cols wide) + repeatable body + base (sits on ground/ledge). ceil: underside of a rock mass (put under wall_fill/ground); ceil_stalactites = deco version. drip: ceiling tile with a stalactite and a forming/falling drop; pool: small water basin set into ground. crystal: glowing crystals standing on a surface. beam/lamp: mine support frame (beam_top has a post, lamp_* is a beam with a hanging lamp, beam_post repeats down). ladder: climbable rope ladder (repeats vertically). panel: carved sandstone tablet set into rock, hints the order sun-moon / eye-star when stacked. gate (4x5 tiles, 32x80): row 0 = gate_slot_sun, _moon, _eye, _star; rows 1-4 = gate_pillar_l, gate_door_l, gate_door_r, gate_pillar_r (repeat). gate_books = slot tiles with the matching book inserted; gate_open_l/r replace the two door columns."
+    },
+    {
+      "name": "cave_bats",
+      "file": "out/frames_cave_bats.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        16
+      ],
+      "tags": {
+        "fly": 4,
+        "swoop": 2
+      },
+      "anchor": "centre (8,8)",
+      "description": "Cave bat, black outline, faces right. fly = up/mid/down/glide flap loop; swoop = 2-frame dive toward the player."
+    },
+    {
+      "name": "cave_books",
+      "file": "out/frames_cave_books.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "book_sun": 2,
+        "book_moon": 2,
+        "book_eye": 2,
+        "book_star": 2
+      },
+      "anchor": "centre; book body cols 1-6 rows 2-14 incl. outline",
+      "description": "Ancient book pickups (outlined), one tag each: sun = orange cover/yellow sun, moon = sky blue/white crescent, eye = green/white eye with red pupil, star = red/yellow star. Frame 1 idle, frame 2 shine glint."
+    },
+    {
+      "name": "cave_symbols",
+      "file": "out/frames_cave_symbols.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "sun_unlit": 1,
+        "sun_lit": 2,
+        "moon_unlit": 1,
+        "moon_lit": 2,
+        "eye_unlit": 1,
+        "eye_lit": 2,
+        "star_unlit": 1,
+        "star_lit": 2
+      },
+      "anchor": "draw at the gate slot tile's top-left (same 8x16 grid)",
+      "description": "Gate symbol plaques as overlays: the 6x7 plaque occupies cols 1-6 rows 2-8 of the slot tile. *_unlit matches the carving baked into gate_slot_* tiles; *_lit (2-frame pulse) is drawn when the right book is in that slot. No outline (inlay/glow)."
+    },
+    {
+      "name": "cave_quake",
+      "file": "out/frames_cave_quake.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "crack": 4,
+        "waterfall": 4,
+        "flood_top": 4,
+        "flood": 1
+      },
+      "anchor": "tile top-left",
+      "description": "Earthquake/flood tiles. crack = wall_fill cracking open (one-shot, hold last frame; last frame seeps water). waterfall = vertical water stream over bg, loops and repeats vertically. flood_top = rising water surface with rolling waves (loops, repeats horizontally); flood = water body below it (static, seamless)."
+    },
+    {
+      "name": "cave_quake_gush",
+      "file": "out/frames_cave_quake_gush.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        16
+      ],
+      "tags": {
+        "gush": 4
+      },
+      "anchor": "crack origin at (1,4): place on the wall edge, mirror for right walls",
+      "description": "Water gushing out of a wall crack, arcs right and falls; bright pens, no outline. Pair with a waterfall tile column under the landing point (about 12 cols right of the origin)."
+    },
+    {
+      "name": "cave_quake_rock",
+      "file": "out/frames_cave_quake_rock.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        16
+      ],
+      "tags": {
+        "fall": 4,
+        "break": 2
+      },
+      "anchor": "centre (8,8)",
+      "description": "Falling rock (outlined): fall = 4-frame tumble loop; break = split + pebbles on impact (one-shot)."
+    }
+  ],
+  "mockups": [
+    "out/mockup_cave.png",
+    "out/mockup_cave_flood.png"
+  ],
+  "notes": "Vertical scroll bottom->top, 20-tile-wide shaft between the walls. Walkable surface = row 0 of ground, ledge_*, wall_*_ledge and pillar_top; leave 4 free tiles above a surface for the 64-row heroine and keep vertical steps <= 2 tiles, gaps <= 4 tiles. ceil/ceil_stalactites/drip only go directly under full rock (wall_fill or ground). bg_a/b/c and the a/b wall edges share identical borders, so mix them freely to break repetition. Book puzzle: the gate's top row holds 4 slots (sun, moon, eye, star). Inserting a book swaps gate_slot_X -> gate_book_X and draws cave_symbols X_lit (2-frame pulse) at the same tile position. When all 4 are in, swap the two door columns (rows 1-4) to gate_open_l/r, with a short screen shake. The panel tiles show the code order sun-moon / eye-star. Timing suggestions: drip loop 700 ms (the drop lands in a pool 3-5 tiles below); bat fly loop 320 ms, switch to swoop when the heroine is within ~6 tiles. Earthquake: shake the screen, play crack once on wall_fill tiles (850 ms, hold the last frame), then spawn cave_quake_gush at the wall edge next to the crack plus a waterfall column under its landing point. Rocks fall from the top every ~0.7 s and play break on impact. flood_top rises from the bottom (about 1 row every 2 frames), with flood tiles filling below it; switch the heroine to HEROINE_SWIM_FRAMES once she is submerged. mockup_cave uses the lead's Illuminati Excavator (levels/_chars/out/frames_cave_excavator.txt, mirrored to face the heroine): one mid-attack on the beam ledge, one walking on the floor. The heroine is shown with the climb frame from frames_actions.txt on the rope ladder (centre her body on the ladder tile column). cave_tiles has 47 tiles (14 are gate pieces); tile order is in tile_names."
+}

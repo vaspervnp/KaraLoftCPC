@@ -1,0 +1,37 @@
+{ "frames": [
+   {
+    "filename": "city_drone_shot_cpc_mode0 #shot 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "sourceSize": { "w": 6, "h": 3 },
+    "duration": 60
+   },
+   {
+    "filename": "city_drone_shot_cpc_mode0 #shot 1.aseprite",
+    "frame": { "x": 6, "y": 0, "w": 6, "h": 3 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "sourceSize": { "w": 6, "h": 3 },
+    "duration": 60
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "city_drone_shot_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 12, "h": 3 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "shot", "from": 0, "to": 1, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "city_drone_shot", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

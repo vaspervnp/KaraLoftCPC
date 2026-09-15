@@ -224,7 +224,7 @@ def main():
     # Real frames, not synthetic ones: the whole point of the format is
     # what it does to the REAL occupancy, and the answer differs by a
     # third between her lightest frame and her heaviest.
-    path = os.path.join(ROOT, "build", "kara_core.bin")
+    path = os.path.join(ROOT, "build", "levels", "_shared", "kcore.bin")
     if os.path.exists(path):
         blob = open(path, "rb").read()
         n = (blob[0] | (blob[1] << 8)) // 2

@@ -16,7 +16,7 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-`./tools/run_tests.sh` runs every acceptance suite. Seven pass;
+`./tools/run_tests.sh` runs every acceptance suite. Eight pass;
 `test_spanblit.py` reports one failure on purpose — the span blitter is
 correct and at its floor, but a scrolling frame does not close on
 Kara's heaviest animation frames, and the 7,448 T have to come out of
@@ -32,6 +32,8 @@ src/palette.asm   the 16 pens + solid-pen byte table
 src/sprite.asm    scroll-aware masked blitter, save-under restore
 src/bullets.asm   dual pistols, 14-round pool, reloading
 src/spanblit.asm  the span-compressed blitter and its erase script
+src/unpack.asm    ZX0 into a bank, for the per-level art
+src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
 src/collide.asm   tile attributes, box-against-map probes
@@ -44,6 +46,8 @@ tools/png2sprite.py        sprite sheet  -> data+mask binary (the placeholder)
 tools/aseprite2spans.py    Aseprite sheet+JSON -> span-compressed bank
 tools/spawns.py            projectile spawn points -> build/spawns.inc
 tools/pack.py              ZX0 for everything that goes on the disc
+tools/build_levels.py      the level art packages -> blobs, both facings
+tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
 tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
 tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
@@ -52,7 +56,11 @@ tools/make_placeholder_sprites.py
 tools/test_*.py            acceptance suites
 tools/run_tests.sh         all of them, in order
 
-assets/placeholder/        stand-in sprite art, to be replaced
+assets/sprites/            the art package: the heroine, the projectiles,
+                           common/ for the HUD, level<n>_<name>/ for each
+                           level's tiles, characters and machines, each
+                           with the artist's manifest.json
+assets/placeholder/        stand-in tiles for the scrolling demo
 assets/title/              the title render
 docs/                      hardware reference tables
 ```
@@ -186,19 +194,34 @@ window changes in the configurations this project uses:
 | `&C6` | 0 | 6 | 2 | 3 | Kara facing **left** + that enemy type, left |
 | `&C7` | 0 | 7 | 2 | 3 | Title buffer; then Kara `run`/`roll`, both facings |
 
-A land level with two enemy types, measured from the built blobs:
+`tools/level_banks.py` does the allocation and writes
+`build/levels/banks.inc` with every blob's bank and address. Measured,
+with the shared set counted in every level:
 
-| bank | contents | bytes | spare |
-|---|---|---:|---:|
-| `&C4` | tiles 2,048 + map 1,024 + bullet/spear 556 + `merc` both facings 7,868 | 11,496 | 4,888 for level logic |
-| `&C5` | `kara_core` right 10,926 + `guard` right 3,390 | 14,316 | 2,068 |
-| `&C6` | `kara_core` left 10,926 + `guard` left 3,390 | 14,316 | 2,068 |
-| `&C7` | `kara_extra` right + left 14,310 | 14,310 | 2,074 |
+| level | unpacked | banks | packed | set pieces |
+|---|---:|---:|---:|---:|
+| 1 city | 62,048 | 4 | 14,223 | 487 |
+| 2 forest | 74,459 | 5 | 17,782 | — |
+| 3 cave | 65,507 | 5 | 16,242 | — |
+| 4 undersea | 59,226 | 4 | 13,877 | 1,074 |
+| 5 desert | 76,553 | 5 | 16,066 | 2,101 |
+| 6 station | 63,065 | 4 | 14,647 | 1,255 |
 
-Only the `&4000` window changes, so a frame that draws Kara facing left
-and an enemy facing right pages twice — two `OUT`s, which is nothing.
-Put the enemy type that shares her screen most in `&C5`/`&C6` so the
-common case pages once.
+**Five banks, not four.** The window shows bank 1 as well as 4-7, so
+there are 81,920 bytes of art storage; level 2 and level 5 need all
+five. That puts the "level logic, collision data, entity management"
+of §6.1 into `&8000-&BFFF` instead, which has 14 KB free after the
+save-under buffers.
+
+Two rules make it fit at all:
+
+* **The set pieces load separately.** The escape car, the shuttle, the
+  base door, the escape pod, the siphon and the computer are one fixed
+  moment each; together they are 60 KB that never has to be resident
+  during play. Level 5 is 55,526 bytes of art and 28,134 of it is the
+  finale.
+* **The swim set replaces the run/roll set.** She does not run or roll
+  under water and she does not swim anywhere else.
 
 **The banks are reloaded from disc at every level transition, and that
 is what makes this fit.** The earlier map gave a bank to each PAIR of
@@ -208,9 +231,12 @@ types are another 23 KB; one level's tiles are 3 KB. Since only one
 level is ever loaded, "levels 1-2 / 3-4 / 5-6" was paying three banks
 for something one bank holds at a time.
 
-**Everything on the disc is ZX0-packed** (§7.4), so a level transition
-reads about 10 KB rather than 55 KB and unpacks it into the banks in
-under a second.
+**Everything on the disc is ZX0-packed** (§7.4) as one stream per bank,
+so a level transition reads 14-18 KB rather than 60-77 KB. Unpacking it
+costs **0.8-1.05 s** — measured on a 6128, all six levels, byte-exact
+(§7.5). The whole game's art packs to 97,754 bytes, which would fit in
+RAM; the unpacked working set would not, which is why it is a disc read
+and not a one-off load at boot.
 
 `&C7` is the title buffer only while the title is on screen. By the
 time the first level runs it is free, which is where the enemy frames
@@ -528,30 +554,33 @@ deliberately kept** — level 2 is a forest and it is the only mid green
 in the set. The two spent pens were the only genuinely free ones, so
 the next new colour costs a used one.
 
-#### The enemies and the projectiles
+#### One art package, one directory per level
 
-Same sheets, same format, same exporter. Six land types share
-`enemies_cpc_mode0.aseprite` — `merc`, `hunter`, `commando`, `guard`,
-`raider`, `heavy` — each with a 4-frame walk and a 2-frame fire at
-24×64; `enemies_swim_cpc_mode0.aseprite` adds `diver` and `frogman` at
-64×24. `spear_cpc_mode0` (16×5) and `bullet_cpc_mode0` (6×3, with a
-`bullet_water` variant) are what they throw.
+The art arrives as `assets/sprites/level<n>_<name>/` with a
+`manifest.json` listing that level's sheets and what each is for, plus
+a shared set at the top (the heroine, her actions, the projectiles) and
+in `common/` (the HUD). **622 frames across 55 sheets.**
 
-**One blob per enemy type, not one for the sheet.** All six together
-are 23,278 bytes — half as much again as a bank — and no level wants
-all six. `build.sh` exports `enemy_<type>.bin` / `_l.bin` with
-`--tags <type>_walk,<type>_fire`, so the loader takes the types that
-level uses:
+`tools/build_levels.py` walks all of it: tiles out raw, everything else
+span-compressed, both facings for anything that turns to face her.
+Nothing is hand-listed except that last judgement, which the manifests
+do not record and which is written down in `MIRRORED` — a pickup, a
+tile, a wall-mounted machine or a thing bolted to the scenery gets one
+facing, and each of those saved is 2-20 KB of bank.
 
-| type | bytes, one facing | packed |
-|---|---:|---:|
-| `commando` | 3,448 | 629 |
-| `guard` | 3,390 | 665 |
-| `merc` | 3,934 | 774 |
-| `raider` | 4,116 | 695 |
-| `hunter` | 4,146 | 815 |
-| `heavy` | 4,244 | 880 |
-| `diver` / `frogman` | 3,858 / 3,750 | 853 / 850 |
+**The seven named characters replace the six generic enemies.**
+`enemies_cpc_mode0.aseprite` (merc, hunter, commando, guard, raider,
+heavy) was the first pass; the art now has `city_agent`,
+`forest_sniper`, `cave_excavator`, `desert_mercenary`, `desert_nomad`,
+`desert_informant` and `station_cyber`, one or more per level, in that
+level's own directory. `common/preview_chars_lineup.png` is the set.
+The generic sheet and `enemies_swim` are no longer exported.
+
+**A blob has to fit one bank whole**, because its frame table is at its
+start and its offsets are relative to it. Only the set pieces come
+near: the shuttle is 20,162 bytes on its own, so `build_levels.py`
+splits anything over 12 KB by tag and the engine refers to the smaller
+blob.
 
 **Where a shot leaves is art, not code.**
 `assets/sprites/projectile_spawn_points.json` marks, per firing frame,
@@ -612,11 +641,49 @@ dithered title screen packs worst (59%) because dithering is noise.
 
 **This buys disc and load time, not frame time.** The blitter
 composites from uncompressed bytes in a bank; it does not move the
-budget in §9 by one T-state. `test_spans.py` depacks all 28 blobs on
+budget in §9 by one T-state. `test_spans.py` depacks all 126 blobs on
 the emulator and compares them, so a cruncher/depacker mismatch cannot
 ship.
 
-### 7.3 Blender
+### 7.5 Loading a level
+
+A level is four or five ZX0 streams, **one per bank**: the blobs laid
+out at fixed addresses inside a 16 KB image, the whole image packed as
+a single stream. That makes the loader three steps per bank — read the
+file into the staging buffer, page the bank in, `dzx0_fast` — with no
+directory to walk and no addresses to fix up. It also packs better than
+per-blob streams, because ZX0 sees the repeats across blobs (two
+facings of a character share most of their bytes) and the unused tail
+of a bank is zeros.
+
+```
+tools/build_levels.py   manifests -> one blob per sheet per facing
+tools/level_banks.py    blobs -> bank images -> one .zx0 each
+                        ... and build/levels/banks.inc, which says
+                        which bank and address every blob ended up at
+src/unpack.asm          UNPACK_BANK: A = config, HL = stream -> &4000
+tools/test_levels.py    every bank of all six levels, byte-exact on a
+                        6128, and banks.inc checked against the images
+```
+
+`LEVEL_STAGE` is `&8000`. **The staging buffer cannot be in the window**
+— the unpacker reads from it and writes to `&4000-&7FFF` — so it sits
+in base RAM on top of the save-under buffers, which are scratch while a
+level is changing. The biggest stream measured is 4,695 bytes against
+8 KB of room.
+
+**What is still missing is the disc read.** The firmware went out with
+the ROMs at boot (§4), so a mid-game load needs either the lower ROM
+and the firmware's cassette entries brought back around the call, or a
+765 FDC driver. `&A700-&BFFF` has to stay clear of AMSDOS's buffers
+either way (§10).
+
+Allocation is best-fit with a deterministic shuffle as a backstop.
+First-fit-decreasing is the usual advice and it fails here: level 5 is
+76,553 bytes into 81,920 and FFD strands 5,364 in fragments too small
+for the 5,764-byte blob left over.
+
+### 7.6 Blender
 
 **Blender runs on Windows (5.2.1 LTS), not inside WSL.** Consequences:
 
@@ -743,7 +810,58 @@ and 4 will not be so kind; Module 6 needs a real clip.
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
-### 8.3 Kara's actions
+### 8.3 The level format, and the editor that writes it
+
+[docs/editor.md](docs/editor.md) specifies a web editor (C# / ASP.NET
+Core) that imports the Aseprite package, lets a designer paint levels
+over it and exports `level_<n>.lvl` for this engine. Its §9.2 binary is
+the contract between the two, and the engine reads it:
+
+```
+0  2  magic "LV"          9  1  tileset id
+2  1  format version     10  1  entity count
+3  1  level id           11  1  link count
+4  1  flags: 0-1 scroll, 12  1  region count
+      2 underwater,      13  8  u16 offsets: map, entities, links, regions
+      3 map is RLE
+5  2  width in tiles      map      1 byte a tile, row-major
+7  2  height in tiles     entity   8 bytes: kind, x u16, y u16, flags, p0, p1
+                          link     4 bytes: kind, source, target, param
+                          region   7 bytes: kind, x u16, y u16, w, h
+```
+
+Tile flags travel separately in `tileflags_<level>.bin`, one byte a
+tile: `Solid 1, Platform 2, Hazard 4, Ladder 8, Water 16, Quicksand 32,
+Deadly 64`.
+
+#### Two corrections to editor.md, both forced by the CRTC
+
+**1. Tiles are 8×16, which this engine does not do yet.** The current
+tilemap is 16×16 (8 bytes × 16 lines) and the map is 64×16. At 8×16 a
+tile is **4 bytes × 16 lines**, so it spans 2 CRTC character columns
+and 2 character rows, and a map of the same world width has twice the
+columns. `tilemap.asm` and `collide.asm` both assume the old size.
+
+**2. The play area is 20×11 tiles and the HUD is 16 lines, not 24.**
+editor.md §2.1 asks for 176 lines of play plus a 24-line HUD = 200
+lines = **R6 = 25**, and R6 = 25 displays 1,000 of the 1,024 words the
+CRTC can address. That leaves 24 words off-screen where a character row
+is 40, which is exactly the margin §8.2 calls "the single most
+important decision in the module" — vertical scrolling tears without
+it. So:
+
+| | lines | char rows | words |
+|---|---:|---:|---:|
+| play area, 20×11 tiles | 176 | 22 | 880 |
+| HUD | **16** | 2 | 80 |
+| displayed, R6 = 24 | 192 | 24 | 960 |
+| off-screen margin | | | **64** |
+
+A 16-line HUD is what the art wants anyway: `hud_icons` is 8×16 and the
+digits and bars are 4×8, so they sit two to a row. The picture is 8
+scanlines shorter than editor.md assumes and those 8 lines are border.
+
+### 8.4 Kara's actions
 
 The art decides the state machine, so it is written down here next to
 the frame counts in §7.1 rather than inferred at each call site.
@@ -787,7 +905,7 @@ control needs a second byte, not a re-shuffle.
 step, so inside the camera's push zone a run scrolls every frame and a
 walk every other one — see §8.2.
 
-### 8.4 Dual pistols
+### 8.5 Dual pistols
 
 ```
 MAG_LEFT     0-7      rounds in left pistol
@@ -801,7 +919,7 @@ AMMO_RESERVE bytes    clips add 14
 Bullets move 4 pixels/frame and die on a solid tile. Reload is manual (Down+Fire) or
 automatic when both magazines hit 0; during reload the player is slowed or frozen.
 
-### 8.5 Game state
+### 8.6 Game state
 
 ```asm
 PLAYER_HP:        db 100     ; 0-100, medkit restores 35, capped at 100
@@ -1057,18 +1175,45 @@ the next one starts.
       close on Kara's heaviest frames until this comes down (§9). It is
       the next thing, ahead of the state machine, because everything
       after it is measured against a frame that has room;
-   4. the bank loader: ZX0-unpack the level's blobs into `&C4`-`&C7`
-      per the map in §6.2, then switch `KARA_DRAW`/`KARA_ERASE` to
+   4. the level loader — **half done**: `src/unpack.asm` unpacks a
+      packed bank image into its bank and `tools/test_levels.py` proves
+      every bank of all six levels comes back byte-exact on a 6128
+      (§7.5). What is missing is the disc read that gets the stream
+      into the staging buffer, because the firmware went out with the
+      ROMs at boot (§4). Then switch `KARA_DRAW`/`KARA_ERASE` to
       `SPAN_DRAW`/`SPAN_ERASE` and retire `png2sprite.py`;
-   5. the action state machine and its controls (§8.3);
+   5. the action state machine and its controls (§8.4);
    6. the entity table and the five interaction handlers, with the AABB;
-   7. the enemies: six land types and two divers (§7.1), their fire
-      using the generated spawn points in `build/spawns.inc`;
+   7. the enemies: the seven named characters and the level machines
+      (§7.1), their fire using the generated spawn points in
+      `build/levels/spawns.inc`;
    8. bullet-against-tile collision (`src/bullets.asm:130`) and the game
       state of §8.5;
    9. `tools/test_module5.py`.
-6. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
-7. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
+6. **The level format, engine side** — 8×16 tiles and a 20×11 play
+   area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
+   `collide.asm`'s probes, then a reader for `level_<n>.lvl` and
+   `tileflags_<level>.bin`, then one hand-built level played end to
+   end. `tools/make_level.py` writes the same bytes the editor will, so
+   the format gets a reference implementation and a golden file before
+   anything else is built against it.
+7. **The level editor** — [docs/editor.md](docs/editor.md), a C# /
+   ASP.NET Core MVC web application. **It comes here and not earlier,
+   and the reason is the golden file.** The editor's whole output is
+   `level_<n>.lvl`; if it is written before the engine reads that
+   format, the first thing that tests the format is a web app, and a
+   disagreement then costs a change on both sides. Built after step 6
+   it has something to be correct against: a level the engine already
+   plays, byte for byte, on real hardware. Its own phases are in
+   editor.md §15; phases 1-3 (import, painting, binary export) are what
+   this project needs, phase 4 is not.
+
+   Two things to settle before it starts, both of which are engine
+   decisions and not editor decisions: the tile flag byte (§8.3) and
+   the entity `param0`/`param1` meanings per entity kind, which
+   editor.md's Appendix A lists as free text.
+8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
+9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
 
 ## 12. Corrections to plan.md

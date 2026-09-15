@@ -14,6 +14,7 @@ and every transparent one came out exactly the background it was over.
 A mask convention inverted, a skip off by one, a span a byte short, an
 interleave the wrong way round: none of those survive it.
 """
+import glob
 import json
 import os
 import random
@@ -39,13 +40,13 @@ def sheets():
     is tested without touching this file.
     """
     out = []
-    for f in sorted(os.listdir(os.path.join(ROOT, "build"))):
-        if not f.endswith("_frames.json"):
-            continue
-        side = json.load(open(os.path.join(ROOT, "build", f)))
-        out.append((side["name"], side["sheet"], f[:-12] + ".bin",
+    base = os.path.join(ROOT, "build", "levels")
+    for side_path in sorted(glob.glob(os.path.join(base, "*", "*_frames.json"))):
+        side = json.load(open(side_path))
+        out.append((side["name"], side["sheet"],
+                    side_path[:-len("_frames.json")] + ".bin",
                     [t["name"] for t in side["tags"]], side["mirrored"],
-                    side["source_frames"]))
+                    side["source_frames"], side.get("tiles", False)))
     return out
 
 
@@ -145,10 +146,11 @@ def zx0_check():
     CODE, DST = 0x8000, 0x4000                  # &0000-&3FFF is the OS ROM
     print("\n  ZX0, depacked by dzx0_fast on a 6128:")
     bad, total, cost = [], 0, 0
-    for f in sorted(os.listdir(os.path.join(ROOT, "build"))):
-        if not f.endswith(".zx0"):
-            continue
-        orig = open(os.path.join(ROOT, "build", f[:-4] + ".bin"), "rb").read()
+    for p in sorted(glob.glob(os.path.join(ROOT, "build", "*.zx0"))
+                    + glob.glob(os.path.join(ROOT, "build", "levels", "*",
+                                             "*.zx0"))):
+        f = os.path.relpath(p, os.path.join(ROOT, "build"))
+        orig = open(p[:-4] + ".bin", "rb").read()
         if len(orig) > 0x3F00:                  # will not fit under the code
             continue
         a = os.path.join(tmp, "_zx0.asm")
@@ -157,7 +159,7 @@ def zx0_check():
             f'        org &{CODE:04X}\n        include "{dec}"\n'
             f'        di\n        ld hl,DATA\n        ld de,&{DST:04X}\n'
             f'        call DEP\nSPIN:   jp SPIN\nDEP:    DecompressZX0\n'
-            f'DATA:   incbin "{os.path.join(ROOT, "build", f)}"\n')
+            f'DATA:   incbin "{p}"\n')
         r = subprocess.run(["rasm", a, "-amper", "-ob", o, "-s", "-sa", "-os", sy],
                            capture_output=True, text=True)
         if r.returncode:
@@ -180,7 +182,7 @@ def zx0_check():
         cost += (us or 0) * 4
         if got != orig:
             bad.append((f, "ran away" if us is None else "wrong bytes"))
-        print(f"    {f:<20}{os.path.getsize(os.path.join(ROOT, 'build', f)):6d}"
+        print(f"    {f:<34}{os.path.getsize(p):6d}"
               f" -> {len(orig):6d}  {(us or 0) * 4:8d} T"
               f"   {'ok' if got == orig else 'FAILED'}")
     check("every ZX0 blob depacks byte-exact", not bad,
@@ -203,10 +205,14 @@ def main():
     if os.path.exists(path):
         check("the emitted table matches", open(path, "rb").read() == bytes(tbl))
 
-    for name, sheet, binname, tags, mirror, source in sheets():
+    for name, sheet, blob_path, tags, mirror, source, tiles in sheets():
         js = os.path.join(ROOT, sheet)
         stem = os.path.basename(sheet)[:-5]
-        blob_path = os.path.join(ROOT, "build", binname)
+        binname = os.path.basename(blob_path)
+        if tiles:
+            # Opaque tiles are raw and have no spans to check; the
+            # exporter's own round trip covers them.
+            continue
         if not os.path.exists(blob_path):
             check(f"{name}: {binname} exists", False, "run build.sh first")
             continue
@@ -268,7 +274,7 @@ def main():
               f"{opaque} opaque pixels checked")
 
         # the .inc the assembler reads has to agree with the blob
-        incpath = os.path.join(ROOT, "build", binname.replace(".bin", ".inc"))
+        incpath = blob_path.replace(".bin", ".inc")
         if os.path.exists(incpath):
             inc = open(incpath).read()
             def eq(sym):

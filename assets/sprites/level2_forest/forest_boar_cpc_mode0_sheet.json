@@ -1,0 +1,74 @@
+{ "frames": [
+   {
+    "filename": "forest_boar_cpc_mode0 #charge 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "sourceSize": { "w": 32, "h": 24 },
+    "duration": 80
+   },
+   {
+    "filename": "forest_boar_cpc_mode0 #charge 1.aseprite",
+    "frame": { "x": 32, "y": 0, "w": 32, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "sourceSize": { "w": 32, "h": 24 },
+    "duration": 80
+   },
+   {
+    "filename": "forest_boar_cpc_mode0 #charge 2.aseprite",
+    "frame": { "x": 64, "y": 0, "w": 32, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "sourceSize": { "w": 32, "h": 24 },
+    "duration": 80
+   },
+   {
+    "filename": "forest_boar_cpc_mode0 #charge 3.aseprite",
+    "frame": { "x": 96, "y": 0, "w": 32, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "sourceSize": { "w": 32, "h": 24 },
+    "duration": 80
+   },
+   {
+    "filename": "forest_boar_cpc_mode0 #attack 0.aseprite",
+    "frame": { "x": 0, "y": 24, "w": 32, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "sourceSize": { "w": 32, "h": 24 },
+    "duration": 160
+   },
+   {
+    "filename": "forest_boar_cpc_mode0 #attack 1.aseprite",
+    "frame": { "x": 32, "y": 24, "w": 32, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 24 },
+    "sourceSize": { "w": 32, "h": 24 },
+    "duration": 180
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "forest_boar_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 128, "h": 48 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "charge", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "attack", "from": 4, "to": 5, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "forest_boar", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

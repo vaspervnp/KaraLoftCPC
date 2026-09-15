@@ -1,0 +1,105 @@
+{
+  "level": "level2_forest",
+  "sheets": [
+    {
+      "name": "forest_tiles",
+      "file": "out/frames_forest_tiles.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "bg": 4,
+        "canopy": 3,
+        "trunk": 8,
+        "platform": 3,
+        "ground": 4,
+        "deco": 5,
+        "hazard": 1,
+        "mountain": 4,
+        "cave": 10
+      },
+      "anchor": "tile grid (top-left of each 8x16 cell)",
+      "description": "Forest tileset for a left-to-right scroller. Bands top to bottom: canopy_fill, canopy_edge_a/b (mix; sky baked behind the leaves), far_crowns (sky + fir line), far_trunks_a/b (repeat), far_base (undergrowth; the row directly above the grass), grass, dirt. Big tree is 2 tiles wide: trunk_l/r stacked, trunk_knot_l/r where a branch leaves, trunk_base_l/r in the ground row with root_l/root_r beside it. Branch platforms branch_l + branch_m (repeat) + branch_r; walkable surface = tile top. Pit in the ground row: grass_edge_r, spike_pit x N, grass_edge_l. Mountain: mtn_rock/mtn_rock_moss fill, mtn_slope (45-degree left edge) over far_trunks rows, mtn_slope_base in the far_base row. Cave mouth, 4 wide x 6 high: cave_arch_0..3; then 4 rows of cave_side_l, cave_dark, cave_dark, cave_side_r; then cave_floor_l, cave_floor, cave_floor, cave_floor_r in the ground row. Frame index: 0 far_crowns, 1 far_trunks_a, 2 far_trunks_b, 3 far_base, 4 canopy_fill, 5 canopy_edge_a, 6 canopy_edge_b, 7 trunk_l, 8 trunk_r, 9 trunk_knot_l, 10 trunk_knot_r, 11 trunk_base_l, 12 trunk_base_r, 13 root_l, 14 root_r, 15 branch_l, 16 branch_m, 17 branch_r, 18 grass, 19 grass_edge_r, 20 grass_edge_l, 21 dirt, 22 bush_l, 23 bush_r, 24 rock, 25 flowers, 26 mushrooms, 27 spike_pit, 28 mtn_rock, 29 mtn_rock_moss, 30 mtn_slope, 31 mtn_slope_base, 32 cave_arch_0, 33 cave_arch_1, 34 cave_arch_2, 35 cave_arch_3, 36 cave_side_l, 37 cave_dark, 38 cave_side_r, 39 cave_floor_l, 40 cave_floor, 41 cave_floor_r"
+    },
+    {
+      "name": "forest_spiketrap",
+      "file": "out/frames_forest_spiketrap.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "cycle": 4
+      },
+      "anchor": "bottom: plate outline on row 15, place on the ground surface; exactly 1 tile wide",
+      "description": "Retractable spike trap (hazard). cycle: 0 retracted 200 ms (safe), 1 half 70 ms, 2 full 200 ms, 3 half 70 ms. Damage on frames 1-3. When its altar holds the idol, stop on frame 0."
+    },
+    {
+      "name": "forest_altar",
+      "file": "out/frames_forest_altar.txt",
+      "kind": "sprites",
+      "size": [
+        24,
+        32
+      ],
+      "tags": {
+        "empty": 1,
+        "idol_placed": 3
+      },
+      "anchor": "bottom-centre: base outline on row 31",
+      "description": "Stone altar with a carved eye. empty: socket visible. idol_placed: golden idol on the slab (same art as the pickup, cols 9-14 rows 3-13); eye glyph and sparks pulse dim/bright/mid - loop it while the linked spike trap is disabled."
+    },
+    {
+      "name": "forest_pickups",
+      "file": "out/frames_forest_pickups.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "idol": 4
+      },
+      "anchor": "centre (floating pickup)",
+      "description": "Golden statuette/idol pickup; idol: 4-frame shine (rest, glint head, glint body, sparkle)."
+    },
+    {
+      "name": "forest_wolf",
+      "file": "out/frames_forest_wolf.txt",
+      "kind": "sprites",
+      "size": [
+        32,
+        24
+      ],
+      "tags": {
+        "run": 4,
+        "attack": 2
+      },
+      "anchor": "bottom: paw outline on row 23, same x origin in all frames; faces right",
+      "description": "Grey wolf (wild beast). run: 4-frame gallop (reach, front plant, gather, hind push-off) 90 ms. attack: open-jaw lunge 140 ms then bite snap 160 ms (hit on frame 2)."
+    },
+    {
+      "name": "forest_boar",
+      "file": "out/frames_forest_boar.txt",
+      "kind": "sprites",
+      "size": [
+        32,
+        24
+      ],
+      "tags": {
+        "charge": 4,
+        "attack": 2
+      },
+      "anchor": "bottom: hoof outline on row 23, same x origin in all frames; faces right",
+      "description": "Wild boar (wild beast, heavier). charge: 4-frame head-down gallop 80 ms. attack: head-down wind-up 160 ms then upward tusk toss 180 ms (hit on frame 2)."
+    }
+  ],
+  "mockups": [
+    "out/mockup_forest.png",
+    "out/mockup_forest_cave.png"
+  ],
+  "notes": "Walkers (wolf, boar) and ground props (spike trap, altar) are bottom-anchored with the outline on the last frame row, like the heroine's boots, so Sheet.save reports bottom EDGE for them (intended). The spike trap and idol are 8 px wide incl. outline, so left/right EDGE is also expected. Tiles with baked background: branch_l/m/r and mtn_slope over far_trunks_a; bush/rock/flowers/mushrooms and mtn_slope_base over far_base; canopy_edge_a/b over sky - put them over matching bands. Trunks and the mountain face are scenery (walk in front); collide with branch tops, grass/root/trunk_base/grass_edge/dirt and cave_floor; spike_pit is a static hazard. Mockup branch spacing is 2 tiles (32 rows: ground -> row 7 -> row 5), matching the heroine's jump. The cave opening is about 26 columns wide and 76 rows high (with 4 cave_side rows), so the heroine walks in upright; trigger the transition when she overlaps cave_dark. Sniper in the mockup: forest_sniper (lead). Background uses BLUE/CYAN/black so the green/brown foreground and sprites stand out."
+}
