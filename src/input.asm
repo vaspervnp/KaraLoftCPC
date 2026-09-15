@@ -41,17 +41,24 @@
 ; inherit. The scan therefore runs mid-frame, after the scroll step.
 ; =====================================================================
 
+; THE BYTE IS FULL, and the two controls the action state machine needs
+; cost the two spare bits. Bits 0-3 have to stay in the JOYSTICK's own
+; order - that is what lets row 9 fold in below with no shifting at all
+; - so the new ones took 5 and 7:
 IN_UP           equ %00000001   ; jump, and interact (plan.md 5.2: "αν πατηθεί UP")
 IN_DOWN         equ %00000010   ; crouch, and with FIRE, reload
 IN_LEFT         equ %00000100
 IN_RIGHT        equ %00001000
-IN_FIRE         equ %00010000
-IN_ACTION       equ %00100000   ; RETURN or Z - a second interact, keyboard only
+IN_FIRE         equ %00010000   ; SPACE - draw, hold, release (CLAUDE.md 8.4)
+IN_ROLL         equ %00100000   ; Z
 IN_PAUSE        equ %01000000   ; ESC
-IN_INTERACT     equ IN_UP + IN_ACTION
-
-; Bits 0-3 are deliberately in the joystick's own order, so row 9 folds
-; into the action byte with no shifting at all.
+IN_RUN          equ %10000000   ; SHIFT
+IN_INTERACT     equ IN_UP       ; Z WAS a second interact alongside RETURN.
+                                ; It is the roll now and RETURN went with
+                                ; it, which leaves interact as UP alone -
+                                ; what plan.md 5.2 asked for in the first
+                                ; place. A ninth control needs a second
+                                ; byte, not a re-shuffle.
 
                 macro KEYROW row,ident
                 ld   bc,PPI_PORT_C * 256 + AY_REG_READ + {row}
@@ -121,12 +128,12 @@ INPUT_SCAN:     ld   bc,PPI_CONTROL * 256 + PPI_CTL_PA_OUT
                 KEYROW 1,0
                 KEYBIT 0,2              ; cursor LEFT  -> IN_LEFT
                 KEYROW 2,0
-                KEYBIT 2,5              ; RETURN       -> IN_ACTION
+                KEYBIT 6,7              ; SHIFT        -> IN_RUN
                 KEYROW 5,0
                 KEYBIT 7,4              ; SPACE        -> IN_FIRE
                 KEYROW 8,0
                 KEYBIT 2,6              ; ESC          -> IN_PAUSE
-                KEYBIT 7,5              ; Z            -> IN_ACTION
+                KEYBIT 7,5              ; Z            -> IN_ROLL
 
                 ld   bc,PPI_CONTROL * 256 + PPI_CTL_PA_OUT
                 out  (c),c              ; hand the AY back to the sound driver

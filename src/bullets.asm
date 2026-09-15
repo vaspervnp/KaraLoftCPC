@@ -12,7 +12,17 @@ BUL_STRIDE      equ 5
 BUL_ACTIVE      equ 0                   ; slot layout
 BUL_X           equ 1                   ; screen byte column 0-79
 BUL_Y           equ 2                   ; scanline
-BUL_DIR         equ 3                   ; 0 = left, 1 = right
+BUL_DIR         equ 3                   ; 0 = RIGHT, 1 = left - KARA_FACING's
+                                        ; convention, because that is what
+                                        ; BUL_SPAWN copies into it. It used to
+                                        ; be the other way round here and
+                                        ; nowhere else: the Module 1-3 screen
+                                        ; never writes KARA_FACING, so it sat
+                                        ; at its initialiser and both readings
+                                        ; agreed by accident. The first shot
+                                        ; fired from the scrolling demo, where
+                                        ; the player code does write it, went
+                                        ; backwards out of her own muzzle.
 BUL_LIFE        equ 4
 
 BUL_SPEED       equ 2                   ; bytes per frame = 4 Mode 0 pixels
@@ -69,18 +79,33 @@ BUL_SPAWN:      ld   hl,BULLETS
                 djnz .scan
                 ret                     ; pool full - drop the shot
 
+                ; THE MUZZLE IS WHERE THE ARTIST PUT IT. (MUZZLE_X) and
+                ; (MUZZLE_Y) are set by ACT_MUZZLE from the firing cel's
+                ; own spawn point, so the two pistols differ because the
+                ; drawing differs and not because of an "E lines below"
+                ; fudge. X is in PIXELS inside her box; a left-facing
+                ; sprite mirrors it to (width - 1 - x), which is the one
+                ; subtraction tools/spawns.py's header describes.
 .found:         ld   (hl),1
                 inc  hl
+                ld   a,(MUZZLE_X)
+                ld   d,a
                 ld   a,(KARA_FACING)
                 or   a
+                ld   a,d
+                jr   z,.muzzle          ; 0 = facing right: as drawn
+                neg
+                add  a,KARA_W_BYTES * 2 - 1
+.muzzle:        srl  a                  ; pixels -> screen bytes
+                ld   d,a
                 ld   a,(KARA_X)
-                jr   z,.muzzle          ; facing left: muzzle at the left edge
-                add  a,KARA_W_BYTES - 1
-.muzzle:        ld   (hl),a             ; x
+                add  a,d
+                ld   (hl),a             ; x
                 inc  hl
+                ld   a,(MUZZLE_Y)
+                ld   d,a
                 ld   a,(KARA_Y)
-                add  a,24               ; roughly hand height on the sprite
-                add  a,e                ; left gun sits one line below the right
+                add  a,d
                 ld   (hl),a             ; y
                 inc  hl
                 ld   a,(KARA_FACING)
@@ -117,9 +142,9 @@ UPDATE_BULLETS: ld   hl,BULLETS
                 ld   a,(hl)             ; x
                 inc  hl
                 inc  hl
-                bit  0,(hl)             ; direction
+                bit  0,(hl)             ; direction: 0 = right
                 pop  hl
-                jr   z,.left
+                jr   nz,.left
                 add  a,BUL_SPEED
                 cp   SCREEN_WIDTH_BYTES
                 jr   nc,.kill           ; off the right edge
@@ -280,4 +305,7 @@ RELOAD_TIMER:   db 0
 AMMO_RESERVE:   db 28
 HUD_DIRTY:      db 1
 
+MUZZLE_X:       db 18           ; where the current firing cel's shot leaves,
+MUZZLE_Y:       db 17           ; in pixels/lines inside her box - ACT_MUZZLE
+                                ; sets them from the art's own spawn points
 BULLETS:        ds BUL_MAX * BUL_STRIDE

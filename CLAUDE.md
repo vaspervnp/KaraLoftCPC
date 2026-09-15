@@ -63,6 +63,7 @@ tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
 src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
+src/action.asm    her action state machine and the cel timer (8.4)
 
 tools/test_*.py            acceptance suites
 tools/run_tests.sh         all of them, in order
@@ -1000,6 +1001,50 @@ the sprite.
 A roll is committed: it runs its 8 frames whatever the input does, which
 is what makes it a dodge. It cannot start in the air.
 
+**Implemented** - `src/action.asm`, one table, driven by
+`tools/test_actions.py`. Two things about it are worth having written
+down, because neither is obvious from the table:
+
+**THE CEL RATE IS THE ART'S.** Every blob ships a `Kxxxx_DURATION`
+table - the milliseconds Aseprite held each cel for, rounded to 50 Hz
+frames - and nine cels of the drawn sheet are not shipped, with each
+dropped one's time added to the cel before it (§7.1). Running the
+animation at a fixed rate instead makes the thinned walk cycle faster
+than it was drawn and out of step with the two bytes a frame she
+travels. So `ACT_ANIMATE` reloads its timer from that table, and the
+test compares every cel's dwell against it.
+
+**ENTERING A STATE LEAVES THE CEL INDEX AT 255, NOT 0.** The animator
+runs the timer down and steps in the same call, so a state entered at
+cel 0 with a timer of 1 shows its SECOND cel first: idle opened on
+frame 1, a four-cel recoil played three, and a looping walk never came
+back round to where it started. `INC A` wrapping 255 to 0 is the whole
+fix, and the check that catches it has to drive the transition rather
+than poke `KARA_ANIM` - a test that sets up the state itself is testing
+its own setup, which is exactly what the first version of it did.
+
+**Her frames are in two blobs and three banks**, so `KARA_SET` travels
+with `KARA_FRAME`: `kcore` is idle/walk/jump/shoot, one bank a facing
+(`&C5`/`&C6`); `kextra` is run and roll, BOTH facings in `&C7` because
+the pair fits. `tools/level_banks.py` PINS all three in every level and
+emits the addresses only after checking they agree, so the engine
+addresses her by constant instead of reloading a table at each
+transition.
+
+**Which cel fires is art too.** `KCORE_SPAWNS` (from
+`projectile_spawn_points.json`) marks the pixel a shot leaves on each
+firing cel, and the `shoot` tag has two of them - cels 14 and 16 -
+which is the pair of pistols of §8.5 alternating. `ACT_MUZZLE` walks
+that table when a cel changes, so the gun code holds no cel numbers and
+a re-drawn recoil moves the shot with it.
+
+**0 IS FACING RIGHT.** `bullets.asm` read the flag the other way round
+and nowhere else did. The Module 1-3 screen never writes
+`KARA_FACING`, so it sat at its initialiser and both readings agreed by
+accident for two modules; the first shot fired from the scrolling demo,
+where the player code does write it, went backwards out of her own
+muzzle.
+
 **The input byte is now full**, and the two new controls cost the two
 spare bits. Bits 0-3 have to stay in the joystick's own order — that is
 what lets row 9 fold in with no shifting (`input.asm`) — so:
@@ -1144,7 +1189,17 @@ anything that must be **behind** it against the late one.
    between them. Splitting the erase into halves gated that way put the lower
    half 13,600 T late and dropped a frame on 12 scrolling frames out of 58 —
    visible on hardware as the sprite flickering while the screen moves.
-4. **`FRAME_TICK0` is stamped by the interrupt handler, not by the main loop.**
+4. **`RASTER_WAIT` must credit the time already spent.** Its delay can
+   only count from the moment it is entered, so a caller that arrives a
+   whole tick after the one it asked for used to wait the remaining
+   50-odd scanlines *on top of* however long it took to get there. That
+   was harmless while the frame had room. With the action state machine
+   in it, it became 13,000 T of a 79,872 T frame spent waiting for a
+   beam that had gone by 23,000 T earlier, and the loop **dropped 6
+   frames in 200 while scrolling** - the whole `ACT_UPDATE` is 724 T,
+   so the cost was never the new code. Each whole tick late is 52
+   scanlines already owed, and subtracting them is four instructions.
+5. **`FRAME_TICK0` is stamped by the interrupt handler, not by the main loop.**
    The handler reads PPI port B and, on the tick that lands inside the VSYNC
    pulse, records the count. `WAIT_VSYNC` tests the level rather than an edge,
    so a frame whose work overran into the 16-scanline pulse starts late on the
@@ -1375,7 +1430,13 @@ the next one starts.
       checks 296 placements against an independent v-model. Four bugs
       came out of it, all in §9's new entry. `png2sprite.py` and the
       16x48 path still serve the Module 1-3 screen;
-   5. the action state machine and its controls (§8.4);
+   5. ~~the action state machine and its controls~~ - done:
+      `src/action.asm`, seven states from one table, cel timing out of
+      the art's own duration tables, the gun's two pistols driven by
+      the artist's spawn points, and `tools/test_actions.py` driving
+      every transition with a negative control on the entry cel. SWIM
+      and SWIM_FIRE are not in it: they need level 4's water, which is
+      §6's job;
    6. the entity table and the five interaction handlers, with the AABB;
    7. the enemies: the seven named characters and the level machines
       (§7.1), their fire using the generated spawn points in

@@ -223,6 +223,14 @@ SCROLL_DEMO:    di
                 ; a photograph. See docs/AmstradDskReadHowTo.md.
                 xor  a
 .loaded:        ld   (LEVEL_OK),a
+                ; Full guns for the level: the Module 1-3 screen fires
+                ; on a timer for a minute and leaves both magazines dry,
+                ; and a dry gun goes to START_RELOAD instead of firing.
+                ld   a,MAG_SIZE
+                ld   (MAG_LEFT),a
+                ld   (MAG_RIGHT),a
+                xor  a
+                ld   (RELOAD_TIMER),a
                 call SCROLL_INIT            ; ... which installs the map
                 ld   a,(LEVEL_OK)
                 or   a
@@ -278,6 +286,9 @@ SCROLL_DEMO:    di
                 ld   a,(LEVEL_OK)
                 or   a
                 call nz,KARA_SPAN_DRAW      ; ahead of the beam, in the border
+                ld   a,MARK_BULLETS
+                call BORDER_SET
+                call BUL_DRAW               ; over her: she fires past herself
                 ld   a,MARK_TAIL
                 call BORDER_SET
                 call H_TAIL                 ; rows 18-23 of the committed column
@@ -288,6 +299,9 @@ SCROLL_DEMO:    di
                 call INPUT_SCAN             ; the AY address latch is shared
                 ei                          ; with the sound chip
                 call PLAYER_UPDATE
+                call ACT_UPDATE             ; ... which cel that makes her,
+                call UPDATE_BULLETS         ; and whether one just left
+                call UPDATE_RELOAD
                 call CAMERA_DECIDE          ; requests next frame's step
                 call SCROLL_SERVICE         ; a vertical step in flight
                 call PLAYER_TO_SCREEN       ; where she goes, in that view
@@ -305,9 +319,9 @@ SCROLL_DEMO:    di
                 ld   a,(LEVEL_OK)
                 or   a
                 jr   z,.erased              ; she was never drawn
-                ld   a,(KARA_LAST_CNT)      ; culled: nothing to wait for
-                or   a
-                jr   z,.erased
+                ld   a,(KARA_LAST_CNT)      ; culled: she left no script, but
+                or   a                      ; the rounds still have to come up
+                jr   z,.bullets_only
                 ; The span erase replays the script the draw wrote, run
                 ; by run, so there is no fast/slow lane to choose
                 ; between any more: the beam only has to be past her
@@ -317,7 +331,10 @@ SCROLL_DEMO:    di
                 call RASTER_WAIT
                 ld   a,MARK_ERASE
                 call BORDER_SET
-                call KARA_SPAN_ERASE
+                call BUL_ERASE              ; reverse draw order: the rounds
+                call KARA_SPAN_ERASE        ; went down over her
+                jr   .erased
+.bullets_only:  call BUL_ERASE
 .erased:
 
                 ld   hl,FRAME_COUNT
@@ -376,9 +393,38 @@ RASTER_WAIT:    ld   c,1
                 push hl
                 call TICK_WAIT
                 pop  hl
-                ld   a,h
+
+                ; ARRIVING LATE MUST NOT COST THE WHOLE REMAINDER AGAIN.
+                ; The delay below can only count from the moment it is
+                ; entered, so a caller that reaches here a tick or two
+                ; after the one it asked for used to wait its 50-odd
+                ; scanlines on top of however long it took to get here.
+                ; Harmless while the frame had room; with the action
+                ; state machine in it that was 13,000 T of a 79,872 T
+                ; frame spent waiting for a beam that had gone by 23,000
+                ; T earlier, and the loop dropped 6 frames in 200 while
+                ; scrolling. Each whole tick late is 52 scanlines of
+                ; beam already owed to us.
+                ld   a,(IRQ_TICKS)
+                ld   de,FRAME_TICK0
+                ld   b,a
+                ld   a,(de)
+                neg
+                add  a,b                    ; ticks since the VSYNC exit
+                sub  c                      ; ... past the one asked for
+                jr   z,.owed
+                jr   c,.owed                ; earlier: TICK_WAIT saw to it
+                ld   b,a
+.catch:         ld   de,-52 * 8             ; a tick is 52 scanlines
+                add  hl,de
+                jr   nc,.none               ; the beam is already past it
+                djnz .catch
+.owed:          ld   a,h
                 or   l
                 ret  z
+                jr   .delay
+.none:          ret
+
 .delay:         dec  hl                     ; 8
                 nop                         ; 4   measured at 28 T without it
                 ld   a,h                    ; 4
@@ -787,8 +833,12 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "unpack.asm"
                 include "disc.asm"
                 include "levels/disc.inc"
+                include "levels/banks.inc"
+                include "levels/spawns.inc"
                 include "levels/_shared/kcore.inc"
                 include "kara.asm"
+                include "levels/_shared/kextra.inc"
+                include "action.asm"
                 include "bullets.asm"
                 include "input.asm"
                 include "collide.asm"
@@ -846,8 +896,14 @@ BANK_RESULT:    ds 5
 
 KARA_X:         db 0
 KARA_Y:         db KARA_HOME_Y
+KARA_STATE:     db KST_IDLE     ; CLAUDE.md 8.4 - see action.asm
+KARA_SET:       db KSET_CORE    ; which blob KARA_FRAME counts in
+KARA_TIMER:     db 1            ; 50 Hz frames left on this cel
+KARA_DONE:      db 0            ; a held run has reached its last cel
 KARA_FRAME:     db 0
-KARA_FACING:    db 1                    ; 1 = right, 0 = left
+KARA_FACING:    db 0                    ; 0 = RIGHT, 1 = left - the way
+                                        ; player.asm writes it, and the
+                                        ; way kara.asm indexes KARA_SETS
 KARA_STEP:      db 0
 KARA_LAST_ADDR: dw 0
 KARA_LAST_TOP:  db 0            ; her first and last DRAWN screen lines,

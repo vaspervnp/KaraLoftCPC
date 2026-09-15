@@ -34,6 +34,7 @@
 ; =====================================================================
 
 P_WALK          equ 1           ; byte columns per frame = 2 pixels
+P_RUN           equ 2           ; SHIFT: one CRTC character a frame
 P_PUSH          equ 2           ; bytes per camera step: one CRTC character
 P_GRAVITY       equ 1
 P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
@@ -66,35 +67,25 @@ PLAYER_UPDATE:  call PLAYER_X
 ; step rather than sliding to the wall costs at most one byte of gap and
 ; avoids a second probe to find where exactly she should stop.
 ; ---------------------------------------------------------------------
+                ; NO ANIMATION HERE. Which cel shows is action.asm's
+                ; business and it is decided AFTER the physics, because
+                ; the jump state reads KARA_GROUND. This routine settles
+                ; where she is and which way she faces; that is all the
+                ; state machine needs from it.
 PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   c,a
                 and  IN_LEFT + IN_RIGHT
-                jr   nz,.moving
-                xor  a                      ; idle: back to the standing frame
-                ld   (KARA_ANIM),a
-                ld   a,KCORE_IDLE_FIRST
-                ld   (KARA_FRAME),a
-                ret
+                ret  z                      ; nothing held: she stays put
 
-                ; The blob's frames are not the sheet's: --drop and
-                ; --tags renumber them, so a cel is KCORE_<tag>_FIRST
-                ; plus an index that wraps at KCORE_<tag>_COUNT. Nine
-                ; frames of the drawn sheet are not shipped at all
-                ; (CLAUDE.md 7.1), which is why walk is 5 and not 8.
-.moving:        ld   a,(KARA_STEP)          ; animate while she walks
-                inc  a
-                ld   (KARA_STEP),a
-                and  3
-                jr   nz,.same_cel           ; a new cel every four frames
-                ld   a,(KARA_ANIM)
-                inc  a
-                cp   KCORE_WALK_COUNT
-                jr   c,.keep
-                xor  a
-.keep:          ld   (KARA_ANIM),a
-.same_cel:      ld   a,(KARA_ANIM)
-                add  a,KCORE_WALK_FIRST
-                ld   (KARA_FRAME),a
+                ; SHIFT is two bytes a frame, which is exactly the
+                ; CRTC's scroll step - so in the camera's push zone a
+                ; run scrolls every frame and a walk every other one.
+                ld   a,c
+                and  IN_RUN
+                ld   a,P_WALK
+                jr   z,.speed
+                ld   a,P_RUN
+.speed:         ld   (PLAYER_SPEED),a
                 ld   a,c
                 and  IN_LEFT
                 jr   nz,.left
@@ -105,14 +96,18 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 call PLAYER_SCREEN_X
                 inc  a                      ; her screen column after 1 byte
                 cp   CAM_RIGHT_EDGE
-                ld   e,P_WALK
+                ld   a,(PLAYER_SPEED)
+                ld   e,a
                 jr   c,.step_r              ; still in the free zone
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
                 jr   nc,.step_r             ; camera at the map's end: walk on
-                call PUSH_PHASE
-                ret  z                      ; the camera's off frame: hold
-                ld   e,P_PUSH               ; its on frame: move as far as it
+                ld   a,(PLAYER_SPEED)
+                cp   P_RUN
+                jr   z,.push_r              ; running: the camera steps every
+                call PUSH_PHASE             ; frame, so she may too
+                ret  z                      ; walking, the camera's off frame
+.push_r:        ld   e,P_PUSH               ; its on frame: move as far as it
 .step_r:        ld   d,0
                 ld   hl,(KARA_WX)
                 add  hl,de                  ; the proposed position
@@ -147,14 +142,18 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 call PLAYER_SCREEN_X
                 dec  a                      ; her screen column after 1 byte
                 cp   CAM_LEFT_EDGE
-                ld   e,P_WALK
+                ld   a,(PLAYER_SPEED)
+                ld   e,a
                 jr   nc,.step_l             ; still in the free zone
                 ld   a,(WORLD_X)
                 or   a
                 jr   z,.step_l              ; camera at the map's start
+                ld   a,(PLAYER_SPEED)
+                cp   P_RUN
+                jr   z,.push_l
                 call PUSH_PHASE
                 ret  z
-                ld   e,P_PUSH
+.push_l:        ld   e,P_PUSH
 .step_l:        ld   d,0
                 ld   hl,(KARA_WX)
                 or   a
@@ -380,6 +379,7 @@ PLAYER_TO_SCREEN:
                 ld   (KARA_Y),a
                 ret
 
+PLAYER_SPEED:   db P_WALK       ; this frame's step, walk or run
 KARA_WX:        dw 40
 KARA_WY:        db 16           ; starts in the air and falls onto the roof.
                                 ; HIGH ENOUGH THAT HER FEET START ABOVE IT:

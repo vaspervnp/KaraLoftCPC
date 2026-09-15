@@ -294,7 +294,16 @@ def main():
 
         # The composite itself is 72 T a byte and cannot be less: nine
         # instructions, all of them 8 T after the gate array's padding.
-        check("the composite is at its floor", worst[2] / worst[1] < 125,
+        #
+        # THE CEILING MOVED FROM 125 TO 130, and the reason is a
+        # correctness fix rather than drift. A span that ends EXACTLY on
+        # the last byte of a 2 KB block used to take the fast lane and
+        # leave DE = &0000, after which the line step does not carry,
+        # SPR_ROW_FIX is skipped and the next line is written over the
+        # core at &07FD. It takes the folded lane now, which is 112 T a
+        # byte instead of 72 - about 480 T on the one line in two
+        # hundred that does it, and worth every one of them.
+        check("the composite is at its floor", worst[2] / worst[1] < 130,
               f"{worst[2] / worst[1]:.0f} T a byte against a 72 T floor, "
               f"the rest being per-line")
 

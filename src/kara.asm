@@ -19,16 +19,40 @@
 
 KARA_W_BYTES    equ KCORE_BOX_W             ; 12 - 24 pixels
 KARA_H          equ KCORE_BOX_H             ; 64 lines
-KARA_BANK_R     equ &C5
-KARA_BANK_L     equ &C6
-KARA_BLOB       equ BANK_WINDOW             ; &4000, both facings
+
+; ---------------------------------------------------------------------
+; HER FRAMES ARE IN TWO BLOBS AND THREE BANKS, and which one a cel comes
+; from is part of the animation, not of the drawing. idle, walk, jump
+; and the gun are `kcore`, one bank a facing; run and roll are `kextra`,
+; both facings in one bank because the pair fits. So the drawer is told
+; a SET and a frame, and looks the bank and the blob's base up here.
+;
+; The addresses come from build/levels/banks.inc, which the ALLOCATOR
+; emits after checking that every level put them in the same place -
+; tools/level_banks.py PINNED. A pin that stopped holding fails the
+; build there rather than drawing garbage here.
+; ---------------------------------------------------------------------
+KSET_CORE       equ 0                       ; idle, walk, jump, shoot
+KSET_EXTRA      equ 1                       ; run, roll
+KSET_BYTES      equ 6
+
+KARA_SETS:      db KCORE_PIN_BANK           ; facing right
+                dw KCORE_PIN_ADDR
+                db KCORE_L_PIN_BANK         ; facing left
+                dw KCORE_L_PIN_ADDR
+
+                db KEXTRA_PIN_BANK
+                dw KEXTRA_PIN_ADDR
+                db KEXTRA_L_PIN_BANK
+                dw KEXTRA_L_PIN_ADDR
 
 ; ---------------------------------------------------------------------
 ; KARA_SPAN_DRAW - composite her, clipped to the display.
 ;
 ; IN : (KARA_X) screen byte column of her box's left edge
 ;      (KARA_Y) screen line of her box's top, 192-255 meaning above it
-;      (KARA_FRAME) frame in the blob, (KARA_FACING) 0 right, 1 left
+;      (KARA_SET) which blob, (KARA_FRAME) the frame inside it,
+;      (KARA_FACING) 0 right, 1 left
 ; OUT: (KARA_LAST_TOP) the first line she was drawn on and
 ;      (KARA_LAST_BOT) the last, for the erase's raster gate, and
 ;      (KARA_LAST_CNT) how many lines went down - 0 when she is entirely
@@ -38,12 +62,26 @@ KARA_BLOB       equ BANK_WINDOW             ; &4000, both facings
 ;      back over a screen that has moved on.
 ;      destroys AF,BC,DE,HL,B',C'
 ; ---------------------------------------------------------------------
-KARA_SPAN_DRAW: ld   a,(KARA_FACING)
+KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
+                ld   l,a
+                add  a,a
+                add  a,l
+                add  a,a                    ; * 6, the row's width
+                ld   l,a
+                ld   h,0
+                ld   de,KARA_SETS
+                add  hl,de
+                ld   a,(KARA_FACING)
                 or   a
-                ld   a,KARA_BANK_R
-                jr   z,.bank
-                ld   a,KARA_BANK_L
-.bank:          ld   c,a
+                jr   z,.face
+                inc  hl                     ; the left entry is three bytes on
+                inc  hl
+                inc  hl
+.face:          ld   c,(hl)                 ; its bank ...
+                inc  hl
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)                 ; ... and the blob's base
                 ld   b,&7F
                 out  (c),c
 
@@ -52,7 +90,6 @@ KARA_SPAN_DRAW: ld   a,(KARA_FACING)
                 add  a,a
                 ld   l,a
                 ld   h,0
-                ld   de,KARA_BLOB
                 add  hl,de
                 ld   a,(hl)                 ; the offset is relative, so a
                 inc  hl                     ; blob can be loaded anywhere
