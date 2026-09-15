@@ -415,13 +415,23 @@ Produced by `tools/png2sprite.py`, emitted for `INCBIN`, with a generated `.inc`
 frame count and sizes. Sprites are quantised against the pens in `src/palette.asm`,
 not against their own image, so they match the level they are drawn over.
 
-**The art needs two pens the palette does not have yet.** Its 11 colours
-map cleanly onto the game's 16 except that `(255,128,128)` and
-`(255,128,0)` both land on pen 13 (Orange), and the first is 116 units
-away from it — it is Pink, hardware colour 7. `(128,255,255)` is Pastel
-Cyan, hardware 27, and is 114 from the nearest pen it has. Two of the
-16 pens have to be given to those before the exporter runs, or her
-skin and her highlights come out the same colour as her muzzle flash.
+**Pens 1 and 5 were given to the art.** They were Bright Blue and Bright
+Magenta, and nothing — tiles, HUD or sprite — used either. They are now
+**Pastel Cyan (hw 27)** and **Pink (hw 7)**:
+
+* `(255,128,128)` is her skin: 4,574 pixels, a quarter of her opaque
+  area, spread over the whole figure. Without Pink it quantised onto
+  pen 13 Orange, 116 units away and *the same colour as her muzzle
+  flash* — the two shared a pen.
+* `(128,255,255)` is the goggle glint, two pixels a frame. Pastel Cyan
+  also doubles as a better water and glass highlight for level 4 than
+  the near-neon `(12,2,244)` it replaced.
+
+With the swap all 11 art colours land on their own pen, worst distance
+**27.8**; before it, worst 115.7 with a collision. **Pen 8 Green was
+deliberately kept** — level 2 is a forest and it is the only mid green
+in the set. The two spent pens were the only genuinely free ones, so
+the next new colour costs a used one.
 
 ### 7.2 Aseprite
 
@@ -809,8 +819,8 @@ the next one starts.
    In progress. Done: scroll-aware sprite addressing and clipping (§8.2,
    §7.1), input, tile collision, the player's physics, the camera.
    Still to do, in this order:
-   1. `png2sprite.py` for the 24×64 span format and the Aseprite JSON,
-      and the two palette pens the art needs (§7.1);
+   1. `png2sprite.py` for the 24×64 span format and the Aseprite JSON
+      (the two palette pens it needs are done);
    2. the span blitter and the mirror table, replacing the 16×48
       full-box one;
    3. the action state machine and its controls (§8.3);

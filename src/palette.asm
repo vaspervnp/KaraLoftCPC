@@ -5,15 +5,28 @@
 ; gate array's colour-select prefix). The firmware ink -> hardware
 ; mapping used here is in docs/cpc_palette.md; it was read back off the
 ; emulator rather than copied from memory.
+;
+; PENS 1 AND 5 WERE BRIGHT BLUE AND BRIGHT MAGENTA. They are Pastel Cyan
+; and Pink because the drawn heroine needs them and nothing else here
+; used them. Her skin is (255,128,128) - 4,574 pixels, a quarter of her
+; opaque area - and without Pink it quantised onto pen 13 Orange, 116
+; units away and the same colour as her muzzle flash. The goggle glint
+; is (128,255,255), two pixels a frame, and Pastel Cyan doubles as a
+; better water and glass highlight than the near-neon blue it replaced.
+;
+; With the swap every one of the art's 11 colours lands on its own pen,
+; worst distance 27.8; before it, worst 115.7 with two colours sharing
+; pen 13. Pen 8 Green is deliberately NOT one of the two: level 2 is a
+; forest and it is the only mid green there is.
 ; =====================================================================
 
 PALETTE_DATA:
                 db &54      ; pen  0  black            (hw 20)
-                db &55      ; pen  1  bright blue      (hw 21)
+                db &5B      ; pen  1  pastel cyan      (hw 27)
                 db &44      ; pen  2  blue             (hw  4)
                 db &4C      ; pen  3  bright red       (hw 12)
                 db &5C      ; pen  4  red              (hw 28)
-                db &4D      ; pen  5  bright magenta   (hw 13)
+                db &47      ; pen  5  pink             (hw  7)
                 db &58      ; pen  6  magenta          (hw 24)
                 db &52      ; pen  7  bright green     (hw 18)
                 db &56      ; pen  8  green            (hw 22)
