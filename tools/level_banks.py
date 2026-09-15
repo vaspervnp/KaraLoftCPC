@@ -93,7 +93,17 @@ def _try(order):
     """
     free = [BANK_SIZE] * len(BANKS)
     place = {}
+    for name, size in order:                 # the pinned ones go first
+        i = pin_of(name)
+        if i is None:
+            continue
+        if size > free[i]:
+            return None
+        place[name] = (i, WINDOW + BANK_SIZE - free[i])
+        free[i] -= size
     for name, size in order:
+        if name in place:
+            continue
         fits = [(f - size, i) for i, f in enumerate(free) if f >= size]
         if not fits:
             return None
@@ -101,6 +111,24 @@ def _try(order):
         place[name] = (i, WINDOW + BANK_SIZE - free[i])
         free[i] -= size
     return place, free
+
+
+# Three blobs are pinned, because where they land has consequences
+# beyond fitting:
+#   the level's tiles      C4, so the tilemap engine always pages the
+#                          same bank and the scrolling demo can drop the
+#                          placeholder tileset on top of it
+#   kcore / kcore_l        C5 and C6, one facing each, so the two banks
+#   (the heroine)          Kara is drawn from are never the tilemap's
+PINNED = {"kcore": 2, "kcore_l": 3}          # indices into BANKS
+
+
+def pin_of(name):
+    if name in PINNED:
+        return PINNED[name]
+    if name.endswith("tiles"):
+        return 1                             # C4
+    return None
 
 
 def allocate(items):

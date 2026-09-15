@@ -100,12 +100,15 @@ SPAN_SCRIPT_MAX equ SPAN_MAX_LINES * (2 * 3 + SPAN_MAX_WIDTH) + 1
 ; writing the erase script.
 ;
 ; IN : HL = the frame's first GROUP header - the caller steps past the
-;           y0/lines header itself, because only the caller knows how
-;           many lines clipping took off the top
-;      DE = screen address of box byte 0 on the first drawn line
+;           y0/lines header itself
+;      DE = screen address of box byte 0 on the FIRST DRAWN line
 ;      BC = script buffer
 ;      A  = lines to draw; drawing stops when they run out, so a sprite
 ;           clipped at the bottom just gets a smaller number
+;      (SPAN_SKIP) = lines to drop off the TOP, for a sprite clipped
+;           there. Those lines' data is walked past without drawing,
+;           but their dskip still counts - the deltas are cumulative,
+;           so a skipped group still moves where the next one starts.
 ; OUT: the script, terminated; (SPAN_SCRIPT_END) = one past its last
 ;      byte, for the tests and the overrun assert
 ;      destroys AF,BC,DE,HL,B',C'
@@ -122,23 +125,15 @@ SPAN_GROUP_TOP: ld   a,(hl)             ; 8   lines in this group
                 inc  hl                 ; 8
                 or   a                  ; 8
                 jp   z,SPAN_DONE        ; 12  0 ends the frame
-
-                exx                     ; 4   clip the group to what is
-                cp   c                  ; 4   left of the sprite
-                jr   c,.fits            ; 12
-                ld   a,c                ; 4
-.fits:          ld   b,a                ; 4   lines to draw from this group
-                ld   a,c                ; 4
-                sub  b                  ; 4
-                ld   c,a                ; 4
-                exx                     ; 4
+                ld   (SPAN_NL),a        ; 16  the skip path needs it
 
                 ld   a,(hl)             ; 8   bytes per line
                 inc  hl                 ; 8
                 ld   (SPAN_CNT + 1),a   ; 16  the script header writes it
+                ld   (SPAN_STRIDE),a    ; 16  ... and so does the skip walk
                 or   a                  ; 8
                 jp   z,SPAN_BLANK       ; 12  count 0: lines with nothing on
-                ld   (.idx + 1),a       ; 16  the entry into SPAN_RUN
+                ld   (SPAN_IDX + 1),a   ; 16  the entry into SPAN_RUN
                 neg                     ; 8   and the line step, which is
                 ld   (SPAN_STEP_N + 1),a ; 16 the line step, &0800 - count
                 ld   (SPAN_STEPW_N + 1),a ; 16 ... and the folded lane's
@@ -159,7 +154,25 @@ SPAN_GROUP_TOP: ld   a,(hl)             ; 8   lines in this group
                 and  7                  ; 8   ... of which only these may
                 xor  d                  ; 4   ... so put the rest back
                 ld   d,a                ; 4
-.idx:           ld   a,(SPAN_ENTRY)     ; 16
+                ld   a,(SPAN_SKIP)      ; 16  still dropping lines off the
+                or   a                  ; 8   top?
+                jp   nz,SPAN_DO_SKIP    ; 12
+
+SPAN_CLIP_N:    ld   a,(SPAN_NL)        ; 16  how many of this group's lines
+                exx                     ; 4   are still inside the sprite
+                cp   c                  ; 4
+                jr   c,.fits            ; 12
+                ld   a,c                ; 4
+.fits:          ld   b,a                ; 4
+                ld   a,c                ; 4
+                sub  b                  ; 4
+                ld   c,a                ; 4
+                exx                     ; 4
+                                        ;     B cannot be 0 here: the budget
+                                        ;     was non-zero on entry and
+                                        ;     SPAN_NEXT_GROUP stops as soon
+                                        ;     as it reaches zero
+SPAN_IDX:       ld   a,(SPAN_ENTRY)     ; 16  patched with the count above
                 ld   (SPAN_ENTER + 1),a ; 16
                 ; falls into the line loop
 
@@ -246,6 +259,47 @@ SPAN_DONE:      ld   a,SPAN_END_MARK
 ; ---------------------------------------------------------------------
 SPAN_BLANK:     inc  hl                 ; past the delta, which is 0
                 inc  hl
+                ld   a,(SPAN_SKIP)
+                or   a
+                jr   z,.clip
+                ; Blank lines carry no data, so skipping them is only a
+                ; matter of counting: nothing to walk past.
+                ;
+                ; B IS THE SCRIPT POINTER'S HIGH BYTE. It looks like a
+                ; free register here - the line counters are in the
+                ; shadow set and A is busy - and it is not; using it
+                ; sent the save-under into SPAN_ENTRY and corrupted
+                ; every later frame. The two operands go in immediates
+                ; instead.
+                ld   (.sk + 1),a
+                ld   a,(SPAN_NL)
+                ld   (.nl + 1),a
+                ld   a,(SPAN_SKIP)
+.nl:            cp   0                  ; skip vs the group's lines
+                jr   nc,.all_skipped
+                ld   (.sub + 1),a
+                ld   a,(SPAN_NL)
+.sub:           sub  0                  ; part of the group survives
+                ld   (SPAN_NL),a
+                xor  a
+                ld   (SPAN_SKIP),a
+                jr   .clip
+.all_skipped:   ld   a,(SPAN_NL)        ; skip -= nlines, all of it above
+                neg                     ; the top edge
+.sk:            add  a,0
+                ld   (SPAN_SKIP),a
+                jp   SPAN_GROUP_TOP
+
+.clip:          ld   a,(SPAN_NL)
+                exx
+                cp   c
+                jr   c,.fits
+                ld   a,c
+.fits:          ld   b,a
+                ld   a,c
+                sub  b
+                ld   c,a
+                exx
 .line:          ld   a,d
                 add  a,8
                 ld   d,a
@@ -256,6 +310,58 @@ SPAN_BLANK:     inc  hl                 ; past the delta, which is 0
                 exx
                 jp   nz,.line
                 jp   SPAN_NEXT_GROUP
+
+; ---------------------------------------------------------------------
+; SPAN_DO_SKIP - this group starts above the top of the display, whole
+; or in part. Its pixel data is walked past; its delta has already been
+; applied, because the deltas are cumulative and a group that is not
+; drawn still moves where the next one starts.
+;
+; The walk is a loop of adds rather than a multiply: it costs up to
+; 3,800 T, and it only happens on the frames where a vertical scroll has
+; carried her off the top edge.
+; ---------------------------------------------------------------------
+SPAN_DO_SKIP:   ld   (.sk + 1),a        ; the lines still to skip. NOT in B:
+                                        ; B is the script pointer's high
+                                        ; byte - see SPAN_BLANK.
+                ld   a,(SPAN_STRIDE)    ; the group's bytes a line ...
+                add  a,a                ; ... as mask/data pairs
+                ld   (.step + 1),a
+                ld   a,(SPAN_NL)
+                ld   (.nl + 1),a
+                ld   a,(SPAN_SKIP)
+.nl:            cp   0                  ; skip vs the group's lines
+                jr   nc,.whole          ; all of them are above the edge
+
+                ld   (.n + 1),a         ; part of it survives: walk past
+                ld   (.sub + 1),a       ; `skip` lines and draw the rest
+                xor  a
+                ld   (SPAN_SKIP),a
+                ld   a,(SPAN_NL)
+.sub:           sub  0
+                ld   (SPAN_NL),a
+                call .walk
+                jp   SPAN_CLIP_N
+
+.whole:         ld   a,(SPAN_NL)        ; all of them walked past, and the
+                ld   (.n + 1),a         ; skip shrinks by exactly that many
+                neg
+.sk:            add  a,0
+                ld   (SPAN_SKIP),a
+                call .walk
+                jp   SPAN_GROUP_TOP
+
+.walk:          ld   a,l                ; HL += n * (count * 2)
+.step:          add  a,0
+                ld   l,a
+                jr   nc,.no_carry
+                inc  h
+.no_carry:
+.n:             ld   a,0
+                dec  a
+                ld   (.n + 1),a
+                jr   nz,.walk
+                ret
 
 ; ---------------------------------------------------------------------
 ; The offset is within SPAN_MAX_WIDTH of the end of the raster block.
@@ -275,7 +381,15 @@ SPAN_MAYBE_FOLD:
                 ld   a,(SPAN_CNT + 1)   ; count
 .split:         sub  0
                 jp   c,SPAN_HEADER      ; stops short of the wrap after all
-                jp   z,SPAN_HEADER
+
+                ; ZERO IS NOT THE SAFE CASE. A run that ends EXACTLY on
+                ; the last byte of the block - &FFFD..&FFFF - wraps no
+                ; word, but the last INC DE leaves DE = &0000, and from
+                ; there SPAN_STEP's +&0800 does not carry, SPR_ROW_FIX
+                ; is skipped and the next line is written at &07FD, over
+                ; the core. So it takes the folded lane too, with an
+                ; empty second half: the fold-back and the wide step are
+                ; exactly what put the pointer right.
                 ld   (SPAN_N2),a
                 ld   a,(SPAN_N1)
                 call SPAN_SLOW          ; the bytes before the wrap
@@ -283,7 +397,8 @@ SPAN_MAYBE_FOLD:
                 sub  8                  ; raster; fold it back to offset 0
                 ld   d,a                ; of this one
                 ld   a,(SPAN_N2)
-                call SPAN_SLOW          ; and the rest
+                or   a
+                call nz,SPAN_SLOW       ; and the rest, if there is any
                 ; This line's step owes an extra &0800, because the fold
                 ; took one off. Undoing it with a separate ADD to D does
                 ; not work: at raster 7 with the offset high, D is &F8
@@ -342,6 +457,9 @@ SPAN_ENTRY:     repeat SPAN_MAX_WIDTH + 1, n
                 db (SPAN_RUN_END - (n - 1) * SPAN_GROUP) AND 255
                 rend
 
+SPAN_SKIP:      db 0            ; lines still to drop off the top
+SPAN_NL:        db 0            ; this group's line count
+SPAN_STRIDE:    db 0            ; ... and its bytes a line
 SPAN_N1:        db 0            ; the folded lane's two halves
 SPAN_N2:        db 0
 SPAN_SCRIPT_END:dw 0

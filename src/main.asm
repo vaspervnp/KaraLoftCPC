@@ -36,7 +36,8 @@ BUL_SAVE        equ &8180               ; 56 bytes
 SPAN_SCRIPT     equ &8200               ; the span blitter's erase script,
                                         ; which is also its save-under
 
-KARA_HOME_Y     equ 112
+KARA_HOME_Y     equ 96          ; 96 + KARA_BOX_H = 156, her feet on
+                                ; the same roof the 16x48 sprite stood on
 STRIPE_TOP      equ 64
 STRIPE_BANDS    equ 14
 HUD_LEFT_LINE   equ 180
@@ -201,6 +202,18 @@ MAIN_LOOP:      call WAIT_VSYNC
 SCROLL_DEMO:    di
                 xor  a
                 call SCREEN_CLS
+
+                ; THE REAL ART, off the disc. Level 1's gameplay set puts
+                ; kcore in &C5 and kcore_l in &C6 - pinned there by
+                ; tools/level_banks.py so the facing is one OUT - and the
+                ; city tiles in &C4, which the placeholder tileset then
+                ; goes back over. That order is deliberate: the 8x16
+                ; tiles the art package ships need the addressing rewrite
+                ; of CLAUDE.md 8.3, so the demo still scrolls the 16x16
+                ; stand-ins while Kara herself is the drawn sprite.
+                xor  a                      ; 0 = level 1, gameplay
+                call LEVEL_LOAD
+                call TILES_INSTALL          ; ... back over the level's C4
                 call SCROLL_INIT
                 call INPUT_INIT
                 call PLAYER_TO_SCREEN
@@ -250,7 +263,7 @@ SCROLL_DEMO:    di
 
                 ld   a,MARK_SPRITE
                 call BORDER_SET
-                call KARA_DRAW              ; ahead of the beam, in the border
+                call KARA_SPAN_DRAW         ; ahead of the beam, in the border
                 ld   a,MARK_TAIL
                 call BORDER_SET
                 call H_TAIL                 ; rows 18-23 of the committed column
@@ -275,19 +288,19 @@ SCROLL_DEMO:    di
 
                 ld   a,MARK_IDLE
                 call BORDER_SET
-                ld   hl,(KARA_LAST_ADDR)    ; culled: nothing to wait for
-                ld   a,h
-                or   l
+                ld   a,(KARA_LAST_CNT)      ; culled: nothing to wait for
+                or   a
                 jr   z,.erased
-                ld   a,(KARA_CLIP_W)        ; WHICH of her lines binds depends
-                cp   SPR_WIDTH_BYTES        ; on which lane the erase will use
-                ld   a,(KARA_LAST_BOT)      ; - see below
-                jr   z,.gate
-                ld   a,(KARA_LAST_TOP)
-.gate:          call RASTER_WAIT
+                ; The span erase replays the script the draw wrote, run
+                ; by run, so there is no fast/slow lane to choose
+                ; between any more: the beam only has to be past her
+                ; last DRAWN line, which the draw recorded after
+                ; clipping.
+                ld   a,(KARA_LAST_BOT)
+                call RASTER_WAIT
                 ld   a,MARK_ERASE
                 call BORDER_SET
-                call KARA_ERASE
+                call KARA_SPAN_ERASE
 .erased:
 
                 ld   hl,FRAME_COUNT
@@ -314,10 +327,25 @@ SCROLL_DEMO:    di
 ; that has already gone by, so the answer is only ever later than asked
 ; for, never earlier.
 ;
-; IN : A = display line 0-191                destroys AF,BC,DE,HL
+; IN : A = display line 0-191 - and 185-191 need the wrap fixup
+;      below, which is why C is loaded before the ADD
+;                                           destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-RASTER_WAIT:    add  a,73 - 2               ; scanlines past tick 1 (line 2)
-                ld   c,1
+RASTER_WAIT:    ld   c,1
+                add  a,73 - 2               ; scanlines past tick 1 (line 2)
+                jr   nc,.tick
+
+                ; DISPLAY LINE 185 AND UP OVERFLOWS THE BYTE: the sum is
+                ; 256-262 and comes back as 0-6, which reads as tick 1.
+                ; The erase then runs ~65,000 T EARLY - it wipes her
+                ; before the beam has reached her, and she is simply
+                ; absent from the bottom third of the picture. Invisible
+                ; while the sprite was 48 lines and the camera kept her
+                ; clear; a 64-line sprite reaches it in ordinary play.
+                ; 256 scanlines is four ticks and 48 more, so put it
+                ; back as exactly that.
+                add  a,48
+                ld   c,5
 .tick:          cp   52                     ; one tick is 52 scanlines
                 jr   c,.rem
                 sub  52
@@ -690,6 +718,8 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "unpack.asm"
                 include "disc.asm"
                 include "levels/disc.inc"
+                include "levels/_shared/kcore.inc"
+                include "kara.asm"
                 include "bullets.asm"
                 include "input.asm"
                 include "collide.asm"
@@ -737,7 +767,9 @@ KARA_FACING:    db 1                    ; 1 = right, 0 = left
 KARA_STEP:      db 0
 KARA_LAST_ADDR: dw 0
 KARA_LAST_TOP:  db 0            ; her first and last DRAWN screen lines,
-KARA_LAST_BOT:  db 0            ; which clipping makes different from Y, Y+47
+KARA_LAST_BOT:  db 0            ; which clipping makes different from Y, Y+63
+KARA_LAST_CNT:  db 0            ; lines drawn; 0 = entirely off the display
+KARA_ANIM:      db 0            ; index within the current tag's frames
 KARA_SAVE_PTR:  dw 0            ; where in KARA_SAVE the drawn part starts
 KARA_CLIP_W:    db 0            ; the drawn rectangle, so KARA_ERASE can
 KARA_CLIP_H:    db 0            ; replay exactly what KARA_DRAW wrote

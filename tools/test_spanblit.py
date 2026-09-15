@@ -127,7 +127,8 @@ def make_frame(rng, lines, forced=None):
 
 
 # ----------------------------------------------------------------- run
-def call(m, sym, routine, hl=0, de=0, bc=0, a=0):
+def call(m, sym, routine, hl=0, de=0, bc=0, a=0, skip=0):
+    m.poke(sym["SPAN_SKIP"], skip)
     code = bytes([0xF3,                                 # di
                   0x21, hl & 0xFF, hl >> 8,             # ld hl,nn
                   0x11, de & 0xFF, de >> 8,             # ld de,nn
@@ -155,8 +156,8 @@ def main():
     script = 0x8200
 
     rng = random.Random(1234)
-    bad_draw = bad_erase = bad_bystander = 0
-    cases = 0
+    bad_draw = bad_erase = bad_bystander = bad_skip = 0
+    cases = skip_cases = 0
     folds = rows = 0
 
     # Positions chosen to put spans on every awkward boundary there is:
@@ -211,12 +212,40 @@ def main():
         back = bytes(m.read_ram(0xC000, 0x4000))
         bad_erase += sum(1 for i in range(0x4000) if back[i] != before[i])
 
+        # ---- and again with the top clipped off ---------------------
+        # A sprite carried off the top of the display draws from line k
+        # of its frame, and the caller hands over the address of THAT
+        # line. The blitter has to walk past k lines of pixel data while
+        # still accumulating their deltas, which is the only thing in it
+        # that no other case exercises.
+        if lines > 2:
+            k = rng.randrange(1, lines)
+            skipped = rec[k:]
+            addr = de
+            for _ in range(k):
+                addr = next_line(addr)
+            before2 = bytes(m.read_ram(0xC000, 0x4000))
+            want2 = {}
+            for (a2, i2, b2) in touched(addr, skipped):
+                mask, data = skipped[i2][1][b2]
+                want2[a2] = (want2.get(a2, before2[a2 - 0xC000]) & mask) | data
+            call(m, sym, "SPAN_DRAW", hl=FRAME, de=addr, bc=script,
+                 a=lines - k, skip=k)
+            after2 = bytes(m.read_ram(0xC000, 0x4000))
+            for a2, v in want2.items():
+                if after2[a2 - 0xC000] != v:
+                    bad_skip += 1
+            skip_cases += 1
+            call(m, sym, "SPAN_ERASE")
+
     check("every composited byte lands where the v-model says",
           bad_draw == 0, f"{bad_draw} wrong bytes over {cases} placements")
     check("nothing outside the spans is touched", bad_bystander == 0,
           f"{bad_bystander} bytes")
     check("the erase restores the screen exactly", bad_erase == 0,
           f"{bad_erase} bytes still wrong")
+    check("a sprite clipped at the top draws from the right line",
+          bad_skip == 0, f"{bad_skip} wrong bytes over {skip_cases} placements")
     check("wrapped spans really were split", folds > 0,
           f"{folds} extra runs across {rows} placements")
 

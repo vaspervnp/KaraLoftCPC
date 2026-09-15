@@ -16,9 +16,15 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all nine
+**`RUN"DISC` now plays the real art.** The scrolling demo loads level
+1 off the disc at start-up and draws the 24x64 drawn heroine out of her
+span blobs; the 16x16 placeholder tileset still scrolls under her,
+because the shipped tiles are 8x16 and that is the addressing rewrite
+of §8.3.
+
+`./tools/run_tests.sh` runs every acceptance suite and **all ten
 pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 78,764 T of 79,872, with the span blitter
+heaviest animation frame is 77,916 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 numbers are in §9.
 
@@ -54,6 +60,8 @@ tools/png2tiles.py         16x16 tile sheet -> 128 bytes/tile + .inc
 tools/make_placeholder_level.py  the stand-in city tiles and 64x16 map
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
+src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
+
 tools/test_*.py            acceptance suites
 tools/run_tests.sh         all of them, in order
 
@@ -1170,6 +1178,50 @@ blitters wanted the same reordering is the sign it is the right one.
 | `H_HEAD` + `H_TAIL` | 18,792 | **16,504** |
 | `DRAW_ROW`, 40 cells | 37,124 | **31,008** |
 
+### Wiring her in: four bugs, and what each one taught
+
+The span blitter was correct in isolation and the loop was correct with
+the old sprite. Every one of these lived in the join.
+
+1. **`SCR_ADDR` returns in `HL`, and `HL` was the frame.** The frame
+   pointer has to go on the stack across the call. Assembled clean,
+   composited garbage.
+2. **`B` is the script pointer's high byte.** `SPAN_DO_SKIP` and
+   `SPAN_BLANK`'s skip path used it as a scratch counter - it looks free,
+   because the line counters are in the shadow set - and the save-under
+   then went to `&0B00`, straight over the `SPAN_ENTRY` dispatch table.
+   One clipped frame corrupted every frame after it. Both now keep the
+   count in self-modified immediates.
+3. **A span ending EXACTLY on the last byte of a 2 KB block.** Bytes
+   `&FFFD-&FFFF` wrap no word, but the last `INC DE` leaves `DE = &0000`
+   and `SPAN_STEP`'s `+&0800` then does not carry, so `SPR_ROW_FIX` is
+   skipped and the next line is written at `&07FD` - over the core. The
+   fold test treated "fits exactly" as the safe case; it is not, and it
+   now takes the folded lane with an empty second half.
+4. **`RASTER_WAIT` overflowed for display line 185 and up.**
+   `ADD A,73-2` on a line of 185+ is 256-262, comes back as 0-6 and
+   reads as tick 1, so the erase ran ~65,000 T early - it wiped her
+   before the beam reached her and **she was simply absent from the
+   bottom third of the picture**. A 48-line sprite could reach
+   `KARA_LAST_BOT = 191` too; the camera just never put it there. 256
+   scanlines is four ticks and 48 more, which is how it is put back.
+
+And one thing that was not a bug in the new code at all: **`COL_HEAD`
+had to move from 18 to 14**, because the *faster* `DRAW_COLUMN` finishes
+the head sooner and a head that finishes early paints the incoming
+column ahead of the beam. The split is squeezed from both sides and has
+to be re-derived whenever either cost moves - the table is in
+`tilemap.asm`.
+
+**Her raster threshold did not move.** At ~576 T a line against the
+raster's 256 the top border is her whole lead, and she is drawn intact
+from screen line 10 down; above it the beam catches her last lines.
+That is the same limit §9 recorded for the 16x48 sprite (13), because
+the 24x64 one is taller but no dearer per line.
+`tools/test_module4.py` now measures the threshold and asserts both
+halves of it - clean below, torn above - so a slower blitter cannot
+push it down the picture unnoticed.
+
 ### What did not work, with the numbers
 
 * **§9 remedy 1, "restore from the tilemap instead of saving under", is a
@@ -1265,10 +1317,13 @@ the next one starts.
       `src/unpack.asm` unpacks a bank image, and `LEVEL_LOAD` chains
       them. Every set of every level loads off a real disc image and
       comes back byte-exact, in 1.38-1.74 s (§7.5);
-   5. **wire the span blitter in**: `KARA_DRAW`/`KARA_ERASE` still run
-      the 16x48 path. Switching them to `SPAN_DRAW`/`SPAN_ERASE` needs
-      the frame index, the facing and the bank per action, then
-      `png2sprite.py` and the old blitter retire;
+   5. ~~wire the span blitter in~~ — done: `src/kara.asm` pages the
+      facing's bank, finds the frame, clips it to the display and hands
+      the rest to `SPAN_DRAW`; the loop calls it and `SPAN_ERASE`, and
+      `SCROLL_DEMO` loads level 1 off the disc first. `tools/test_kara.py`
+      checks 296 placements against an independent v-model. Four bugs
+      came out of it, all in §9's new entry. `png2sprite.py` and the
+      16x48 path still serve the Module 1-3 screen;
    5. the action state machine and its controls (§8.4);
    6. the entity table and the five interaction handlers, with the AABB;
    7. the enemies: the seven named characters and the level machines

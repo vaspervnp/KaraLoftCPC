@@ -28,6 +28,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, "/home/vasilhs/cpcemu")
 
 import cpclib
+from test_kara import decode
 from cpc import CPC
 
 ROOT = os.path.join(HERE, "..")
@@ -41,7 +42,10 @@ SCR_CHAR_ROWS = 24
 SCR_LINES = SCR_CHAR_ROWS * 8
 MAP_W, MAP_H = 64, 16
 SCREEN_WIDTH_BYTES = 80
-SPR_WIDTH, SPR_HEIGHT, SPR_FRAME_SIZE = 8, 48, 768
+KARA_W, KARA_H = 12, 64          # the drawn sprite, stored as spans
+KARA_RASTER_SAFE = 10            # the highest line she can be DRAWN FROM and
+                                 # still beat the beam to her own last line.
+                                 # Measured by the check in main(), not assumed.
 TILE_BYTES = 128
 TILES_LEN = 16 * TILE_BYTES
 BLOB_LEN = TILES_LEN + MAP_W * MAP_H
@@ -202,84 +206,92 @@ def state(machine, sym):
                    machine.peek(sym["H_WX"]), machine.peek(sym["H_COL"]))
     return (scroll, machine.peek(sym["WORLD_X"]), machine.peek(sym["WORLD_CR"]),
             machine.peek(sym["KARA_X"]), machine.peek(sym["KARA_Y"]),
-            machine.peek(sym["KARA_FRAME"]), pending)
+            machine.peek(sym["KARA_FRAME"]), pending,
+            machine.peek(sym["KARA_FACING"]))
 
 
-def overlay_kara(want, sprites, scroll, kara_x, kara_y, frame):
+def load_blobs():
+    """Her two facings, decoded straight from the exporter's output.
+
+    Not read out of the emulator: they live in banks &C5/&C6 and
+    read_ram() ignores banking. The disc suite already proves the bytes
+    in the bank are these bytes (tools/test_levels.py).
+    """
+    out = {}
+    for facing, name in ((0, "kcore"), (1, "kcore_l")):
+        raw = open(os.path.join(ROOT, "build", "levels", "_shared",
+                                name + ".bin"), "rb").read()
+        out[facing] = [decode(raw, f) for f in range((raw[0] | raw[1] << 8) // 2)]
+    return out
+
+
+def raster_safe(blobs, st):
+    """Is this sample one where the beam cannot have overtaken her?"""
+    clip = kara_clip(blobs[st[7]], st[5], st[4])
+    return clip is not None and clip[0] >= KARA_RASTER_SAFE
+
+
+def kara_clip(blob, frame, kara_y):
+    """What KARA_SPAN_DRAW will draw: (first screen line, lines skipped
+    off the top, lines drawn), or None when she is entirely off.
+
+    This is kara.asm's arithmetic, not an approximation of it: her box
+    top plus the frame's y0 wraps at 256, and a result of 192-255 is the
+    hidden band, which the engine reads as ABOVE the display rather than
+    below it - the camera can only put her there by scrolling up.
+    """
+    y0, rows = blob[frame]
+    top = (kara_y + y0) & 0xFF
+    if top < SCR_LINES:
+        return top, 0, min(len(rows), SCR_LINES - top)
+    above = 256 - top
+    if above >= len(rows):
+        return None
+    return 0, above, len(rows) - above
+
+
+def overlay_kara(want, blobs, scroll, kara_x, kara_y, frame, facing):
     """Composite Kara over the tilemap, in the blitter's own address model.
 
         v    = (2*SCROLL + 80*char_row + byte_column) AND &07FF
         addr = &C000 + ((line AND 7) << 11) + v
 
     Same formula the Z80 uses, so a sprite drawn with the Module 3 flat
-    model (or one that mishandles the 2047 seam) will not match.
+    model (or one that mishandles the 2047 seam) will not match. She is
+    SPANS now, so only the bytes a line actually carries are written,
+    and each line starts at its own skip inside the box.
     """
-    rect = clip_rect(kara_x, kara_y)
-    if rect is None:
+    blob = blobs[facing]
+    clip = kara_clip(blob, frame, kara_y)
+    if clip is None:
         return want                 # culled: entirely off the display
-    sy0, height, sline, sx0, width, scol = rect
-    base = frame * SPR_FRAME_SIZE
-    cr, raster = divmod(sline, 8)
-    v = (2 * scroll + 80 * (cr & 0x1F) + scol) & 0x7FF
-    for i in range(height):
-        for j in range(width):
+    first, nskip, ndraw = clip
+    rows = blob[frame][1]
+    for i in range(ndraw):
+        skip, pairs = rows[nskip + i]
+        line = first + i
+        v = (2 * scroll + 80 * ((line >> 3) & 0x1F) + kara_x + skip) & 0x7FF
+        raster = line & 7
+        for j, (mask, data) in enumerate(pairs):
             addr = 0xC000 + (raster << 11) + ((v + j) & 0x7FF)
-            off = base + (sy0 + i) * 16 + (sx0 + j) * 2
             if addr in want:
-                want[addr] = (want[addr] & sprites[off]) | sprites[off + 1]
-        raster += 1
-        if raster == 8:
-            raster = 0
-            v = (v + 80) & 0x7FF
+                want[addr] = (want[addr] & mask) | data
     return want
 
 
-def first_opaque(sprites, frame, rect):
+def first_opaque(blobs, frame, facing, clip):
     """Screen line of her first line that actually puts pixels down.
 
-    Not the top of her box: lines 0 and 1 of every frame are entirely
-    transparent, so unclipped she first shows two lines down. Clip two
-    or more lines off her top and she shows from the very first one -
-    which is a correct difference, not a drift, and the check would
-    otherwise read it as one.
+    The exporter drops the empty lines off both ends, so the first
+    STORED line always carries pixels - but clipping can start the draw
+    on an interior blank one, and the check would read that as drift.
     """
-    sy0, height, sline, sx0, width, _ = rect
-    for i in range(height):
-        row = sprites[frame * SPR_FRAME_SIZE + (sy0 + i) * 16:][:16]
-        if any(row[(sx0 + j) * 2] != 0xFF for j in range(width)):
-            return sline + i
-    return sline
-
-
-def clip_rect(kara_x, kara_y):
-    """What KARA_DRAW will actually draw: (sy0, h, screen line, sx0, w, col).
-
-    The same four cases per axis the blitter uses, and the model has to
-    agree with it exactly or the render checks below measure the model.
-    Vertically the world wraps at 256 while the display shows 192, so a
-    screen line of 192-255 is the hidden band - below the bottom and
-    above the top at once. Horizontally nothing wraps: byte 80 of a
-    character row is byte 0 of the next one down, so it is clipped.
-    """
-    if kara_y <= SCR_LINES - SPR_HEIGHT:
-        sy0, height, sline = 0, SPR_HEIGHT, kara_y
-    elif kara_y < SCR_LINES:
-        sy0, height, sline = 0, SCR_LINES - kara_y, kara_y
-    else:
-        skip = (256 - kara_y) & 0xFF
-        if skip >= SPR_HEIGHT:
-            return None
-        sy0, height, sline = skip, SPR_HEIGHT - skip, 0
-    if kara_x <= SCREEN_WIDTH_BYTES - SPR_WIDTH:
-        sx0, width, scol = 0, SPR_WIDTH, kara_x
-    elif kara_x < SCREEN_WIDTH_BYTES:
-        sx0, width, scol = 0, SCREEN_WIDTH_BYTES - kara_x, kara_x
-    else:
-        skip = (256 - kara_x) & 0xFF
-        if skip >= SPR_WIDTH:
-            return None
-        sx0, width, scol = skip, SPR_WIDTH - skip, 0
-    return sy0, height, sline, sx0, width, scol
+    first, nskip, ndraw = clip
+    rows = blobs[facing][frame][1]
+    for i in range(ndraw):
+        if rows[nskip + i][1]:
+            return first + i
+    return first
 
 
 def paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x):
@@ -343,7 +355,7 @@ def expected_pens(want, scroll):
     return rows
 
 
-def model(tiles, level_map, sprites, st, with_kara, kara_st=None):
+def model(tiles, level_map, blobs, st, with_kara, kara_st=None):
     """Expected video RAM for one sampled state.
 
     Two models, deliberately. The loop draws Kara and then erases her
@@ -359,13 +371,13 @@ def model(tiles, level_map, sprites, st, with_kara, kara_st=None):
     Kara-free RAM at a sample already holds the head of the pending
     column, painted behind the beam during the frame just finished.
     """
-    scroll, wx, wcr, kx, ky, kf, pending = st
+    scroll, wx, wcr, kx, ky, kf, pending, fa = st
     want = expected_screen(tiles, level_map, scroll, wx, wcr)
     if not with_kara:
         return overlay_head(want, tiles, level_map, wcr, pending)
     if kara_st is not None:
-        kx, ky, kf = kara_st[3], kara_st[4], kara_st[5]
-    return overlay_kara(want, sprites, scroll, kx, ky, kf)
+        kx, ky, kf, fa = kara_st[3], kara_st[4], kara_st[5], kara_st[7]
+    return overlay_kara(want, blobs, scroll, kx, ky, kf, fa)
 
 
 def step_deltas(machine, sym, frames, pump=None):
@@ -390,12 +402,20 @@ def step_deltas(machine, sym, frames, pump=None):
     return out
 
 
-def render_mismatch(machine, pen_rows, pen_to_hw, y0):
+def render_mismatch(machine, pen_rows, pen_to_hw, y0, skip=None):
+    """Wrong pixels between the model and the picture.
+
+    `skip` is an optional (x0, x1) pixel range left out of the count,
+    used to measure the SCROLL on a frame where Kara herself is above
+    the raster threshold and so is not a measure of anything.
+    """
     fb = machine.framebuffer()
     bad = 0
     for y, row in enumerate(pen_rows):
         base = (y0 + y) * FB_W + FB_X0
         for x, pen in enumerate(row):
+            if skip and skip[0] <= x < skip[1]:
+                continue
             if fb[base + x * 4] != pen_to_hw[pen]:
                 bad += 1
     return bad
@@ -541,13 +561,17 @@ def main():
     # then give DRAW_PLAYFIELD its ~18 frames to paint all 40 columns.
     machine.poke(sym["DEMO_TIMER"], 2)
     machine.poke(sym["DEMO_TIMER"] + 1, 0)
-    machine.run_frames(30)
+    # The scrolling demo now LOADS LEVEL 1 OFF THE DISC before it paints
+    # anything - four banks of ZX0, about 72 frames (CLAUDE.md 7.5) -
+    # and then DRAW_PLAYFIELD wants its ~18 to fill all 40 columns, and
+    # Kara a few more to fall onto the roof.
+    machine.run_frames(140)
     check("handed over to the scrolling demo, and Kara has landed",
           machine.peek(sym["KARA_GROUND"]) == 1,
           f"grounded={machine.peek(sym['KARA_GROUND'])}, "
           f"WY={machine.peek(sym['KARA_WY'])}")
 
-    sprites = machine.read_ram(sym["KARA_SPRITES"], 4 * SPR_FRAME_SIZE)
+    blobs = load_blobs()
     tiles = machine.read_ram(sym["CITY_TILES"], TILES_LEN)
     level_map = machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H)
     check("level blob is intact in base RAM",
@@ -634,7 +658,7 @@ def main():
         st = state(machine, sym)
         scroll, wx, wcr = st[0], st[1], st[2]
         scrolls.append(scroll)
-        want = model(tiles, level_map, sprites, st, with_kara=False)
+        want = model(tiles, level_map, blobs, st, with_kara=False)
         vram = machine.read_ram(0xC000, 0x4000)
         bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
         worst = max(worst, bad)
@@ -692,7 +716,7 @@ def main():
     sync_to_vsync(machine, sym)
     st = state(machine, sym)
     y0, hits, probes = find_display_top(
-        machine, [expected_pens(model(tiles, level_map, sprites, st, True, kara_st=prev), st[0])],
+        machine, [expected_pens(model(tiles, level_map, blobs, st, True, kara_st=prev), st[0])],
         pen_to_hw)
     check("found the displayed area in the framebuffer", hits >= probes * 0.9,
           f"top scanline {y0}, {hits} of {probes} probes matched")
@@ -710,17 +734,82 @@ def main():
         # sync_to_vsync searches coarsely and then finely for the instant
         # after VSYNC and can land a frame further on, which shifts the
         # whole pairing and has nothing to do with the engine.
-        scores = [(render_mismatch(machine,
-                                   expected_pens(model(tiles, level_map, sprites, history[i], True,
-                                                       kara_st=history[k]), history[i][0]),
-                                   pen_to_hw, y0), history[i])
-                  for i in range(max(1, len(history) - 3), len(history))
-                  for k in (i - 1, i - 2) if k >= 0]
-        bad, st = min(scores, key=lambda t: t[0])   # states carry None fields
+        #
+        # Samples where she is drawn from above KARA_RASTER_SAFE are left
+        # out, because there she is not a measure of the SCROLL: at
+        # ~576 T a line against the raster's 256 the beam catches her
+        # last lines, and the check below measures that threshold on its
+        # own. The vertical driver reaches it only because it pokes
+        # V_REQUEST with no player behind it - the camera does not.
+        scores = []
+        for i in range(max(1, len(history) - 3), len(history)):
+            for k in (i - 1, i - 2):
+                if k < 0:
+                    continue
+                # Where she is above the threshold, her own box is left
+                # out of the count and the model draws her anyway: what
+                # is being measured here is the SCROLL, and a torn
+                # sprite is measured by its own check below.
+                safe = raster_safe(blobs, history[k])
+                skip = None if safe else (history[k][3] * 2,
+                                          (history[k][3] + KARA_W) * 2)
+                pens = expected_pens(model(tiles, level_map, blobs, history[i],
+                                           True, kara_st=history[k]), history[i][0])
+                scores.append((render_mismatch(machine, pens, pen_to_hw, y0, skip),
+                               history[i], safe))
+        bad, st, safe = min(scores, key=lambda t: t[0])
+        if not safe:
+            name += "*"                 # her box was not counted
         print(f"    {name:<14} scroll={st[0]:>4} world=({st[1]:>3},{st[2]:>3}) "
               f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
               f"{bad:>6} wrong pixels  (best of {len(scores)} candidate views)")
         check(f"{name} scrolling is tear-free on screen", bad == 0, f"{bad} pixels")
+
+    # ---------------------------------------------------------------
+    # 3a. How high up the display she can be drawn before the beam
+    #     overtakes her - measured, and asserted, so a slower blitter
+    #     cannot quietly push it down the picture.
+    #
+    # She goes first, in the top border, and the border is her whole
+    # lead: ~576 T a line against the raster's 256 means she loses
+    # ground every line and only a big enough head start saves her.
+    # CLAUDE.md 9 records 13 for the 16x48 sprite; the 24x64 one is 64
+    # lines instead of 48 but no worse per line, so the threshold has
+    # not moved. Below it the bottom of her flickers - RAM is correct
+    # and the picture is not, which is why this is a rendered check.
+    # ---------------------------------------------------------------
+    print("\n  how high she can be drawn before the beam catches her:")
+    worst = {}
+    for phase in (1, 2):
+        drive(machine, sym, phase)
+        hist = []
+        for _ in range(26):
+            vstep(machine, sym)
+            sync_to_vsync(machine, sym)
+            hist.append(state(machine, sym))
+            if len(hist) < 3:
+                continue
+            i = len(hist) - 1
+            n = min(render_mismatch(machine,
+                                    expected_pens(model(tiles, level_map, blobs, hist[i],
+                                                        True, kara_st=hist[k]), hist[i][0]),
+                                    pen_to_hw, y0)
+                    for k in (i - 1, i - 2))
+            clip = kara_clip(blobs[hist[i - 1][7]], hist[i - 1][5], hist[i - 1][4])
+            if clip:
+                worst[clip[0]] = max(worst.get(clip[0], 0), n)
+    lines = sorted(worst)
+    dirty = [ln for ln in lines if worst[ln]]
+    clean = [ln for ln in lines if not worst[ln]]
+    print(f"    drawn from lines {lines[0]}..{lines[-1]}; "
+          f"torn at {dirty or 'none'}, clean at {len(clean)} of {len(lines)}")
+    check("she is drawn intact from KARA_RASTER_SAFE down",
+          all(worst[ln] == 0 for ln in lines if ln >= KARA_RASTER_SAFE),
+          f"torn at {[ln for ln in dirty if ln >= KARA_RASTER_SAFE] or 'no line'}")
+    check("above it she tears, so the threshold is real and not a guess",
+          any(worst[ln] for ln in lines if ln < KARA_RASTER_SAFE),
+          f"lines below {KARA_RASTER_SAFE} sampled: "
+          f"{[ln for ln in lines if ln < KARA_RASTER_SAFE]}")
 
     # ---------------------------------------------------------------
     # 3b. Kara does not move on screen while the world scrolls under her
@@ -750,11 +839,12 @@ def main():
             rows = [y for y, row in enumerate(bare)
                     if any(fb[(y0 + y) * FB_W + 64 + x * 4] != pen_to_hw[p]
                            for x, p in enumerate(row))]
-            rect = clip_rect(prev[3], prev[4])   # the Y she was DRAWN from
-            if rect is None:                     # culled: nothing to find
+            clip = kara_clip(blobs[prev[7]], prev[5], prev[4])
+            if clip is None:                     # culled: nothing to find
                 prev = st
                 continue
-            tops.add(rows[0] - first_opaque(sprites, prev[5], rect) if rows else None)
+            tops.add(rows[0] - first_opaque(blobs, prev[5], prev[7], clip)
+                     if rows else None)
             prev = st
         seen = sorted(o for o in tops if o is not None)
         print(f"    {name:<14} rendered top minus KARA_Y: {seen}")

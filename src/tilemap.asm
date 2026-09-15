@@ -675,19 +675,40 @@ DRAW_PLAYFIELD: call BANK_SET_C4
 ;                       straight after KARA_DRAW, ~45,000 T before the
 ;                       beam reaches row 18
 ;
-; Why the split is 18: cell cr may only be written once the beam has
-; left the row it shares. On a 72-line border that is 20,304 + 2,048*
-; (cr+1) T for a step right, and a head that starts at tick 4 and costs
-; 592 + 1,025 T a row clears it up to row 17 with 1,300 T to spare.
-; Row 18 would be 300 T early, so from there the tail waits for the
-; next frame, where its deadline is the beam's arrival at row 18 -
-; 52,000 T away.
+; Why the split is 14, and it MOVED: cell cr may only be written once
+; the beam has left the row it shares. That is a deadline the head must
+; be LATE for and the tail EARLY for, so it is squeezed from both ends,
+; and both ends moved this module:
+;
+;   * a row costs 692 T, not the 1,025 the old split was sized against
+;     - hoisting the tile lookup, stepping the address and storing the
+;     tiles column-major took a third off DRAW_COLUMN (CLAUDE.md 9).
+;     A faster head FINISHES EARLIER, which is the wrong direction: at
+;     18 rows it cleared row 17 some 3,900 T before the beam had left
+;     row 18, and the incoming column showed a frame early down ten
+;     scanlines of the left edge.
+;   * the span blitter costs 33,400 T against the old sprite's 30,072,
+;     so the tail - which runs straight after her - starts later and has
+;     less room to stay ahead of the beam.
+;
+; Measured on this build, with the head starting at interrupt tick 4
+; (40,760 T) and the tail at 33,600:
+;
+;     rows in head   head slack   tail slack
+;         13           2,908        788
+;         14           1,552      3,528     <- both comfortable
+;         15             196      6,268
+;         16          -1,160      9,008     <- the head is early: tears
+;
+; Re-derive it whenever either cost moves; tools/test_module4.py catches
+; it at the rendered-frame level, not in RAM, because RAM is correct
+; either way - it is WHEN the write lands that is wrong.
 ;
 ; SCROLL and WORLD_X - what KARA_DRAW, BUL_DRAW and the tests read -
 ; keep describing the view that is on screen until the commit, exactly
 ; as V_SCROLL / V_WCR do for the vertical axis.
 ; ---------------------------------------------------------------------
-COL_HEAD        equ 18
+COL_HEAD        equ 14
 
 ; H_REQUEST_RIGHT / H_REQUEST_LEFT - ask for a step at the next VSYNC.
 ; Clobbers AF, HL

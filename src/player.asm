@@ -68,15 +68,29 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 and  IN_LEFT + IN_RIGHT
                 jr   nz,.moving
                 xor  a                      ; idle: back to the standing frame
+                ld   (KARA_ANIM),a
+                ld   a,KCORE_IDLE_FIRST
                 ld   (KARA_FRAME),a
                 ret
 
+                ; The blob's frames are not the sheet's: --drop and
+                ; --tags renumber them, so a cel is KCORE_<tag>_FIRST
+                ; plus an index that wraps at KCORE_<tag>_COUNT. Nine
+                ; frames of the drawn sheet are not shipped at all
+                ; (CLAUDE.md 7.1), which is why walk is 5 and not 8.
 .moving:        ld   a,(KARA_STEP)          ; animate while she walks
                 inc  a
                 ld   (KARA_STEP),a
-                rrca
-                rrca
                 and  3
+                jr   nz,.same_cel           ; a new cel every four frames
+                ld   a,(KARA_ANIM)
+                inc  a
+                cp   KCORE_WALK_COUNT
+                jr   c,.keep
+                xor  a
+.keep:          ld   (KARA_ANIM),a
+.same_cel:      ld   a,(KARA_ANIM)
+                add  a,KCORE_WALK_FIRST
                 ld   (KARA_FRAME),a
                 ld   a,c
                 and  IN_LEFT
@@ -99,7 +113,7 @@ PLAYER_X:       ld   a,(INPUT_NOW)
 .step_r:        ld   d,0
                 ld   hl,(KARA_WX)
                 add  hl,de                  ; the proposed position
-                ld   de,WORLD_W - SPR_WIDTH_BYTES
+                ld   de,WORLD_W - KARA_W_BYTES
                 or   a
                 sbc  hl,de                  ; past the world's right edge?
                 add  hl,de
@@ -364,6 +378,12 @@ PLAYER_TO_SCREEN:
                 ret
 
 KARA_WX:        dw 40
-KARA_WY:        db 64           ; starts in the air and falls onto the roof
+KARA_WY:        db 16           ; starts in the air and falls onto the roof.
+                                ; HIGH ENOUGH THAT HER FEET START ABOVE IT:
+                                ; 64 was right for a 44-line box and puts a
+                                ; 60-line one inside the tiles, where the
+                                ; landing snaps her a whole tile row too low
+                                ; and BOX_SOLID_H then refuses every step -
+                                ; she animates on the spot and never moves.
 KARA_VY:        db 0
 KARA_GROUND:    db 0

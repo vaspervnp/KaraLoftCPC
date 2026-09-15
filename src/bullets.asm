@@ -75,7 +75,7 @@ BUL_SPAWN:      ld   hl,BULLETS
                 or   a
                 ld   a,(KARA_X)
                 jr   z,.muzzle          ; facing left: muzzle at the left edge
-                add  a,SPR_WIDTH_BYTES - 1
+                add  a,KARA_W_BYTES - 1
 .muzzle:        ld   (hl),a             ; x
                 inc  hl
                 ld   a,(KARA_Y)

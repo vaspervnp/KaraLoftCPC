@@ -75,6 +75,10 @@ def stripe_byte(table, line):
     return table[band] if band < len(table) else None
 
 
+KARA_HOME_Y = 96      # her box is 64 lines now, so 96 + 64 = 160,
+                      # the same floor the 48-line sprite stood on
+
+
 def main():
     sym = symbols()
     machine = CPC()
@@ -128,7 +132,8 @@ def main():
     ky = machine.peek(sym["KARA_Y"])
     kf = machine.peek(sym["KARA_FRAME"])
     check("Kara is on screen and animating",
-          0 <= kx <= 72 and ky == 112 and 0 <= kf <= 3, f"x={kx} y={ky} frame={kf}")
+          0 <= kx <= 72 and ky == KARA_HOME_Y and 0 <= kf <= 3,
+          f"x={kx} y={ky} frame={kf}")
 
     bullet_cells = set()
     pool = machine.read_ram(sym["BULLETS"], 14 * 5)

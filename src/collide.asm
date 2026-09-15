@@ -37,8 +37,8 @@ TA_WATER        equ %00000100   ; RESERVED, level 4 - defined, never read
 TA_SINK         equ %00000010   ; RESERVED, level 5 - defined, never read
 TA_BLOCK        equ TA_SOLID + TA_PLATFORM
 
-KARA_BOX_W      equ 4           ; bytes - 8 pixels, narrower than her sprite
-KARA_BOX_H      equ 44          ; lines - her 48 less a little headroom
+KARA_BOX_W      equ 6           ; bytes - 12 pixels, narrower than her sprite
+KARA_BOX_H      equ 60          ; lines - her 64 less a little headroom
 
 ; The level-3/4/5 bits exist so the attribute format is final and no
 ; asset has to be re-exported later. No Module 5 code reads them.
