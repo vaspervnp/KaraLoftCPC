@@ -75,7 +75,7 @@ class World:
         self.m.poke(self.sym["KARA_WX"] + 1, wx >> 8)
         self.m.poke(self.sym["KARA_WY"], wy)
 
-    def run(self, routine, up=False, mask=0):
+    def run(self, routine, up=False, mask=0, frame=0):
         """Call one routine from a DI stub.
 
         `mask` goes into A, which ENTITY_COLLISION_CHECK reads as the
@@ -85,6 +85,11 @@ class World:
         register-argument routine disagrees with a model.
         """
         s, m = self.sym, self.m
+        # ENT_UPDATE's TOUCH sweep runs on even frames only - it shares
+        # the frame budget with the enemy redraw, which takes the odd
+        # ones (src/enemy.asm). A test that did not say which it wanted
+        # would pass or fail on the parity of whatever ran before it.
+        m.poke(s["FRAME_COUNT"], frame)
         m.poke(s["INPUT_PRESSED"], IN_UP if up else 0)
         m.poke(s["INPUT_NOW"], IN_UP if up else 0)
         a = s[routine]
@@ -215,6 +220,19 @@ def screen_cell(m, sym, col, row):
     return bytes(out)
 
 
+def quiet_the_enemies(m, sym):
+    """Take the level's drones off the screen and leave them off.
+
+    They are a PERSISTENT sprite - drawn once and left there between
+    refreshes (src/enemy.asm) - so anything comparing video RAM against
+    the tilemap has to either model them or remove them, and these
+    checks are about pickups. Clearing ENEMY_LIVE makes ENEMY_PICK find
+    nobody; the refresh that follows lifts the last one off.
+    """
+    m.poke(sym["ENEMY_LIVE"], 0)
+    m.run_frames(3)
+
+
 def bake_checks(sym):
     """A pickup is drawn by being composited into the tile it stands on.
 
@@ -226,6 +244,7 @@ def bake_checks(sym):
     """
     print("\n  baked into the tilemap:")
     m = boot(sym, scroll=True)
+    quiet_the_enemies(m, sym)
     baked = m.peek(sym["ENT_BAKED"])
     ents = bytes(m.read_ram(sym["ENT_TABLE"], ENT_MAX * ENT_STRIDE))
     n_pick = sum(1 for i in range(ENT_MAX)
@@ -528,6 +547,18 @@ def main():
         print(f"    kind {r[0]}  x {r[1] | r[2] << 8:4d}  "
               f"y {r[3] | r[4] << 8:3d}  flags &{r[5]:02X}  "
               f"p0 {r[6]}  p1 {r[7]}")
+    print("\n  the touch sweep's frame parity:")
+    w = World(boot(sym), sym)
+    w.load(record(EK_PICKUP, 100, 100, EF_ACTIVE | EF_TOUCH, PU_KEY, 0))
+    w.place(50, 40)
+    w.give(KEYS_COUNT=0)
+    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=1)   # odd: the redraw's frame
+    odd = w.st("KEYS_COUNT")
+    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=0)   # even: the sweep's own
+    even = w.st("KEYS_COUNT")
+    check("the touch sweep runs on even frames and not odd ones",
+          odd == 0 and even == 1, f"odd {odd}, even {even}")
+
     check("the level's table is the eight-byte record, ENT_MAX long",
           len(blob) == ENT_MAX * 8 and used > 0, f"{len(blob)} bytes")
 

@@ -539,6 +539,7 @@ SPAN_SCRIPT_END:dw 0
 ; script was worked out by the draw.
 ; ---------------------------------------------------------------------
 SPAN_ERASE:     ld   hl,SPAN_SCRIPT
+SPAN_ERASE_AT:  ; ... or from HL, for a second sprite's own script
 .run:           ld   a,(hl)             ; 8   count, or the end mark
                 inc  hl                 ; 8
                 inc  a                  ; 8

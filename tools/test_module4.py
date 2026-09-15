@@ -579,6 +579,15 @@ def main():
     # and then DRAW_PLAYFIELD wants its ~18 to fill all 40 columns, and
     # Kara a few more to fall onto the roof.
     machine.run_frames(140)
+    # TAKE THE LEVEL'S DRONES OFF THE SCREEN AND LEAVE THEM OFF. They
+    # are a PERSISTENT sprite - drawn once and left there between
+    # refreshes (src/enemy.asm) - and everything below compares video
+    # RAM, or the rendered frame, against the TILEMAP. Clearing
+    # ENEMY_LIVE makes ENEMY_PICK find nobody, and the refresh that
+    # follows lifts the last one off; src/enemy.asm's own suite is what
+    # checks they are drawn at all.
+    machine.poke(sym["ENEMY_LIVE"], 0)
+    machine.run_frames(4)
     check("handed over to the scrolling demo, and Kara has landed",
           machine.peek(sym["KARA_GROUND"]) == 1,
           f"grounded={machine.peek(sym['KARA_GROUND'])}, "

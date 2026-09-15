@@ -316,11 +316,18 @@ def main():
         # about, which is how the model came to be 2,916 T light when
         # ENT_UPDATE was added - so a name that is not a symbol is an
         # error and not a silent zero.
-        for name in ("SCROLL_VBLANK", "H_COMMIT",
+        # ENEMY_REFRESH is NOT in this list, and that is the point of
+        # it: a scrolling frame never pays for one (src/enemy.asm), and
+        # ENT_UPDATE's touch sweep takes the frames it does. What an
+        # enemy actually costs in situ is tools/test_enemies.py's
+        # business, which counts loop iterations instead of adding
+        # routines up.
+        for name in ("SCROLL_VBLANK", "H_COMMIT", "ENEMY_PICK",
                      "INPUT_SCAN", "PLAYER_UPDATE", "ENT_UPDATE",
-                     "ACT_UPDATE", "UPDATE_BULLETS", "UPDATE_RELOAD",
+                     "ACT_UPDATE", "ENEMY_UPDATE", "UPDATE_BULLETS",
+                     "ENEMY_SHOT_CHECK", "UPDATE_RELOAD", "ENT_REPAINT_DUE",
                      "CAMERA_DECIDE", "SCROLL_SERVICE", "PLAYER_TO_SCREEN",
-                     "BUL_DRAW", "BUL_ERASE"):
+                     "BUL_DRAW", "BUL_ERASE", "EBUL_DRAW", "EBUL_ERASE"):
             if name not in sym:
                 fails.append(f"the frame model names {name}, which is gone")
                 continue

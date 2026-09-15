@@ -35,6 +35,9 @@ KARA_SAVE       equ &8000               ; 384 bytes
 BUL_SAVE        equ &8180               ; 56 bytes
 SPAN_SCRIPT     equ &8200               ; the span blitter's erase script,
                                         ; which is also its save-under
+ENEMY_SCRIPT    equ &8700               ; ... and the one enemy on screen has
+                                        ; its own, the same size
+EBUL_SAVE       equ &81C0               ; their rounds, 4 bytes a slot
 
 KARA_HOME_Y     equ 96          ; 96 + KARA_BOX_H = 156, her feet on
                                 ; the same roof the 16x48 sprite stood on
@@ -280,7 +283,9 @@ SCROLL_DEMO:    di
 .loop:          call WAIT_VSYNC
                 call SCROLL_VBLANK          ; R12/R13 may only be written here:
                 call H_COMMIT               ; vertical, then horizontal
-
+                call ENEMY_PICK             ; which one is in view UNDER THE
+                                            ; view just latched - see the note
+                                            ; on ENEMY_UPDATE
                 ld   a,MARK_SPRITE
                 call BORDER_SET
                 ld   a,(LEVEL_OK)
@@ -289,6 +294,7 @@ SCROLL_DEMO:    di
                 ld   a,MARK_BULLETS
                 call BORDER_SET
                 call BUL_DRAW               ; over her: she fires past herself
+                call EBUL_DRAW              ; ... and so do they
                 ld   a,MARK_TAIL
                 call BORDER_SET
                 call H_TAIL                 ; rows 18-23 of the committed column
@@ -301,7 +307,9 @@ SCROLL_DEMO:    di
                 call PLAYER_UPDATE
                 call ENT_UPDATE             ; what she has walked into
                 call ACT_UPDATE             ; ... which cel that makes her,
+                call ENEMY_UPDATE           ; the one in view, and their fire
                 call UPDATE_BULLETS         ; and whether one just left
+                call ENEMY_SHOT_CHECK       ; ... and whether it landed
                 call UPDATE_RELOAD
                 call CAMERA_DECIDE          ; requests next frame's step
                 call SCROLL_SERVICE         ; a vertical step in flight
@@ -333,11 +341,18 @@ SCROLL_DEMO:    di
                 call RASTER_WAIT
                 ld   a,MARK_ERASE
                 call BORDER_SET
-                call BUL_ERASE              ; reverse draw order: the rounds
-                call KARA_SPAN_ERASE        ; went down over her
+                call EBUL_ERASE             ; reverse draw order: the rounds
+                call BUL_ERASE              ; went down over her
+                call KARA_SPAN_ERASE
                 jr   .erased
-.bullets_only:  call BUL_ERASE
-.erased:
+.bullets_only:  call EBUL_ERASE
+                call BUL_ERASE
+.erased:        ; ... and NOW the things that change the BACKGROUND, once
+                ; every sprite has been lifted off it: the cell a taken
+                ; pickup left behind, and the enemy, which is a
+                ; persistent sprite where she is not. See enemy.asm.
+                call ENT_REPAINT_DUE
+                call ENEMY_REFRESH
 
                 ld   hl,FRAME_COUNT
                 inc  (hl)
@@ -842,11 +857,14 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 ; with the rest of the level's table.
                 include "levels/level1_city/citypickups.inc"
                 include "levels/_shared/hudicon.inc"
+                include "levels/level1_city/cityagent.inc"
+                include "levels/level1_city/citydrone.inc"
                 include "levels/_shared/kcore.inc"
                 include "kara.asm"
                 include "levels/_shared/kextra.inc"
                 include "action.asm"
                 include "entity.asm"
+                include "enemy.asm"
                 include "bullets.asm"
                 include "input.asm"
                 include "collide.asm"
@@ -877,8 +895,25 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 assert (SPAN_ENTRY AND 255) == 0
                 assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
                 assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
-                ; ENT_BAKE_ONE indexes ENT_ART with ADD A,ENT_ART AND 255
-                assert (ENT_ART AND 31) == 0
+                ; ENT_BAKE_ONE indexes ENT_ART the same way, and
+                ; ENT_OVERLAP indexes ENT_HITBOX - both need every row
+                ; in the SAME PAGE as the label, not merely aligned.
+                assert (ENT_ART AND 255) + ENT_ART_KINDS * ENT_ART_BYTES <= 256
+                assert (ENT_HITBOX AND 255) + EK_COUNT * 2 <= 256
+                ; ENEMY_TYPE_AT does the same with a 32-byte stride, and
+                ; the WHOLE table has to sit in one page: ADD A,low
+                ; discards the carry, so a table that straddles a page
+                ; boundary silently reads the wrong row.
+                assert EN_T_STRIDE == 32
+                assert (ENEMY_TYPES AND 255) + EN_KINDS * EN_T_STRIDE <= 256
+                assert EN_T_USED <= EN_T_STRIDE
+                assert ENEMY_TYPES_END - ENEMY_TYPES == EN_KINDS * EN_T_STRIDE
+                ; The enemy's script sits above hers and below the round
+                ; saves' ceiling, like every other buffer up there.
+                assert ENEMY_SCRIPT >= SPAN_SCRIPT + SPAN_SCRIPT_MAX
+                assert ENEMY_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
+                assert EBUL_SAVE >= BUL_SAVE + BUL_MAX * 4
+                assert EBUL_SAVE + EBUL_MAX * 4 <= SPAN_SCRIPT
                 ; The scratch tiles are addressed as tile indices, which
                 ; needs them 64-aligned, and tools/level_banks.py must be
                 ; holding back exactly as much of C4 as they take.

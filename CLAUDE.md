@@ -23,11 +23,13 @@ every path (§9).
 the 24x64 drawn heroine out of her span blobs through the action state
 machine of §8.4, and carries the level's entity table: her key, her
 ammo, her medkit and her coin are on the roof and go into the
-inventory when she walks into them (§8.6).
+inventory when she walks into them (§8.6). Drones patrol the skyline,
+shoot at her when she is in front of them, take damage from her
+pistols and die (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all twelve
+`./tools/run_tests.sh` runs every acceptance suite and **all fourteen
 pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 79,452 T of 79,872, with the span blitter
+heaviest animation frame is 75,140 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 numbers are in §9.
 
@@ -52,6 +54,8 @@ src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
 src/action.asm    her action state machine and the cel timer (8.4)
 src/entity.asm    the entity table, the AABB, the five interaction
                   handlers, and the pickup bake (8.6)
+src/enemy.asm     the level's characters: patrol, sight, fire, damage,
+                  and the persistent sprite that pays for them (8.7)
 disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
@@ -1114,8 +1118,15 @@ text — this is the engine's half of that agreement:
 | `DOOR` | lock id | `PU_*` that opens it |
 | `RECEPTACLE` | `PU_*` it takes | how many it still wants |
 | `NPC` | coins asked | which line he says |
-| `ENEMY` | patrol width in tiles | shots a second |
+| `ENEMY` | `EN_*` — which character | patrol half-width in tiles |
 | `HAZARD` | damage | period |
+
+**`p0` is always "which thing this is".** The enemy row first read
+`p0 = patrol width, p1 = shots a second`, which leaves nowhere to say
+which character it is and makes the fire rate a property of the
+instance when it is plainly a property of the character. The rate, the
+speed, the box, the art and the hit points come from the type instead
+(§8.7), so a designer places a drone and not a set of numbers.
 
 `ENTITY_COLLISION_CHECK` takes the `EF_` bits an entity must have in
 `A` and publishes the first record whose box meets hers in `ENT_HIT`.
@@ -1179,6 +1190,89 @@ which is right — a medkit is not city art. The other four kinds fall
 back on `hudicon`, which is 4x16 as well, carries one cel of every
 pickup in the game, and is in every level's bank set already.
 
+### 8.7 The enemies — one on screen, and it is a persistent sprite
+
+`src/enemy.asm`. Their records are `EK_ENEMY` rows of the same entity
+table (§8.6): `p0` is `EN_*`, `p1` the patrol half-width in tiles. The
+type table holds the rest, per character — both facings' bank and
+address, the move and fire cel ranges, the box, the speed, the fire
+period and the hit points.
+
+**Only the one in view is live.** The rest keep their hit points and
+their place and do nothing; they are off screen and nobody can tell.
+`tools/make_city_map.py` spaces them more than a screen apart and
+asserts it, so "one on screen" is a property of the LEVEL; `ENEMY_PICK`
+takes the first it finds anyway, because a level that got it wrong
+should lose an enemy and not the frame.
+
+**Live and drawable are different questions**, and conflating them
+froze a drone at the edge of the picture: it patrolled until its box no
+longer fitted, was culled, and — because the same test decided whether
+to *update* it — stopped moving, so it could never walk back in. It is
+live within a screen either side of the view and drawable only when its
+whole box fits with a character to spare at both ends.
+
+#### What an enemy costs, and how it is paid for
+
+| | draw | erase | both |
+|---|---:|---:|---:|
+| `cityagent`, 12×64, 194-274 span bytes | 30,652-36,792 | 10,108-12,028 | **40,760-48,820** |
+| `citydrone`, 8×20, 100-106 span bytes | 12,940-14,892 | 4,204-4,348 | **17,144-19,240** |
+| `citydroneshot`, 3×3 | 272 | 76 | 348 |
+
+against a scrolling frame that had **420 T spare** before this module
+started. **A drone fits and an agent does not**, by a factor of two and
+a half; both are in the type table because the data is right and the
+day the frame has room nothing here changes, and level 1's map ships
+drones. Drawn like Kara — draw and erase inside one frame — one drone
+took the loop from 200 iterations per 200 hardware frames to **114**.
+
+**So the enemy is a PERSISTENT sprite and she is not.** Hers is drawn
+and erased inside a frame because she moves every frame. The enemy's
+pixels are *left on the screen* between refreshes:
+
+* while the picture scrolls they stay right **for nothing**, because
+  the CRTC moves every pixel on the screen and a world-fixed sprite is
+  supposed to move exactly that far;
+* Kara's save-under captures them where she walks over it and her erase
+  puts them back, and both bullet pools do the same;
+* the incoming column is the one thing that would disturb them, and the
+  drawable window keeps the whole box a character clear of both edges
+  so it cannot.
+
+A frame that cannot afford 17,968 T of enemy therefore does not spend
+it, and **nothing flickers** — which is the whole difference between
+this and skipping a draw-and-erase pair. Two frames do not pay:
+
+| | |
+|---|---|
+| the picture is moving | `VIEW_STEP`, set by `H_REQUEST` and counted down. The enemy is redrawn 25 Hz while she walks and not at all while she runs; it stays put and stays correct. |
+| `ENT_UPDATE`'s touch sweep is due | they alternate on `FRAME_COUNT` bit 0. Together they are 80,248 T of a 79,872 T frame — over by 376 — and neither loses anything: she cannot cross a 4-byte pickup in the 2 bytes a frame she can travel. The INTERACT pass still runs every frame, because a keypress lasts one. |
+
+**The refresh is the LAST thing in the frame**, after every sprite has
+been erased. It cannot go before her draw: she is 560 T a line against
+the raster's 256 and the top border is her entire lead, so 18,000 T in
+front of her tears her from screen line 38 down. It cannot go between
+her draw and her erase either — she would save the enemy's new pixels
+and her erase would then paint background over them. The same applies
+to the cell a taken pickup leaves behind, which is why `ENT_SETTLE`
+queues the repaint rather than doing it (`ENT_REPAINT_DUE`): done in
+the logic phase it put the new tiles down and her erase put the pickup
+straight back over the twelve bytes she overlapped.
+
+**Their fire is a separate pool** — four rounds, a different pen, and a
+solid two-line block like hers rather than the `citydroneshot` art,
+because 348 T a shot is not worth paying for six pixels. Her rounds
+kill; theirs take `EBUL_DAMAGE` off `PLAYER_HP`. A dead enemy's
+**record** is marked `EF_TAKEN`, not just its slot, so reloading the
+level does not put it back on its feet.
+
+**Where a shot leaves is art, where the sheet says so.**
+`EN_T_SPAWNS` points at the character's `*_SPAWNS` table from
+`build/levels/spawns.inc`; the drone sheet has none and its shot leaves
+the nose of its box. A left-facing sprite mirrors the x to
+`frame_width - 1 - x`, one subtraction against storing the table twice.
+
 ## 9. Performance budget — measured directly, and it closes
 
 A frame is **79,872 T-states**.
@@ -1236,18 +1330,31 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 | walking left, scrolling | 200 | 200.17 | **locked** |
 | jumping while scrolling | 200 | 200.00 | **locked** |
 
-A scrolling frame on her heaviest cel is **79,452 T of the 79,872
-available — 420 to spare**, measured by summing every call the loop
+A scrolling frame on her heaviest cel is **75,140 T of the 79,872
+available — 4,732 to spare**, measured by summing every call the loop
 makes. The three biggest pieces are the span blitter's draw 39,496, the
-column 16,536 across its two halves, and the erase 13,500; the logic is
-8,004, of which `ENT_UPDATE` is 2,916.
+column 16,536 across its two halves, and the erase 13,500.
 
-**The next thing added has to pay for itself out of 420 T**, and the
-lever with the most in it is `ENT_UPDATE`: it runs a full AABB on every
-entity whose flags match, where a 16-bit X compare against the widest
-hitbox would reject most of them for a fifth of the cost. It has not
-been done because it is not needed yet and it would tie a constant here
-to the widest row of `ENT_HITBOX`.
+It was 79,452 with 420 to spare before the enemies went in, and the
+4,300 came out of the logic, not the drawing:
+
+* **An idle pool is fourteen slots of nothing.** `BUL_LIVE` counts the
+  rounds in the air and `UPDATE_BULLETS`, `BUL_DRAW`, `BUL_ERASE` and
+  `ENEMY_SHOT_CHECK` return at once when it is zero — 6,000 T a frame
+  for rounds that are not there. The draw and the erase must make the
+  same decision on the same count, because `UPDATE_BULLETS` runs
+  between them and can kill a round that still has to be lifted off the
+  screen; `BUL_DREW` is that count as the draw found it.
+* **A cheap X reject before the real one.** `ENT_OVERLAP` looks the
+  hitbox up and tests both axes, about 450 T to discover that something
+  twenty tiles away is twenty tiles away. The widest row of
+  `ENT_HITBOX` is 16 bytes, so one 16-bit subtract rejects nearly
+  everything: `ENT_UPDATE` 3,200 -> 2,636 with nine entities in the
+  level.
+
+The next thing added has to pay for itself out of 4,732 T on a
+scrolling frame, or be scheduled onto a frame that is not scrolling —
+which is what §8.7 does with the enemies.
 
 ### Raster constraints, all of them load-bearing
 
@@ -1455,6 +1562,22 @@ push it down the picture unnoticed.
   See §7.1.
 * **Compiled sprites (remedy 4)** would be ~10 KB for four frames against 7,808
   bytes of headroom below `&4000`. They would have to live in a bank.
+* **A second span sprite drawn like the first does not fit, and no
+  amount of scheduling makes it.** One `citydrone` through
+  `SPAN_DRAW`/`SPAN_ERASE` is 17,968 T a frame plus 3,800 of its own
+  logic, against 420 spare; the loop went from 200 iterations per 200
+  hardware frames to **114**. Halving its update rate does not help,
+  because the frames that *do* redraw it are still 15,428 T over. What
+  works is not redrawing it: it is world-fixed, the CRTC carries it,
+  and its pixels can simply stay on the screen (§8.7). **The lever was
+  the frame it is drawn ON, not the cost of drawing it.**
+* **77% of Kara's span bytes are fully opaque**, which looks like a
+  free 30% off the composite and is not: the save-under is three of the
+  nine instructions and stays whatever the mask is, so an opaque byte
+  with the mask dropped from the format is 56 T against 72. That is
+  4,048 T on her heaviest cel for a format change, an exporter change
+  and a blitter rewrite. It is the biggest lever left on the blitter
+  itself and it is still not big enough to buy an agent.
 * **A pickup through the span blitter costs nine times the frame's
   headroom.** It was written — page its bank, find its cel, `SPAN_DRAW`
   with a save-under, `SPAN_ERASE` at the end of the frame — and then
@@ -1498,6 +1621,21 @@ frame, so this only helps a standing player on a still screen.
   across memory. See `BUFFERS_CLEAR`.
 * Sprite frames must be **16-byte aligned**: the blitter's inner loop steps the
   sprite pointer with `INC L` and cannot carry into `H`.
+* **A table indexed with `ADD A,TABLE AND 255` must fit ENTIRELY in one
+  page, not merely be aligned.** The carry is discarded, so a table that
+  straddles a page boundary silently reads the wrong row — `align 32`
+  put `ENEMY_TYPES` at `&17E0`, its 64 bytes crossed `&1800`, and every
+  type but the first read the first one's padding: a drone came out 135
+  lines tall with 23 hit points. Align to the whole table and assert
+  `(TABLE AND 255) + rows * stride <= 256`. `ENT_ART` and `ENT_HITBOX`
+  are indexed the same way and carry the same assert.
+* **Anything that changes the BACKGROUND must run after every sprite
+  has been lifted off it**, at the very end of the frame. A sprite's
+  save-under was captured before the change and its erase will put the
+  old bytes straight back over it — which is how a repainted tile got
+  its pickup back over the twelve bytes Kara overlapped, and why both
+  `ENT_REPAINT_DUE` and `ENEMY_REFRESH` are the last two calls in the
+  loop.
 * `LD SP,&BFFF` explicitly at startup. An SP that drifts into `&C000-&FFFF` shows up as
   random screen corruption, not as a crash.
 * AMSDOS keeps its buffers around `&A700-&BFFF`, and the firmware its
@@ -1573,9 +1711,26 @@ the next one starts.
       format, on the screen, and un-baked again when she takes it. Two
       negative controls: a stamp that writes nothing fails three of its
       six checks, a missing un-bake fails the sixth;
-   8. the enemies: the seven named characters and the level machines
-      (§7.1), their fire using the generated spawn points in
-      `build/levels/spawns.inc`;
+   8. **the enemies** — done for the engine, and level 1 ships drones:
+      `src/enemy.asm` (§8.7) spawns them from the entity table,
+      patrols, faces her, fires on the character's own period from the
+      artist's spawn points, takes her rounds and gives damage back.
+      `tools/test_enemies.py` checks the type table against the
+      exporter's constants, the patrol and the animation in the running
+      game, the kill and the record it marks, that a skipped frame
+      leaves the sprite on the screen, and that the loop still locks
+      50 Hz on five input paths.
+
+      **One enemy is on screen at a time, and that is the frame
+      budget.** A `cityagent` is 40,760-48,820 T drawn and erased and
+      the frame has 4,732; a `citydrone` is 17,144-19,240 and is
+      affordable only because it is never redrawn on a scrolling frame
+      (§8.7). The agent's row is in the type table and its art is on
+      the disc; putting it on the screen needs the frame to lose about
+      30,000 T, and §9 says where the remaining levers are and how
+      small they are. **The level machines are not done** and are a
+      separate problem: they are set pieces, loaded for one fixed
+      moment, and nothing else is on screen while they are;
    9. bullet-against-tile collision (`src/bullets.asm:130`) and the game
       state of §8.5;
    10. `tools/test_module5.py`.

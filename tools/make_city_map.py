@@ -62,7 +62,9 @@ def tile_names():
 # final format, against the map above, so the engine's half of the
 # agreement is exercised before a web application is built against it.
 # ---------------------------------------------------------------------
-EK_PICKUP, EK_DOOR, EK_NPC, EK_RECEPTACLE = 4, 6, 3, 7
+EK_ENEMY, EK_PICKUP, EK_DOOR, EK_NPC, EK_RECEPTACLE = 2, 4, 6, 3, 7
+EN_AGENT, EN_DRONE = 0, 1
+SCREEN_TILES = 20               # 160 pixels of play area, 8 to a tile
 EF_ACTIVE, EF_TAKEN, EF_SOLID, EF_TOUCH = 1, 2, 4, 8
 PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN, PU_IDOL, PU_BOOK = range(6)
 ENT_MAX = 24
@@ -89,7 +91,39 @@ def build_entities(path):
         entity(EK_DOOR, 30, ROW_PAVEMENT, EF_ACTIVE | EF_SOLID, 0, PU_KEY),
         # An informant on the roof, three coins for a hint.
         entity(EK_NPC, 104, ROW_ROOF, EF_ACTIVE, 3, 1),
+        # Drones, hovering a row above the roof. p0 is WHICH character
+        # and p1 the patrol half-width in tiles - see src/enemy.asm.
+        #
+        # THEY ARE FORTY TILES APART AND THE SCREEN IS TWENTY, which is
+        # the level's half of "one enemy on screen at a time": the
+        # engine draws only the first it finds in view, so two that
+        # could be seen together would mean one of them silently
+        # vanishing. The assert below is what keeps that honest as the
+        # map is edited.
+        #
+        # ROW_FAR_TOP AND NOT ROW_ROOFLINE, because a drone a row higher
+        # hovers above her gun: her muzzle is at world y 37 (KARA_WY 20
+        # plus the firing cel's own spawn point) and a drone based on
+        # row 4 spans 44-64, so every round she fired went under it.
+        # Based on row 3 it spans 28-48, which is her head height - she
+        # can hit it and it can hit her.
+        entity(EK_ENEMY, 36, ROW_FAR_TOP, EF_ACTIVE, EN_DRONE, 4),
+        entity(EK_ENEMY, 76, ROW_FAR_TOP, EF_ACTIVE, EN_DRONE, 4),
+        entity(EK_ENEMY, 116, ROW_FAR_TOP, EF_ACTIVE, EN_DRONE, 6),
     ]
+    # No two enemies, at either end of their beats, can share a screen.
+    beats = []
+    for r in e:
+        if r[0] != EK_ENEMY:
+            continue
+        x = (r[1] | r[2] << 8) // 8         # tiles
+        beats.append((x - r[7], x + r[7]))
+    beats.sort()
+    for (_, a_hi), (b_lo, _) in zip(beats, beats[1:]):
+        assert b_lo - a_hi > SCREEN_TILES, (
+            f"two enemies can be on screen at once: one reaches tile {a_hi}, "
+            f"the next starts at {b_lo}, and the screen is {SCREEN_TILES} "
+            f"tiles wide")
     blob = b"".join(e) + bytes(8 * (ENT_MAX - len(e)))
     assert len(blob) == ENT_MAX * 8
     open(path, "wb").write(blob)

@@ -87,6 +87,9 @@ BUL_SPAWN:      ld   hl,BULLETS
                 ; sprite mirrors it to (width - 1 - x), which is the one
                 ; subtraction tools/spawns.py's header describes.
 .found:         ld   (hl),1
+                ld   a,(BUL_LIVE)
+                inc  a
+                ld   (BUL_LIVE),a
                 inc  hl
                 ld   a,(MUZZLE_X)
                 ld   d,a
@@ -122,7 +125,16 @@ BUL_SPAWN:      ld   hl,BULLETS
 ; marked below.
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-UPDATE_BULLETS: ld   hl,BULLETS
+UPDATE_BULLETS: ld   a,(BUL_LIVE)
+                or   a
+                ret  z                  ; AN IDLE POOL IS FOURTEEN SLOTS OF
+                                        ; NOTHING. Walking them cost 1,500 T
+                                        ; here, 1,848 in the draw, 1,164 in
+                                        ; the erase and 1,476 in
+                                        ; ENEMY_SHOT_CHECK - 6,000 T a frame
+                                        ; out of the 420 a scrolling frame
+                                        ; has, for rounds that are not there
+                ld   hl,BULLETS
                 ld   b,BUL_MAX
 .next:          push hl
                 ld   a,(hl)
@@ -159,6 +171,9 @@ UPDATE_BULLETS: ld   hl,BULLETS
                 jr   .skip
 
 .kill:          ld   (hl),0
+                ld   a,(BUL_LIVE)
+                dec  a
+                ld   (BUL_LIVE),a
 .skip:          pop  hl
                 repeat BUL_STRIDE
                 inc  hl
@@ -175,7 +190,14 @@ UPDATE_BULLETS: ld   hl,BULLETS
 ; blitter's version folds in a -8 to undo the eight bytes it just wrote
 ; across, and a round is only one byte wide.
 ; ---------------------------------------------------------------------
-BUL_DRAW:       ld   b,BUL_MAX
+BUL_DRAW:       ld   a,(BUL_LIVE)
+                ld   (BUL_DREW),a       ; ... and the erase must make exactly
+                or   a                  ; the same decision, on the count as
+                ret  z                  ; it was at DRAW time: UPDATE_BULLETS
+                                        ; runs in between and can kill a
+                                        ; round that still has to be lifted
+                                        ; off the screen
+                ld   b,BUL_MAX
                 ld   hl,BULLETS
                 ld   de,BUL_SAVE
 .next:          ld   a,(hl)
@@ -230,7 +252,10 @@ BUL_DRAW:       ld   b,BUL_MAX
                 djnz .next
                 ret
 
-BUL_ERASE:      ld   b,BUL_MAX
+BUL_ERASE:      ld   a,(BUL_DREW)
+                or   a
+                ret  z
+                ld   b,BUL_MAX
                 ld   hl,BUL_SAVE
 .next:          ld   e,(hl)
                 inc  hl
@@ -302,6 +327,8 @@ MAG_LEFT:       db MAG_SIZE
 MAG_RIGHT:      db MAG_SIZE
 ACTIVE_GUN:     db 0
 RELOAD_TIMER:   db 0
+BUL_LIVE:       db 0            ; rounds in the air
+BUL_DREW:       db 0            ; ... as BUL_DRAW found it
 AMMO_RESERVE:   db 28
 HUD_DIRTY:      db 1
 

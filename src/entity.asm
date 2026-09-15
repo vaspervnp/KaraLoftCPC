@@ -81,6 +81,9 @@ ENT_TABLE       equ MAP_ADDR + MAP_W * MAP_H    ; &A800, straight after the
 ; Hitboxes, per kind, in BYTES and LINES - the art's own footprint.
 ; A pickup is 8x16 pixels, which is exactly one tile; the garage door is
 ; the 4x5 tile stamp of the manifest.
+; The widest row below, which ENTITY_COLLISION_CHECK's cheap X reject
+; is sized against. Widen the door and this has to widen with it.
+HITBOX_W_MAX    equ 16
                 align 32
 ENT_HITBOX:     db  6, 64       ; PlayerStart - her own box
                 db  4, 16       ; Checkpoint
@@ -267,11 +270,38 @@ ENTITY_COLLISION_CHECK:
                 ld   a,(ENT_WANT)
                 cp   c                      ; every wanted bit present?
                 jr   nz,.skip
+                ; A CHEAP X REJECT BEFORE THE REAL ONE. ENT_OVERLAP looks
+                ; the hitbox up and then tests both axes, which is about
+                ; 450 T to discover that something twenty tiles away is
+                ; twenty tiles away. The widest row of ENT_HITBOX is the
+                ; garage door at 16 bytes, so nothing can be touching her
+                ; unless its left edge is within KARA_BOX_W to her right
+                ; or HITBOX_W_MAX to her left, and that is one subtract.
+                push hl
+                inc  hl
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)                 ; DE = x in pixels
+                srl  d
+                rr   e                      ; ... in bytes
+                ld   hl,(KARA_WX)
+                or   a
+                sbc  hl,de                  ; kara - entity
+                ld   de,KARA_BOX_W - 1
+                add  hl,de                  ; 0..(max + KARA_BOX_W - 2) if it
+                ld   a,h                    ; can possibly be touching
+                or   a
+                jr   nz,.far
+                ld   a,l
+                cp   HITBOX_W_MAX + KARA_BOX_W - 1
+                jr   nc,.far
+                pop  hl
                 call ENT_OVERLAP
                 jr   nc,.skip
                 ld   (ENT_HIT),hl           ; the handlers clobber HL and
                 scf                         ; need to find it again
                 ret
+.far:           pop  hl
 .skip:          ld   bc,ENT_STRIDE
                 add  hl,bc
                 ld   a,(ENT_LEFT)
@@ -325,6 +355,14 @@ ER_FULL         equ 10          ; already at full health
 ENT_UPDATE:     xor  a
                 ld   (ENT_RESULT),a
 
+                ; THE TOUCH SWEEP TAKES THE FRAMES THE ENEMY REDRAW
+                ; DOES NOT - see ENEMY_DRAW. At 2 bytes a frame she
+                ; cannot cross a 4-byte pickup between two sweeps, and
+                ; the pair of them on one frame is 376 T more than the
+                ; frame has.
+                ld   a,(FRAME_COUNT)
+                rra
+                jr   c,.asked
                 ld   a,EF_TOUCH             ; the automatic ones first
                 call ENTITY_COLLISION_CHECK
                 jr   nc,.asked
@@ -1093,6 +1131,29 @@ ENT_SETTLE:     ld   a,(ENT_RESULT)
                 ld   (hl),a
                 pop  bc
                 pop  af
+                ; AND THE SCREEN IS REPAINTED AT THE END OF THE FRAME,
+                ; NOT HERE. ENT_SETTLE runs in the logic phase, with
+                ; Kara still drawn and her save-under holding the BAKED
+                ; tile; repainting the cell now puts the new tiles down
+                ; and her erase then puts the pickup straight back over
+                ; the twelve bytes she overlapped. The loop calls
+                ; ENT_REPAINT_DUE once she is off the screen, next to
+                ; ENEMY_REFRESH and for the same reason.
+                ld   (ENT_RP_DUE),hl
+                ret
+
+; ---------------------------------------------------------------------
+; ENT_REPAINT_DUE - the cell a taken pickup left behind, if there is one.
+; Call at the END of the frame, after every sprite has been erased.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+ENT_REPAINT_DUE:
+                ld   hl,(ENT_RP_DUE)
+                ld   a,h
+                or   l
+                ret  z
+                ld   de,0
+                ld   (ENT_RP_DUE),de
                 ; fall through with HL = the map cell
 ; ---------------------------------------------------------------------
 ; ENT_CELL_REPAINT - HL = a map byte. Repaints the four character cells
@@ -1188,4 +1249,5 @@ ENT_TILEP:      dw 0
 ENT_RP_WC:      db 0
 ENT_RP_WR:      db 0
 ENT_RP_WORD:    dw 0
+ENT_RP_DUE:     dw 0            ; a cell waiting to be repainted
 ENT_BAKE_LIST:  ds ENT_BAKE_MAX * ENT_BAKE_STRIDE
