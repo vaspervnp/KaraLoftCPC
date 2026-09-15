@@ -299,6 +299,7 @@ SCROLL_DEMO:    di
                 call INPUT_SCAN             ; the AY address latch is shared
                 ei                          ; with the sound chip
                 call PLAYER_UPDATE
+                call ENT_UPDATE             ; what she has walked into
                 call ACT_UPDATE             ; ... which cel that makes her,
                 call UPDATE_BULLETS         ; and whether one just left
                 call UPDATE_RELOAD
@@ -319,14 +320,15 @@ SCROLL_DEMO:    di
                 ld   a,(LEVEL_OK)
                 or   a
                 jr   z,.erased              ; she was never drawn
+                ; The span erase replays the script the draw wrote, run
+                ; by run, so there is no fast/slow lane to choose
+                ; between any more: the beam only has to be past the
+                ; last DRAWN line, which the draw recorded after
+                ; clipping.
+                ;
                 ld   a,(KARA_LAST_CNT)      ; culled: she left no script, but
                 or   a                      ; the rounds still have to come up
                 jr   z,.bullets_only
-                ; The span erase replays the script the draw wrote, run
-                ; by run, so there is no fast/slow lane to choose
-                ; between any more: the beam only has to be past her
-                ; last DRAWN line, which the draw recorded after
-                ; clipping.
                 ld   a,(KARA_LAST_BOT)
                 call RASTER_WAIT
                 ld   a,MARK_ERASE
@@ -454,7 +456,7 @@ BUFFERS_CLEAR:  ld   hl,KARA_SAVE
                 ld   bc,SPR_SAVE_SIZE + BUL_MAX * 4 - 1
                 ld   (hl),0
                 ldir
-                ret
+                jp   ENT_CLEAR              ; the table and its erase chain
 
 ; ---------------------------------------------------------------------
 ; DISC_DIAG - the controller's three result bytes, as 24 blocks.
@@ -835,10 +837,16 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "levels/disc.inc"
                 include "levels/banks.inc"
                 include "levels/spawns.inc"
+                ; The pickups' art, for ENT_ART. Level 1's own sheet and
+                ; the shared HUD icons - module 6 makes this per level,
+                ; with the rest of the level's table.
+                include "levels/level1_city/citypickups.inc"
+                include "levels/_shared/hudicon.inc"
                 include "levels/_shared/kcore.inc"
                 include "kara.asm"
                 include "levels/_shared/kextra.inc"
                 include "action.asm"
+                include "entity.asm"
                 include "bullets.asm"
                 include "input.asm"
                 include "collide.asm"
@@ -869,6 +877,14 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 assert (SPAN_ENTRY AND 255) == 0
                 assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
                 assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
+                ; ENT_BAKE_ONE indexes ENT_ART with ADD A,ENT_ART AND 255
+                assert (ENT_ART AND 31) == 0
+                ; The scratch tiles are addressed as tile indices, which
+                ; needs them 64-aligned, and tools/level_banks.py must be
+                ; holding back exactly as much of C4 as they take.
+                assert (ENT_BAKE_ADDR AND 63) == 0
+                assert ENT_BAKE_ADDR + ENT_BAKE_MAX * TILE_BYTES == &8000
+                assert ENT_BAKE_TILE0 == 240
                 ; FDC_DRAIN walks ST0..SPILL with INC L and compares the
                 ; low byte, so the four have to be adjacent and in one
                 ; page. Move one and the drain writes ST1 over whatever
@@ -945,6 +961,12 @@ KARA_SPRITES:   incbin "kara_sprites.bin"
                 ; the 2 KB the stand-in sheet used to take of the core
                 ; image goes back to the engine.
 CITY_MAP:       incbin "city_map.bin"
+                ; ... and the level's entities, in the eight-byte
+                ; record docs/editor.md 9.2 fixes. The editor will
+                ; write these; this is the same bytes by hand, so
+                ; the engine's half of the format is exercised
+                ; before a web application is built against it.
+CITY_ENTITIES:  incbin "city_entities.bin"
 
 CORE_END:
 CORE_SIZE       equ  CORE_END - CORE_START

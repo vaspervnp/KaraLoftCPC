@@ -41,6 +41,17 @@ ROOT = os.path.join(HERE, "..")
 LEV = os.path.join(ROOT, "build", "levels")
 BANK_SIZE = 16384
 WINDOW = 0x4000
+# The top of C4 is not the allocator's to give. src/entity.asm bakes each
+# pickup into a scratch TILE there - a pickup is 8x16, which is exactly
+# one tile, so the column painter draws it for nothing instead of the
+# span blitter costing 12,116 T a frame for one of them. TILE_SRC reads
+# any 64-aligned address in C4 as a tile index, so the reserve only has
+# to be aligned and out of the way; ENT_BAKE_ADDR is the same number on
+# the engine's side.
+TILE_BANK = 1                    # index into BANKS: C4
+BAKE_BYTES = 16 * 64
+SIZES = [BANK_SIZE] * 5
+SIZES[TILE_BANK] = BANK_SIZE - BAKE_BYTES
 # The configurations that put a bank in the window. &C0 is the default,
 # so bank 1 needs no OUT to reach - put the busiest art there.
 BANKS = [("C0", 0xC0), ("C4", 0xC4), ("C5", 0xC5), ("C6", 0xC6), ("C7", 0xC7)]
@@ -91,7 +102,7 @@ def _try(order):
     the shuffles below are the backstop for whatever the next level's
     art does.
     """
-    free = [BANK_SIZE] * len(BANKS)
+    free = list(SIZES)
     place = {}
     for name, size in order:                 # the pinned ones go first
         i = pin_of(name)
@@ -99,7 +110,7 @@ def _try(order):
             continue
         if size > free[i]:
             return None
-        place[name] = (i, WINDOW + BANK_SIZE - free[i])
+        place[name] = (i, WINDOW + SIZES[i] - free[i])
         free[i] -= size
     for name, size in order:
         if name in place:
@@ -108,7 +119,7 @@ def _try(order):
         if not fits:
             return None
         i = min(fits)[1]
-        place[name] = (i, WINDOW + BANK_SIZE - free[i])
+        place[name] = (i, WINDOW + SIZES[i] - free[i])
         free[i] -= size
     return place, free
 
@@ -163,7 +174,7 @@ def allocate(items):
             return r
     total = sum(s for _, s in items)
     raise SystemExit(f"cannot fit {total} bytes into "
-                     f"{len(BANKS) * BANK_SIZE}: biggest are "
+                     f"{sum(SIZES)}: biggest are "
                      f"{[(n, s) for n, s in big[:4]]}")
 
 
@@ -233,7 +244,7 @@ def main():
                   f"{len(banks)} bank(s), {tot_pk:5d} packed")
             for cfg, code, used, pk in banks:
                 print(f"    &{code:02X}  {used:6d} -> {pk:5d}"
-                      f"   {BANK_SIZE - used:6d} spare")
+                      f"   {SIZES[BANKS.index((cfg, code))] - used:6d} spare")
             pre = lvl.upper().replace("LEVEL", "L").split("_")[0]
             inc.append(f"; ---- {lvl} {'set pieces' if setp else 'gameplay'}")
             for name, (b, addr) in sorted(place.items(),

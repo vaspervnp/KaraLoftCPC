@@ -310,11 +310,21 @@ def main():
         # And the real question: does the frame still close? Measure the
         # rest of a SCROLLING loop rather than trusting a table.
         rest = 0
-        for name in ("INPUT_SCAN", "PLAYER_UPDATE", "CAMERA_DECIDE",
-                     "SCROLL_SERVICE", "PLAYER_TO_SCREEN", "GAME_LOGIC",
+        # EVERY CALL THE SCROLLING LOOP MAKES that is not the column and
+        # not Kara, in the order src/main.asm makes them. A name missing
+        # from here is a routine whose cost the budget does not know
+        # about, which is how the model came to be 2,916 T light when
+        # ENT_UPDATE was added - so a name that is not a symbol is an
+        # error and not a silent zero.
+        for name in ("SCROLL_VBLANK", "H_COMMIT",
+                     "INPUT_SCAN", "PLAYER_UPDATE", "ENT_UPDATE",
+                     "ACT_UPDATE", "UPDATE_BULLETS", "UPDATE_RELOAD",
+                     "CAMERA_DECIDE", "SCROLL_SERVICE", "PLAYER_TO_SCREEN",
                      "BUL_DRAW", "BUL_ERASE"):
-            if name in sym:
-                rest += b.T(name) or 0
+            if name not in sym:
+                fails.append(f"the frame model names {name}, which is gone")
+                continue
+            rest += b.T(name) or 0
         col = 0
         if "DRAW_COLUMN" in sym:
             m.write_ram(STUB + 0x100, bytes([0x3E, 20, 0xC3,

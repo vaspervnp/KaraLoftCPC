@@ -96,6 +96,71 @@ SPAN_END_MARK   equ 255                 ; a count no run can have
 SPAN_SCRIPT_MAX equ SPAN_MAX_LINES * (2 * 3 + SPAN_MAX_WIDTH) + 1
 
 ; ---------------------------------------------------------------------
+; SPAN_CLIP_V - how much of a frame is on the display, vertically.
+;
+; Every caller of SPAN_DRAW needs this and none of them needs a
+; different version of it: the frame's header says where its first
+; drawn line sits inside the box and how many lines it stored, and the
+; display is 0 to SCR_LINES whoever is being drawn. It was written out
+; inside KARA_SPAN_DRAW first; the pickups are the second caller and
+; two copies of a clip is how a sprite ends up folding over the top of
+; the picture in one of them and not the other.
+;
+; IN : HL = the frame's header - its y0 byte
+;      A  = the screen line the BOX's line 0 sits on. It is UNSIGNED,
+;           so 192-255 means "above the top edge", which is what the
+;           camera produces when it carries a sprite off that edge.
+; OUT: HL = the frame's first group header
+;      A  = the first screen line actually drawn
+;      C  = lines to draw - 0 when none of it shows, and the caller
+;           must still call SPAN_DRAW so the script is terminated
+;      (SPAN_SKIP) = lines dropped off the top
+;      destroys AF,DE
+;
+; IT DOES NOT CLIP IN X. Nothing here does yet (CLAUDE.md 8.2), which
+; is why the pickups are culled whole when they reach an edge.
+; ---------------------------------------------------------------------
+SPAN_CLIP_V:    ld   d,a
+                ld   a,(hl)             ; y0 - the first line of the box
+                inc  hl                 ; with anything on it
+                ld   e,(hl)             ; lines stored
+                inc  hl                 ; ... and HL is now the groups
+                add  a,d                ; screen line of that first line
+                ld   d,a
+                xor  a
+                ld   (SPAN_SKIP),a
+
+                ld   a,d
+                cp   SCR_LINES
+                jr   nc,.above          ; 192-255: above the top edge
+
+                ; the top is on the display; how many lines fit below it
+                ld   a,SCR_LINES
+                sub  d
+                cp   e
+                jr   c,.clipped         ; the bottom runs off
+                ld   a,e
+.clipped:       ld   c,a                ; lines to draw
+                ld   a,d
+                ret
+
+.above:         neg                     ; 256 - top = lines above line 0
+                cp   e
+                jr   nc,.culled         ; more than it has: nothing shows
+                ld   (SPAN_SKIP),a
+                ld   c,a
+                ld   a,e
+                sub  c                  ; what is left below line 0
+                ld   c,a
+                xor  a                  ; ... drawn from the top line
+                ret
+
+.culled:        xor  a
+                ld   (SPAN_SKIP),a
+                ld   c,a                ; nothing to draw, but the script
+                ret                     ; still has to be terminated
+
+; ---------------------------------------------------------------------
 ; SPAN_DRAW - composite one frame, saving what was underneath and
 ; writing the erase script.
 ;

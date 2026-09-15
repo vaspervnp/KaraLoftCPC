@@ -19,14 +19,15 @@ colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
 **`RUN"DISC` now plays the real art.** The scrolling demo loads level
-1 off the disc at start-up and draws the 24x64 drawn heroine out of her
-span blobs; the 16x16 placeholder tileset still scrolls under her,
-because the shipped tiles are 8x16 and that is the addressing rewrite
-of §8.3.
+1 off the disc at start-up, scrolls the drawn 8x16 city tiles, draws
+the 24x64 drawn heroine out of her span blobs through the action state
+machine of §8.4, and carries the level's entity table: her key, her
+ammo, her medkit and her coin are on the roof and go into the
+inventory when she walks into them (§8.6).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all eleven
+`./tools/run_tests.sh` runs every acceptance suite and **all twelve
 pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 77,916 T of 79,872, with the span blitter
+heaviest animation frame is 79,452 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 numbers are in §9.
 
@@ -47,6 +48,10 @@ src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
 src/collide.asm   tile attributes, box-against-map probes
 src/player.asm    walking, jumping, gravity, and the camera
+src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
+src/action.asm    her action state machine and the cel timer (8.4)
+src/entity.asm    the entity table, the AABB, the five interaction
+                  handlers, and the pickup bake (8.6)
 disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
@@ -62,9 +67,7 @@ tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
-src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
-src/action.asm    her action state machine and the cel timer (8.4)
-
+tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_*.py            acceptance suites
 tools/run_tests.sh         all of them, in order
 
@@ -72,7 +75,6 @@ assets/sprites/            the art package: the heroine, the projectiles,
                            common/ for the HUD, level<n>_<name>/ for each
                            level's tiles, characters and machines, each
                            with the artist's manifest.json
-assets/placeholder/        stand-in tiles for the scrolling demo
 assets/title/              the title render
 docs/                      hardware reference tables
 ```
@@ -207,8 +209,10 @@ window changes in the configurations this project uses:
 | `&C7` | 0 | 7 | 2 | 3 | Title buffer; then Kara `run`/`roll`, both facings |
 
 `tools/level_banks.py` does the allocation and writes
-`build/levels/banks.inc` with every blob's bank and address. Measured,
-with the shared set counted in every level:
+`build/levels/banks.inc` with every blob's bank and address. **The top
+1 KB of C4 is not the allocator's to give** — 16 scratch tiles live
+there for the pickup bake of §8.6. Measured, with the shared set
+counted in every level:
 
 | level | unpacked | banks | packed | set pieces |
 |---|---:|---:|---:|---:|
@@ -1076,7 +1080,7 @@ AMMO_RESERVE bytes    clips add 14
 Bullets move 4 pixels/frame and die on a solid tile. Reload is manual (Down+Fire) or
 automatic when both magazines hit 0; during reload the player is slowed or frozen.
 
-### 8.6 Game state
+### 8.6 The entity table, and game state — implemented
 
 ```asm
 PLAYER_HP:        db 100     ; 0-100, medkit restores 35, capped at 100
@@ -1087,8 +1091,93 @@ STATUES_HELD:     db 0
 CURRENT_BOOK_ID:  db 0
 ```
 
-Interaction handlers: `CHECK_KEY_DOOR`, `PLACE_STATUE`, `READ_BOOK_PUZZLE`,
-`TALK_NPC_COIN`, `USE_MEDKIT`, all gated by an AABB test in `ENTITY_COLLISION_CHECK`.
+**The record in RAM is the record in the file.** `src/entity.asm` lays
+an entity out as editor.md §9.2's eight bytes, in that order, so module
+6's loader is an `LDIR` and not a conversion — `kind, x u16, y u16,
+flags, p0, p1`, at `ENT_TABLE` (`&A800`, straight after the map),
+`ENT_MAX` = 24 of them. X and Y are **world pixels**, because a
+designer thinks in pixels; Y anchors the **base** of the hitbox, which
+is what a designer drops on a floor, so the top is `y - height`.
+
+The level's header carries an entity count (editor.md §9.2 byte 10) and
+`ENT_COUNT` is it. **Walking all 24 slots instead cost 4,004 T a
+frame** with six in use, out of a frame that had 1,324 spare; stopping
+where the level stops took it to 2,916. A test that writes the table by
+hand has to write the count too.
+
+`p0`/`p1` are per kind, which editor.md's Appendix A leaves as free
+text — this is the engine's half of that agreement:
+
+| kind | p0 | p1 |
+|---|---|---|
+| `PICKUP` | `PU_*` | amount, lock id, or symbol |
+| `DOOR` | lock id | `PU_*` that opens it |
+| `RECEPTACLE` | `PU_*` it takes | how many it still wants |
+| `NPC` | coins asked | which line he says |
+| `ENEMY` | patrol width in tiles | shots a second |
+| `HAZARD` | damage | period |
+
+`ENTITY_COLLISION_CHECK` takes the `EF_` bits an entity must have in
+`A` and publishes the first record whose box meets hers in `ENT_HIT`.
+The AABB is a separating-axis test — X 16-bit in bytes, Y 8-bit
+because the map is 256 lines tall. `ENT_UPDATE` runs it twice: once for
+`EF_TOUCH` (a pickup, taken on contact — a key you have to ask for is a
+key the player walks past) and once, on an `IN_INTERACT` **press**, for
+the things that spend something. The five handlers are
+`CHECK_KEY_DOOR`, `PLACE_STATUE`, `READ_BOOK_PUZZLE`, `TALK_NPC_COIN`
+and `USE_MEDKIT`, and each reports through `ENT_RESULT` rather than the
+carry, because "it refused" has to say *why*: a locked door and an
+empty hand are not the same message.
+
+**A slot is told by its FLAGS, not by its kind.** Kind 0 is
+`EK_PLAYER_START`, so an all-zero record is a real entity at (0,0)
+unless `EF_ACTIVE` decides it.
+
+#### Pickups are drawn by being baked into the tilemap
+
+A pickup is 8x16 pixels — **exactly one tile** — and it does not move
+until it is taken, which makes it scenery, and scenery is already free:
+`DRAW_COLUMN` copies a tile into the incoming column at 64 T a raster
+whether there is a key drawn on it or not. So `ENT_BAKE` composites
+each one **once**, at level install, into a private copy of the tile it
+stands on, and points the map cell at the copy. From then on it costs
+nothing at all — no draw, no erase, no save-under, no raster gate — and
+it scrolls because the whole picture scrolls. When it is taken,
+`ENT_SETTLE` puts the map byte back and repaints the four character
+cells, once.
+
+The alternative was written first and measured: see §9.
+
+| | |
+|---|---:|
+| 16 scratch tiles, top of bank C4 (`&7C00`, indices 240-255) | 1,024 B |
+| `ENT_BAKE`, four pickups, once a level | 348,052 T |
+| per frame, for ever after | **0** |
+
+Three things it costs:
+
+* **1 KB of C4, taken out of the allocator's hands** in
+  `tools/level_banks.py`. Every level still fits; the tightest has 5
+  bytes to spare. `TILE_SRC` reads any 64-aligned address in that bank
+  as a tile index, so the reserve only has to be aligned.
+* **The pickups do not animate.** The sheets draw the key over 4 cels
+  and the ammo over 3; the baked one is cel 0.
+* **A pickup sits on the tile grid.** An unaligned one would need four
+  scratch tiles instead of one, so `ENT_BAKE` takes the cell its
+  top-left falls in. `tools/make_city_map.py` places them on the grid.
+
+`ENT_STAMP` is the one place the column-major tile layout of §9 is
+*written* rather than read, so it is the one place the formula appears
+the other way round:
+
+```
+tile offset = (byte >> 1) * 32 + line * 2 + (byte AND 1)
+```
+
+Level 1's own sheet draws a key and an ammo clip and nothing else,
+which is right — a medkit is not city art. The other four kinds fall
+back on `hudicon`, which is 4x16 as well, carries one cel of every
+pickup in the game, and is in every level's bank set already.
 
 ## 9. Performance budget — measured directly, and it closes
 
@@ -1147,9 +1236,18 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 | walking left, scrolling | 200 | 200.17 | **locked** |
 | jumping while scrolling | 200 | 200.00 | **locked** |
 
-A scrolling frame is ~71,000 T of the 79,872 available, and the three biggest
-pieces are `KARA_DRAW` 30,072, the column 27,952 across its two halves, and
-`KARA_ERASE` 11,592.
+A scrolling frame on her heaviest cel is **79,452 T of the 79,872
+available — 420 to spare**, measured by summing every call the loop
+makes. The three biggest pieces are the span blitter's draw 39,496, the
+column 16,536 across its two halves, and the erase 13,500; the logic is
+8,004, of which `ENT_UPDATE` is 2,916.
+
+**The next thing added has to pay for itself out of 420 T**, and the
+lever with the most in it is `ENT_UPDATE`: it runs a full AABB on every
+entity whose flags match, where a 16-bit X compare against the widest
+hitbox would reject most of them for a fifth of the cost. It has not
+been done because it is not needed yet and it would tie a constant here
+to the widest row of `ENT_HITBOX`.
 
 ### Raster constraints, all of them load-bearing
 
@@ -1239,6 +1337,11 @@ and **the lever was the column, not the blitter**:
 | input, player, camera, bullets, logic | 7,080 | 7,080 |
 | + Kara, lightest | 72,128 | 61,388 |
 | + Kara, heaviest | 87,320 — over by 7,448 | **76,580 — fits, 3,292 spare** |
+
+(Those were the figures the day the column was rewritten. The loop has
+grown the action state machine and the entity table since; the frame as
+it stands is 79,452, and `tools/test_spanblit.py` re-derives it from
+the routines the loop actually calls rather than from this table.)
 
 `DRAW_COLUMN` was 71 T a byte to copy 384 bytes out of the tile bank,
 against 32 for a plain `LD A,(HL)` / `LD (DE),A` pair. Its inner raster
@@ -1352,6 +1455,27 @@ push it down the picture unnoticed.
   See §7.1.
 * **Compiled sprites (remedy 4)** would be ~10 KB for four frames against 7,808
   bytes of headroom below `&4000`. They would have to live in a bank.
+* **A pickup through the span blitter costs nine times the frame's
+  headroom.** It was written — page its bank, find its cel, `SPAN_DRAW`
+  with a save-under, `SPAN_ERASE` at the end of the frame — and then
+  measured:
+
+  | | T |
+  |---|---:|
+  | `ENT_DRAW`, one pickup on screen | 9,912 |
+  | `ENT_ERASE` | 2,204 |
+  | | **12,116 a frame** |
+  | a scrolling frame's headroom | 1,324 |
+
+  The reason is the entry above it, read the other way round: **the
+  remedy is decided by bytes-per-line for TIME, and a pickup is four
+  bytes a line.** The blitter's 168 T of per-line bookkeeping is sized
+  against Kara's 64 lines of 5.7 bytes; at 4 bytes a line it is almost
+  all of the cost, and sparseness cannot help because there is nothing
+  to be sparse about. A 4x16 full-box blitter was costed at ~6,400 T
+  and is no answer either. The frame has no room for **any** per-frame
+  sprite besides her, which is why the pickups are baked into the
+  tilemap instead (§8.6).
 
 Remaining lever if more time is needed: **only redraw Kara when she moves** —
 but note that while the view scrolls she moves relative to video RAM every
@@ -1430,20 +1554,31 @@ the next one starts.
       checks 296 placements against an independent v-model. Four bugs
       came out of it, all in §9's new entry. `png2sprite.py` and the
       16x48 path still serve the Module 1-3 screen;
-   5. ~~the action state machine and its controls~~ - done:
+   6. ~~the action state machine and its controls~~ - done:
       `src/action.asm`, seven states from one table, cel timing out of
       the art's own duration tables, the gun's two pistols driven by
       the artist's spawn points, and `tools/test_actions.py` driving
       every transition with a negative control on the entry cel. SWIM
       and SWIM_FIRE are not in it: they need level 4's water, which is
       §6's job;
-   6. the entity table and the five interaction handlers, with the AABB;
-   7. the enemies: the seven named characters and the level machines
+   7. ~~the entity table and the five interaction handlers, with the
+      AABB~~ — done: `src/entity.asm` (§8.6). The record is editor.md
+      §9.2's eight bytes so module 6's loader can be an `LDIR`; the
+      pickups are drawn by being baked into the tilemap, because a
+      sprite path for them costs nine times the frame's headroom (§9).
+      `tools/test_entities.py` checks the AABB against an independent
+      separating-axis model over 1,684 swept placements, drives every
+      handler twice so a key that opened two doors would fail, and
+      checks the bake against an independent reading of the span
+      format, on the screen, and un-baked again when she takes it. Two
+      negative controls: a stamp that writes nothing fails three of its
+      six checks, a missing un-bake fails the sixth;
+   8. the enemies: the seven named characters and the level machines
       (§7.1), their fire using the generated spawn points in
       `build/levels/spawns.inc`;
-   8. bullet-against-tile collision (`src/bullets.asm:130`) and the game
+   9. bullet-against-tile collision (`src/bullets.asm:130`) and the game
       state of §8.5;
-   9. `tools/test_module5.py`.
+   10. `tools/test_module5.py`.
 6. **The level format, engine side** — 8×16 tiles and a 20×11 play
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
    `collide.asm`'s probes, then a reader for `level_<n>.lvl` and

@@ -97,50 +97,10 @@ KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
                 ld   l,a
                 add  hl,de
 
-                ld   a,(hl)                 ; y0 - the first line of the box
-                inc  hl                     ; with anything on it
-                ld   e,(hl)                 ; lines stored
-                inc  hl                     ; ... and HL is now the groups
-
                 ; ---- how much of her is on the display ---------------
-                ld   d,a
                 ld   a,(KARA_Y)
-                add  a,d                    ; screen line of her first
-                ld   d,a                    ; stored line
-                xor  a
-                ld   (SPAN_SKIP),a
-
-                ld   a,d
-                cp   SCR_LINES
-                jr   nc,.above              ; 192-255: above the top edge
-
-                ; her top is on the display; how many lines fit below it
-                ld   a,SCR_LINES
-                sub  d
-                cp   e
-                jr   c,.clipped             ; the bottom runs off
-                ld   a,e
-.clipped:       ld   c,a                    ; lines to draw
-                ld   a,d
-                jr   .draw
-
-.above:         neg                         ; 256 - top = lines above line 0
-                cp   e
-                jr   nc,.culled             ; more than she has: nothing shows
-                ld   (SPAN_SKIP),a
-                ld   c,a
-                ld   a,e
-                sub  c                      ; what is left below line 0
-                ld   c,a
-                xor  a                      ; ... drawn from the top line
-                jr   .draw
-
-.culled:        xor  a
-                ld   (SPAN_SKIP),a
-                ld   c,a                    ; nothing to draw, but the script
-                                            ; still has to be terminated
-
-.draw:          ld   (KARA_LAST_TOP),a
+                call SPAN_CLIP_V            ; -> HL groups, A top, C lines
+                ld   (KARA_LAST_TOP),a
                 push hl                     ; SCR_ADDR RETURNS in HL, so the
                 push bc                     ; frame pointer has to go on the
                                             ; stack - it is not a scratch

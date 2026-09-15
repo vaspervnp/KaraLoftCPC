@@ -156,7 +156,17 @@ MAP_INSTALL:    ld   hl,CITY_MAP
                 ld   de,MAP_ADDR
                 ld   bc,MAP_W * MAP_H
                 ldir
-                ret
+                ; ... and the entities, which follow it in the image and
+                ; land straight after it in RAM. Module 6's loader reads
+                ; both out of level_<n>.lvl the same way: an LDIR, because
+                ; the record on disc IS the record in the table.
+                ld   hl,CITY_ENTITIES
+                ld   de,ENT_TABLE
+                ld   bc,ENT_MAX * ENT_STRIDE
+                ldir
+                call ENT_RECOUNT
+                jp   ENT_BAKE               ; ... and each of them onto the
+                                            ; tile it is standing on
 
 ; ---------------------------------------------------------------------
 ; SCROLL_APPLY - push SCROLL into R12/R13.

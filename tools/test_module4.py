@@ -445,7 +445,11 @@ def find_display_top(machine, candidates, pen_to_hw):
     return best, best_hit, 8 * 32
 
 
-def read_tile_bank(machine, sym, n):
+ENT_BAKE_ADDR = 0x7C00          # src/entity.asm: 16 scratch tiles
+ENT_BAKE_BYTES = 16 * 64
+
+
+def read_tile_bank(machine, sym, n, src=0x4000):
     """The first n bytes of bank C4, copied out where read_ram can see them.
 
     read_ram() ignores banking and always returns bank 1, so the bytes
@@ -462,7 +466,7 @@ def read_tile_bank(machine, sym, n):
     """
     machine.run_code(0x8000, bytes([
         0x01, 0xC4, 0x7F, 0xED, 0x49,                       # ld bc,&7FC4:out
-        0x21, 0x00, 0x40, 0x11, 0x00, 0x90,                 # hl=&4000 de=&9000
+        0x21, src & 0xFF, src >> 8, 0x11, 0x00, 0x90,       # hl=src de=&9000
         0x01, n & 0xFF, n >> 8, 0xED, 0xB0,                 # bc=n : ldir
         0x01, 0xC0, 0x7F, 0xED, 0x49,                       # ld bc,&7FC0:out
         0x18, 0xFE]))                                       # jr $
@@ -581,16 +585,24 @@ def main():
           f"WY={machine.peek(sym['KARA_WY'])}")
 
     blobs = load_blobs()
-    # The tiles are the LEVEL'S own now, unpacked into bank C4 by
-    # LEVEL_LOAD - and read_ram() ignores banking, so they come from the
-    # exporter's output instead. test_levels.py is what proves the bytes
-    # in the bank are these bytes.
-    tiles = open(os.path.join(ROOT, "build", "levels", "level1_city",
-                              "citytiles.bin"), "rb").read()
+    # THE MODEL NEEDS THE SCRATCH TILES TOO. src/entity.asm bakes each
+    # pickup into a tile at the top of C4 (index 240 up) and points the
+    # map cell at it, so the picture legitimately contains tiles that
+    # citytiles.bin has never heard of. The bank cannot be read whole -
+    # read_tile_bank stages through &9000 and 16 KB from there runs into
+    # video RAM - so it is the file plus that 1 KB.
+    shipped = open(os.path.join(ROOT, "build", "levels", "level1_city",
+                                "citytiles.bin"), "rb").read()
+    tiles = (shipped + bytes(ENT_BAKE_ADDR - 0x4000 - len(shipped))
+             + bytes(read_tile_bank(machine, sym, ENT_BAKE_BYTES,
+                                    ENT_BAKE_ADDR)))
     level_map = machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H)
     check("level blob is intact in base RAM",
           len(set(level_map)) > 1 and max(level_map) < N_TILES,
           f"{len(set(level_map))} distinct tiles, max index {max(level_map)}")
+    # ... and the model must be told about the bake, the same way the
+    # engine was: the INSTALLED map is the one the blitters read.
+    level_map = machine.read_ram(MAP_ADDR, MAP_W * MAP_H)
 
     pal = machine.read_ram(sym["PALETTE_DATA"], 16)
     pen_to_hw = [b & 0x1F for b in pal]
@@ -609,15 +621,27 @@ def main():
     check("test can sync to the top of a frame", sync_to_frame_top(machine, sym))
     # The tiles come off the DISC into C4 now, and the map is installed
     # into base RAM - two different paths, so two checks.
-    in_bank = bytes(read_tile_bank(machine, sym, len(tiles)))
+    in_bank = bytes(read_tile_bank(machine, sym, len(shipped)))
     check("the level's own tiles are in bank C4",
-          in_bank == bytes(tiles),
-          f"{sum(1 for a, b in zip(in_bank, tiles) if a != b)} of "
-          f"{len(tiles)} bytes differ")
+          in_bank == shipped,
+          f"{sum(1 for a, b in zip(in_bank, shipped) if a != b)} of "
+          f"{len(shipped)} bytes differ")
+    # The installed map is the shipped one EXCEPT where a pickup was
+    # baked in: those cells hold that pickup's scratch tile instead.
+    # Anything else differing means the staging buffer reached it.
+    shipped_map = bytes(machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H))
     installed = bytes(machine.read_ram(MAP_ADDR, MAP_W * MAP_H))
+    baked = {}
+    for slot in range(machine.peek(sym["ENT_BAKED"])):
+        L = sym["ENT_BAKE_LIST"] + slot * 5
+        cell = machine.peek(L + 2) | (machine.peek(L + 3) << 8)
+        baked[cell - MAP_ADDR] = (240 + slot, machine.peek(L + 4))
+    stray = [i for i in range(MAP_W * MAP_H)
+             if installed[i] != shipped_map[i]
+             and baked.get(i, (None, None)) != (installed[i], shipped_map[i])]
     check("the map is installed in base RAM, clear of the staging buffer",
-          installed == bytes(level_map),
-          f"{sum(1 for a, b in zip(installed, level_map) if a != b)} bytes differ")
+          not stray,
+          f"{len(baked)} cells baked, {len(stray)} others differ")
 
     # ---------------------------------------------------------------
     # 0. Kara's screen column while the camera follows her
@@ -680,6 +704,11 @@ def main():
         st = state(machine, sym)
         scroll, wx, wcr = st[0], st[1], st[2]
         scrolls.append(scroll)
+        # RE-READ THE MAP EVERY SAMPLE. The driver walks her across the
+        # level and a pickup she touches is un-baked - its cell goes
+        # back to the tile underneath - so a map snapshot taken before
+        # the sweep describes a screen that has since changed.
+        level_map = machine.read_ram(MAP_ADDR, MAP_W * MAP_H)
         want = model(tiles, level_map, blobs, st, with_kara=False)
         vram = machine.read_ram(0xC000, 0x4000)
         bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)

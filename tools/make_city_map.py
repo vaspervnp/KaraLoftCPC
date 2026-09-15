@@ -54,6 +54,48 @@ def tile_names():
     return {n: i for i, n in enumerate(names)}, names
 
 
+# ---------------------------------------------------------------------
+# The level's entities, in the EIGHT-BYTE record docs/editor.md 9.2
+# fixes and src/entity.asm reads: kind, x u16, y u16, flags, p0, p1.
+#
+# Scaffolding again - the editor will write these - but written in the
+# final format, against the map above, so the engine's half of the
+# agreement is exercised before a web application is built against it.
+# ---------------------------------------------------------------------
+EK_PICKUP, EK_DOOR, EK_NPC, EK_RECEPTACLE = 4, 6, 3, 7
+EF_ACTIVE, EF_TAKEN, EF_SOLID, EF_TOUCH = 1, 2, 4, 8
+PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN, PU_IDOL, PU_BOOK = range(6)
+ENT_MAX = 24
+
+
+def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
+    """One record. Positions are given in TILES and converted here, so
+    the numbers above stay readable against the map."""
+    x = tile_x * 8                      # 8 pixels a tile
+    y = base_row * 16                   # the row's TOP is the base it sits on
+    return bytes([kind, x & 255, x >> 8, y & 255, y >> 8, flags, p0, p1])
+
+
+def build_entities(path):
+    ROOF = ROW_ROOF * 16                # world y of the rooftop surface
+    e = [
+        # Pickups stand ON the roof, so their base is the roof's top edge.
+        entity(EK_PICKUP, 24, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_KEY, 0),
+        entity(EK_PICKUP, 44, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_AMMO, 14),
+        entity(EK_PICKUP, 64, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_MEDKIT, 0),
+        entity(EK_PICKUP, 84, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_COIN, 5),
+        # The garage, down at street level: 4 tiles wide, 5 tall, and its
+        # base is the pavement. Solid until the key opens it.
+        entity(EK_DOOR, 30, ROW_PAVEMENT, EF_ACTIVE | EF_SOLID, 0, PU_KEY),
+        # An informant on the roof, three coins for a hint.
+        entity(EK_NPC, 104, ROW_ROOF, EF_ACTIVE, 3, 1),
+    ]
+    blob = b"".join(e) + bytes(8 * (ENT_MAX - len(e)))
+    assert len(blob) == ENT_MAX * 8
+    open(path, "wb").write(blob)
+    return len(e)
+
+
 def main():
     T, names = tile_names()
     side = os.path.join(ROOT, "build", "levels", "level1_city",
@@ -151,6 +193,9 @@ def main():
     assert max(blob) < len(names), "a tile index ran past the sheet"
     out = os.path.join(ROOT, "build", "city_map.bin")
     open(out, "wb").write(blob)
+    n = build_entities(os.path.join(ROOT, "build", "city_entities.bin"))
+    print(f"-> city_entities.bin  {n} of {ENT_MAX} slots used, "
+          f"{ENT_MAX * 8} bytes")
     print(f"-> city_map.bin    {MAP_W}x{MAP_H} = {len(blob)} bytes, "
           f"{len(set(blob))} distinct tiles of {len(names)}")
     print(f"   roof at map row {ROW_ROOF} = world y {ROW_ROOF * 16}, "
@@ -159,3 +204,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
