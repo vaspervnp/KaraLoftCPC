@@ -1,0 +1,144 @@
+{
+  "level": "level4_underwater",
+  "sheets": [
+    {
+      "name": "sea_tiles",
+      "file": "out/frames_sea_tiles.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "bg": 3,
+        "bg_ray": 1,
+        "sky": 1,
+        "surface": 2,
+        "rock": 3,
+        "wall_light": 2,
+        "wall_mid": 2,
+        "ledge_mid": 4,
+        "wall_deep": 4,
+        "sand": 2,
+        "coral": 2,
+        "weed": 2,
+        "ruins": 3,
+        "pipe": 2,
+        "cable_anchor": 2,
+        "vent": 3,
+        "siphon_rim": 4
+      },
+      "anchor": "top-left",
+      "description": "Opaque 8x16 tiles. Tile order inside each tag: bg = bg_light, bg_mid, bg_deep; bg_ray = bg_ray; sky = sky; surface = surface_0, surface_1; rock = rock_fill, rock_top, rock_under; wall_light = wall_l_light, wall_r_light; wall_mid = wall_l_mid, wall_r_mid; ledge_mid = ledge_tr, ledge_br, ledge_tl, ledge_bl; wall_deep = wall_l_deep, wall_r_deep, wall_l_weed, wall_r_weed; sand = sand_top, sand_fill; coral = coral_a, coral_b; weed = weed_0, weed_1; ruins = ruin_block, ruin_col, ruin_cap; pipe = pipe_h, pipe_v; cable_anchor = anchor_top, anchor_bot; vent = vent_0, vent_1, vent_2; siphon_rim = rim_l, rim_r, throat_top, throat. Water bands bg_light/bg_mid/bg_deep are flat (change band per tile row going down); wall/ledge/prop tiles carry the band in their name and must sit in that band. Walls: wall_l_* has rock on the left (water to the right) and is full rock on its top/bottom rows, so it stacks directly on rock_fill/rock_top/rock_under. Ledges are 2 tiles tall: rock_top...ledge_tr over rock_under...ledge_br (mirror: ledge_tl/ledge_bl); use rock_fill in the wall column at ledge rows. Props (coral, weed, vent) stand on sand_top/rock_top. Siphon exit in the floor row: rim_l, throat_top x4, rim_r, with rock_fill | throat x4 | rock_fill below."
+    },
+    {
+      "name": "sea_cable",
+      "file": "out/frames_sea_cable.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "off": 1,
+        "spark": 4,
+        "off_h": 1,
+        "spark_h": 4
+      },
+      "anchor": "tile-aligned: place on the 8x16 grid; frames touch the frame edges on purpose so segments chain (vertical: stack between anchor_top/anchor_bot tiles; horizontal: side by side)",
+      "description": "Electrified cable hazard. off / off_h = unpowered (safe), spark / spark_h = live (harmful), 60-80 ms per frame. Suggested cycle: 1.5 s off, 1 s live; flash one spark frame as warning 250 ms before going live. Collision box: vertical cols 2-5, horizontal rows 6-9."
+    },
+    {
+      "name": "sea_mine",
+      "file": "out/frames_sea_mine.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        24
+      ],
+      "tags": {
+        "bob": 4,
+        "chain": 1
+      },
+      "anchor": "sphere centre (8,11) in frames 1 and 3; bob frames move the sphere -1/0/+1 row while the chain end stays on the bottom row",
+      "description": "Moored naval mine. bob: 4 frames, 150 ms, red light blinks (on in frames 1-2). chain: 16x24 chain segment that stacks vertically under the mine down to the floor/ledge. Contact radius about 5 columns x 9 rows around the sphere centre; on contact spawn sea_explosion centred on the sphere centre."
+    },
+    {
+      "name": "sea_explosion",
+      "file": "out/frames_sea_explosion.txt",
+      "kind": "sprites",
+      "size": [
+        24,
+        24
+      ],
+      "tags": {
+        "explode": 4
+      },
+      "anchor": "centre (12,12)",
+      "description": "Underwater blast for mines, drones and torpedoes: flash, fireball, fireball breaking into a bubble cloud, dispersing bubbles (60/80/100/120 ms, play once). Harmful in frames 1-2 only. No outline (bright FX)."
+    },
+    {
+      "name": "sea_drone",
+      "file": "out/frames_sea_drone.txt",
+      "kind": "sprites",
+      "size": [
+        32,
+        16
+      ],
+      "tags": {
+        "swim": 4,
+        "fire": 2
+      },
+      "anchor": "centre (16,8); faces right",
+      "description": "Underwater security drone (32x16 so it reads next to the 64-wide swimmers). swim: 4 frames (ducted propeller spin, searchlight beam flicker, lamp dims on frame 4), 90 ms. fire: 2 frames (80/120 ms); spawn sea_torpedo on fire frame 1 with its tail at drone (25,12) (tube muzzle)."
+    },
+    {
+      "name": "sea_torpedo",
+      "file": "out/frames_sea_torpedo.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        8
+      ],
+      "tags": {
+        "fly": 2
+      },
+      "anchor": "centre (8,4); nose at column 13, faces right",
+      "description": "Drone torpedo projectile with bubble trail, fly: 2 frames 90 ms. Hitbox cols 5-13 rows 2-5."
+    },
+    {
+      "name": "sea_pickups",
+      "file": "out/frames_sea_pickups.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "medkit": 4,
+        "oxygen": 4
+      },
+      "anchor": "centre (4,8); bob of 1 row is baked into the frames",
+      "description": "medkit: 4 frames 150 ms (bob + glint); oxygen: 4 frames 150 ms (yellow tank, bubbles rising from the valve). The medkit outline uses columns 0 and 7 (EDGE warning is expected)."
+    },
+    {
+      "name": "sea_siphon",
+      "file": "out/frames_sea_siphon.txt",
+      "kind": "sprites",
+      "size": [
+        48,
+        32
+      ],
+      "tags": {
+        "swirl": 4
+      },
+      "anchor": "bottom-centre (24,31) = centre of the hole; place with its bottom row on the bottom row of the rim tile row (sprite y = rim row y - 16) and x = rim_l x, so it spans rim_l + 4 throat_top + rim_r",
+      "description": "Level exit: whirlpool pouring down into the siphon in the sea floor. swirl: 4 frames 90 ms (streaks wrap around the funnel, foam and debris orbit the lip). Suggested gameplay: within ~3 tiles the vortex pulls the heroine towards (24,31); touching the throat triggers the transition (she is flushed out into the oasis pool of the next level)."
+    }
+  ],
+  "mockups": [
+    "out/mockup_sea.png",
+    "out/mockup_sea_siphon.png"
+  ],
+  "notes": "Vertical scroll top to bottom, 20 tiles wide. Depth bands: row with sky + surface tiles at the top, then bg_light, bg_mid, bg_deep; switch bands on whole tile rows (never mix inside a row except where a prop/wall tile of that band sits). Animated tiles: surface (2 frames, 150 ms), weed (2), vent (3, bubbles loop every 3 frames). Suggested oxygen: bubble vents refill slowly when the heroine overlaps the 2 tiles above a vent; oxygen tank pickup refills fully. Buoyancy: the heroine drifts up slowly when idle. Hazards: live cables and mines hurt on contact, drone torpedoes explode on walls. The stand-in swimmer in the mockup is the existing frogman_swim frame. mockup_sea.png is a 160x352 slice (no HUD); mockup_sea_siphon.png is the bottom of the level with the exit (HUD strip left black)."
+}

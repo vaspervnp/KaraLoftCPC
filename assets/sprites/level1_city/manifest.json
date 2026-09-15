@@ -1,0 +1,95 @@
+{
+  "level": "level1_city",
+  "sheets": [
+    {
+      "name": "city_tiles",
+      "file": "out/frames_city_tiles.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "bg_sky": 4,
+        "bg_far": 4,
+        "wall": 5,
+        "platform": 3,
+        "deco_roof": 3,
+        "deco_tank": 6,
+        "ladder": 1,
+        "ground": 4,
+        "garage_frame": 3,
+        "garage_closed": 3,
+        "garage_open": 2,
+        "deco_lamp": 2,
+        "crate": 1
+      },
+      "anchor": "tile grid, opaque (pen 0 = black)",
+      "description": "Night city tiles, frame order: sky_stars, void, sky_mid, sky_low, far_tower, far_block, far_step, far_fill, brick, brick_win_lit, brick_win_dark, brick_top, concrete, roof_l, roof_m, roof_r, ac_unit, chimney, antenna, tank_00, tank_01, tank_10, tank_11, tank_20, tank_21, ladder, sidewalk, curb, street, street_line, jamb_l, sign_p, jamb_r, lock_red, shutter, shutter_bottom, lock_green, open_ramp, lamp_top, lamp_pole, crate. Sky bands stack top-down sky_stars (or void) / sky_mid / sky_low, then a bg_far top (far_tower/far_block/far_step, any order) over far_fill; void for deep gaps. Roofs: roof_l / roof_m... / roof_r with brick/brick_win_* below; brick_top = low non-lip wall edge. Props sit on black one row above a roof. deco_tank is a 2x3 group (tank_RC, row-major). Street: sidewalk (walk row) over curb over street/street_line. Garage 4x5: row0 jamb_l sign_p lock_(red|green) jamb_r; closed rows1-3 shutter x2, row4 shutter_bottom x2; open rows1-3 void x2, row4 open_ramp x2. Lamp: lamp_top over lamp_pole on the sidewalk row."
+    },
+    {
+      "name": "city_drone",
+      "file": "out/frames_city_drone.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        20
+      ],
+      "tags": {
+        "fly": 4,
+        "fire": 2
+      },
+      "anchor": "centred flyer; eye (laser origin) at x=13,y=11 when facing right",
+      "description": "Illuminati pyramid drone: twin rotors, blinking red beacon, all-seeing eye. fly loops 4 frames at 80 ms; fire = eye flare + beam flash (spawn city_drone_shot at frame 1)."
+    },
+    {
+      "name": "city_drone_shot",
+      "file": "out/frames_city_drone_shot.txt",
+      "kind": "sprites",
+      "size": [
+        6,
+        3
+      ],
+      "tags": {
+        "shot": 2
+      },
+      "anchor": "centred, head at right",
+      "description": "Red laser bolt, 2-frame shimmer, no outline (fills its frame like the bullet)."
+    },
+    {
+      "name": "city_pickups",
+      "file": "out/frames_city_pickups.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "key": 4,
+        "ammo": 3
+      },
+      "anchor": "bottom-centred, object rows 2-14",
+      "description": "key: gold key with travelling glint (opens the garage). ammo: olive ammo box with two cartridges, glint."
+    },
+    {
+      "name": "city_car",
+      "file": "out/frames_city_car.txt",
+      "kind": "sprites",
+      "size": [
+        64,
+        32
+      ],
+      "tags": {
+        "drive": 4
+      },
+      "anchor": "tyres touch row 29, outline row 30 = road contact; faces right",
+      "description": "Red muscle car for the escape cutscene: wheel spin, 1-row body bob, exhaust puff, headlight beam flicker, heroine's silhouette at the wheel."
+    }
+  ],
+  "mockups": [
+    "out/mockup_city.png",
+    "out/mockup_city_escape.png",
+    "out/mockup_city_street.png"
+  ],
+  "notes": "Humanoid agents in the mockups use the real city_agent sprite (levels/_chars/out/frames_city_agent.txt), drawn mirrored to face the heroine: fire frame 6 on the rooftop, walk frame 1 at street level. Rooftop gap in mockup_city is 3 tiles (within the 4-tile jump); right roof is 1 tile higher. Drone fire: flash frame 1 is 70 ms, then the bolt spawns from the eye row. The 41 tiles include `void` (plain black), used for the starless sky, deep gaps and the open garage interior."
+}

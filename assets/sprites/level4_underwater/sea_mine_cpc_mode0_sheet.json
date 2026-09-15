@@ -1,0 +1,65 @@
+{ "frames": [
+   {
+    "filename": "sea_mine_cpc_mode0 #bob 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 16, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 24 },
+    "sourceSize": { "w": 16, "h": 24 },
+    "duration": 150
+   },
+   {
+    "filename": "sea_mine_cpc_mode0 #bob 1.aseprite",
+    "frame": { "x": 16, "y": 0, "w": 16, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 24 },
+    "sourceSize": { "w": 16, "h": 24 },
+    "duration": 150
+   },
+   {
+    "filename": "sea_mine_cpc_mode0 #bob 2.aseprite",
+    "frame": { "x": 32, "y": 0, "w": 16, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 24 },
+    "sourceSize": { "w": 16, "h": 24 },
+    "duration": 150
+   },
+   {
+    "filename": "sea_mine_cpc_mode0 #bob 3.aseprite",
+    "frame": { "x": 48, "y": 0, "w": 16, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 24 },
+    "sourceSize": { "w": 16, "h": 24 },
+    "duration": 150
+   },
+   {
+    "filename": "sea_mine_cpc_mode0 #chain.aseprite",
+    "frame": { "x": 0, "y": 24, "w": 16, "h": 24 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 16, "h": 24 },
+    "sourceSize": { "w": 16, "h": 24 },
+    "duration": 200
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "sea_mine_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 64, "h": 48 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "bob", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
+   { "name": "chain", "from": 4, "to": 4, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "sea_mine", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

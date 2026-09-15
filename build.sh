@@ -22,6 +22,19 @@ python3 "$ROOT/tools/png2sprite.py" "$ROOT/assets/placeholder/kara_sheet.png" \
         --inc "$BUILD/kara_sprites.inc" \
         --preview "$BUILD/kara_preview.png"
 
+# ALL THE SPRITE ART, one directory per level plus a shared set.
+# tools/build_levels.py walks the artists' manifest.json files, exports
+# every sheet (tiles raw, everything else span-compressed, both facings
+# where the thing turns to face her), and tools/level_banks.py lays the
+# blobs out into banks and ZX0-packs one stream per bank. See
+# CLAUDE.md 6.2, 7.1 and 7.4.
+rm -rf "$BUILD/levels"
+python3 "$ROOT/tools/build_levels.py"
+python3 "$ROOT/tools/level_banks.py"
+
+# Where a shot leaves each firing frame, against the BLOB's numbering.
+python3 "$ROOT/tools/spawns.py"
+
 python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         -o "$BUILD/overscan.bin" \
         --inc "$BUILD/title_palette.asm" \
@@ -32,6 +45,15 @@ python3 "$ROOT/tools/make_placeholder_level.py"
 python3 "$ROOT/tools/png2tiles.py" "$ROOT/assets/placeholder/city_tiles.png" \
         -o "$BUILD/city_tiles.bin" --inc "$BUILD/city_tiles.inc"
 cp "$ROOT/assets/placeholder/city_map.bin" "$BUILD/city_map.bin"
+
+# ZX0 for everything that goes on the disc. It is the best cruncher RASM
+# ships on BOTH ratio and depack speed - see tools/pack.py for the nine
+# that were measured - and it buys disc space and load time, not frame
+# time: the blitter reads uncompressed bytes out of a bank.
+python3 "$ROOT/tools/pack.py" city_tiles.bin city_map.bin overscan.bin
+# ... and it has to come AFTER everything it packs. It used to run
+# before png2tiles and quietly shipped the PREVIOUS build's tiles.
+
 
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
      -ob "$BUILD/game.bin" \

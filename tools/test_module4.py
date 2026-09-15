@@ -19,6 +19,7 @@ catches is a 4-pixel column of the wrong tile down one edge, which
 leaves video RAM perfectly correct.
 """
 import os
+import random
 import re
 import sys
 
@@ -72,11 +73,16 @@ def settle(machine, sym):
     frames and only then latches the new start address, so between the
     two SCROLL has moved but the picture has not. That is the design -
     the row is hidden until it is whole - but it means SCROLL and the
-    screen only agree while V_PHASE is clear.
+    screen only agree while V_PHASE is clear. A horizontal step spans two
+    frames the same way (H_HEAD then H_COMMIT / H_TAIL), so wait that out
+    too, or a sample catches the incoming column with 18 of its 24 rows
+    painted.
     """
-    for _ in range(40):
+    for _ in range(60):
         sync_to_frame_top(machine, sym)
-        if machine.peek(sym["V_PHASE"]) == 0:
+        if (machine.peek(sym["V_PHASE"]) == 0
+                and machine.peek(sym["H_PENDING"]) == 0
+                and machine.peek(sym["H_TAIL_DUE"]) == 0):
             return True
         next_frame_top(machine, sym)
     return False
@@ -131,11 +137,72 @@ def sync_to_vsync(machine, sym):
     return False
 
 
+VSTEP_STUB = 0x9200
+
+def drive(machine, sym, phase):
+    """Put the engine into one of the three scroll motions.
+
+    The demo is player-driven now, so horizontal scrolling comes from
+    holding the joystick and letting CAMERA_UPDATE follow Kara. The
+    vertical engine has no in-game driver yet - levels 3 and 4 are
+    Module 6 - so a step is started directly and the main loop's
+    SCROLL_SERVICE / SCROLL_VBLANK carry it through.
+    """
+    if phase == 0:
+        drive.want = 0
+        machine.joystick(0x08)               # walk her to the camera's edge,
+        machine.run_frames(20)               # so every later frame scrolls
+        return
+    machine.joystick(0)                      # the camera must not also step
+    machine.poke(sym["V_REQUEST"], 0)        # while a vertical step is measured.
+    drive.want = 1 if phase == 1 else 2      # And clear any request the last
+                                             # phase left: the engine now defers
+                                             # a vertical step while a
+                                             # horizontal one is in flight, so a
+                                             # request can outlive its phase and
+                                             # fire as the wrong direction here.
+
+
+def pump_h(machine, sym):
+    """Hold the joystick right; CAMERA_DECIDE follows her.
+
+    It used to poke KARA_WX by +2 a frame instead, to avoid depending on
+    what is in front of her. That is no longer safe to do: two bytes a
+    frame is the CAMERA's step, and inside the push zone the player code
+    deliberately moves her in step with the camera so her SCREEN column
+    never changes. Poking the world position drives her at a speed the
+    camera cannot match, KARA_X alternates by one byte every frame, and
+    the test then measures a fault it created itself. If she walks into
+    a wall the camera stops and the test goes vacuous rather than failing,
+    which is why the placeholder city now has one continuous rooftop -
+    see tools/make_placeholder_level.py.
+    """
+    machine.joystick(0x08)
+
+
+def vstep(machine, sym):
+    """Ask the engine for a vertical step. No PC hijacking: SCROLL_SERVICE
+    picks the request up on its own, exactly as levels 3 and 4 will."""
+    if machine.peek(sym["V_PHASE"]):
+        return False
+    machine.poke(sym["V_REQUEST"], getattr(drive, "want", 1))
+    return True
+
+
 def state(machine, sym):
+    """(scroll, world_x, world_cr, kara_x, kara_y, kara_frame, pending)
+
+    pending is None, or (h_scroll, h_wx, h_col) when a horizontal step
+    has been requested and its column head is already in video RAM.
+    """
     scroll = machine.peek(sym["SCROLL"]) | (machine.peek(sym["SCROLL"] + 1) << 8)
+    pending = None
+    if machine.peek(sym["H_PENDING"]):
+        pending = (machine.peek(sym["H_SCROLL"]) | (machine.peek(sym["H_SCROLL"] + 1) << 8),
+                   machine.peek(sym["H_WX"]), machine.peek(sym["H_COL"]))
     return (scroll, machine.peek(sym["WORLD_X"]), machine.peek(sym["WORLD_CR"]),
             machine.peek(sym["KARA_X"]), machine.peek(sym["KARA_Y"]),
-            machine.peek(sym["KARA_FRAME"]))
+            machine.peek(sym["KARA_FRAME"]), pending)
 
 
 def overlay_kara(want, sprites, scroll, kara_x, kara_y, frame):
@@ -147,16 +214,19 @@ def overlay_kara(want, sprites, scroll, kara_x, kara_y, frame):
     Same formula the Z80 uses, so a sprite drawn with the Module 3 flat
     model (or one that mishandles the 2047 seam) will not match.
     """
+    rect = clip_rect(kara_x, kara_y)
+    if rect is None:
+        return want                 # culled: entirely off the display
+    sy0, height, sline, sx0, width, scol = rect
     base = frame * SPR_FRAME_SIZE
-    cr, raster = divmod(kara_y, 8)
-    v = (2 * scroll + 80 * (cr & 0x1F) + kara_x) & 0x7FF
-    for line in range(SPR_HEIGHT):
-        for b in range(SPR_WIDTH):
-            addr = 0xC000 + (raster << 11) + ((v + b) & 0x7FF)
-            mask = sprites[base + line * 16 + b * 2]
-            data = sprites[base + line * 16 + b * 2 + 1]
+    cr, raster = divmod(sline, 8)
+    v = (2 * scroll + 80 * (cr & 0x1F) + scol) & 0x7FF
+    for i in range(height):
+        for j in range(width):
+            addr = 0xC000 + (raster << 11) + ((v + j) & 0x7FF)
+            off = base + (sy0 + i) * 16 + (sx0 + j) * 2
             if addr in want:
-                want[addr] = (want[addr] & mask) | data
+                want[addr] = (want[addr] & sprites[off]) | sprites[off + 1]
         raster += 1
         if raster == 8:
             raster = 0
@@ -164,26 +234,95 @@ def overlay_kara(want, sprites, scroll, kara_x, kara_y, frame):
     return want
 
 
-def expected_screen(tiles, level_map, scroll, world_x, world_cr):
-    """Every byte the playfield should hold, as {vram address: value}.
+def first_opaque(sprites, frame, rect):
+    """Screen line of her first line that actually puts pixels down.
+
+    Not the top of her box: lines 0 and 1 of every frame are entirely
+    transparent, so unclipped she first shows two lines down. Clip two
+    or more lines off her top and she shows from the very first one -
+    which is a correct difference, not a drift, and the check would
+    otherwise read it as one.
+    """
+    sy0, height, sline, sx0, width, _ = rect
+    for i in range(height):
+        row = sprites[frame * SPR_FRAME_SIZE + (sy0 + i) * 16:][:16]
+        if any(row[(sx0 + j) * 2] != 0xFF for j in range(width)):
+            return sline + i
+    return sline
+
+
+def clip_rect(kara_x, kara_y):
+    """What KARA_DRAW will actually draw: (sy0, h, screen line, sx0, w, col).
+
+    The same four cases per axis the blitter uses, and the model has to
+    agree with it exactly or the render checks below measure the model.
+    Vertically the world wraps at 256 while the display shows 192, so a
+    screen line of 192-255 is the hidden band - below the bottom and
+    above the top at once. Horizontally nothing wraps: byte 80 of a
+    character row is byte 0 of the next one down, so it is clipped.
+    """
+    if kara_y <= SCR_LINES - SPR_HEIGHT:
+        sy0, height, sline = 0, SPR_HEIGHT, kara_y
+    elif kara_y < SCR_LINES:
+        sy0, height, sline = 0, SCR_LINES - kara_y, kara_y
+    else:
+        skip = (256 - kara_y) & 0xFF
+        if skip >= SPR_HEIGHT:
+            return None
+        sy0, height, sline = skip, SPR_HEIGHT - skip, 0
+    if kara_x <= SCREEN_WIDTH_BYTES - SPR_WIDTH:
+        sx0, width, scol = 0, SPR_WIDTH, kara_x
+    elif kara_x < SCREEN_WIDTH_BYTES:
+        sx0, width, scol = 0, SCREEN_WIDTH_BYTES - kara_x, kara_x
+    else:
+        skip = (256 - kara_x) & 0xFF
+        if skip >= SPR_WIDTH:
+            return None
+        sx0, width, scol = skip, SPR_WIDTH - skip, 0
+    return sy0, height, sline, sx0, width, scol
+
+
+def paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x):
+    """One character cell of the view (scroll, world_x, world_cr) into `want`.
 
     The address model from CLAUDE.md 6.4 written out in full: MA masked
     to 10 bits, raster in bits 11-13, word times two.
     """
+    # Tiles are column-major: char_column * 32 + line * 2 + byte.
+    wr = (world_cr + cr) & 0xFF
+    map_row = (wr >> 1) & (MAP_H - 1)
+    line_off = (wr & 1) * 16
+    wc = (world_x + x) & 0xFF
+    tile = level_map[map_row * MAP_W + ((wc >> 2) & (MAP_W - 1))]
+    src = tile * TILE_BYTES + line_off + (wc & 3) * 32
+    word = (scroll + cr * SCR_CHARS + x) & 0x3FF
+    for raster in range(8):
+        addr = 0xC000 + (raster << 11) + word * 2
+        want[addr] = tiles[src + raster * 2]
+        want[addr + 1] = tiles[src + raster * 2 + 1]
+
+
+def expected_screen(tiles, level_map, scroll, world_x, world_cr):
+    """Every byte the playfield should hold, as {vram address: value}."""
     want = {}
     for cr in range(SCR_CHAR_ROWS):
-        wr = (world_cr + cr) & 0xFF
-        map_row = (wr >> 1) & (MAP_H - 1)
-        line_off = (wr & 1) * 64
         for x in range(SCR_CHARS):
-            wc = (world_x + x) & 0xFF
-            tile = level_map[map_row * MAP_W + ((wc >> 2) & (MAP_W - 1))]
-            src = tile * TILE_BYTES + line_off + (wc & 3) * 2
-            word = (scroll + cr * SCR_CHARS + x) & 0x3FF
-            for raster in range(8):
-                addr = 0xC000 + (raster << 11) + word * 2
-                want[addr] = tiles[src + raster * 8]
-                want[addr + 1] = tiles[src + raster * 8 + 1]
+            paint_cell(want, tiles, level_map, scroll, world_x, world_cr, cr, x)
+    return want
+
+
+COL_HEAD = 18
+
+def overlay_head(want, tiles, level_map, world_cr, pending):
+    """The top COL_HEAD rows of a pending step's column, painted a frame
+    early under the PENDING view. In the current view those words are
+    the left (or right) edge of the row below (above) - they sit in RAM
+    ahead of the latch, and the beam has already swept them."""
+    if pending is None:
+        return want
+    h_scroll, h_wx, h_col = pending
+    for cr in range(COL_HEAD):
+        paint_cell(want, tiles, level_map, h_scroll, h_wx, world_cr, cr, h_col)
     return want
 
 
@@ -204,7 +343,7 @@ def expected_pens(want, scroll):
     return rows
 
 
-def model(tiles, level_map, sprites, st, with_kara):
+def model(tiles, level_map, sprites, st, with_kara, kara_st=None):
     """Expected video RAM for one sampled state.
 
     Two models, deliberately. The loop draws Kara and then erases her
@@ -213,13 +352,23 @@ def model(tiles, level_map, sprites, st, with_kara):
     while the frame the beam actually painted holds her. Comparing RAM
     against the Kara-free model and the framebuffer against the Kara
     model tests both halves of that arrangement.
+
+    Kara is drawn at the TOP of a frame from the position the previous
+    frame worked out, so the frame that ends at sample k showed the view
+    of sample k with Kara from sample k-1: pass that as kara_st. And the
+    Kara-free RAM at a sample already holds the head of the pending
+    column, painted behind the beam during the frame just finished.
     """
-    scroll, wx, wcr, kx, ky, kf = st
+    scroll, wx, wcr, kx, ky, kf, pending = st
     want = expected_screen(tiles, level_map, scroll, wx, wcr)
-    return overlay_kara(want, sprites, scroll, kx, ky, kf) if with_kara else want
+    if not with_kara:
+        return overlay_head(want, tiles, level_map, wcr, pending)
+    if kara_st is not None:
+        kx, ky, kf = kara_st[3], kara_st[4], kara_st[5]
+    return overlay_kara(want, sprites, scroll, kx, ky, kf)
 
 
-def step_deltas(machine, sym, frames):
+def step_deltas(machine, sym, frames, pump=None):
     """Signed (scroll, world_x, world_cr) change for each frame that moved.
 
     Watching frame by frame is the only honest way to size a step: the
@@ -229,6 +378,8 @@ def step_deltas(machine, sym, frames):
     out = []
     prev = state(machine, sym)[:3]
     for _ in range(frames):
+        if pump:
+            pump(machine, sym)
         next_frame_top(machine, sym)
         cur = state(machine, sym)[:3]
         d = tuple(((c - p) & m) - (m + 1 if ((c - p) & m) > m // 2 else 0)
@@ -294,6 +445,89 @@ def read_bank(machine, sym):
     return out
 
 
+def column_sweep(m, sym):
+    """DRAW_COLUMN against the address model, over a map with no repeats.
+
+    This goes last because it overwrites bank C4 with a pseudo-random
+    map, and that is the point: the placeholder level is a continuous
+    rooftop, so most of its cells hold the same tile and a column that
+    reads the WRONG map row still matches. That is exactly how a
+    COL_FIRST * 40 written as COL_FIRST * 36 survived - the head starts
+    at row 0 where the multiply cannot be wrong, and the tail's error
+    landed on identical tiles more often than not.
+
+    Sweeping (scroll, world position, split) with every cell distinct
+    leaves it nowhere to hide - but ONLY if video RAM is scrubbed first.
+    The first version of this check read the address the model says and
+    found the right bytes there because the demo had already painted
+    them correctly, so it passed with the bug put back. It now fills the
+    screen with noise before every placement, which also makes "nothing
+    outside the column was touched" free to check.
+    """
+    TILES, MAPA, STUB = 0x4000, 0x4800, 0x9000
+
+    def page(cfg):
+        m.write_ram(STUB, bytes([0xF3, 0x01, cfg, 0x7F, 0xED, 0x49, 0x18, 0xFE]))
+        m.set_pc(STUB)
+        for _ in range(60):
+            m.run_us(1)
+
+    def draw(col, first, n):
+        m.poke(sym["COL_FIRST"], first)
+        m.poke(sym["COL_N"], n)
+        code = bytes([0xF3, 0x01, 0xC4, 0x7F, 0xED, 0x49, 0x3E, col,
+                      0xCD, sym["DRAW_COLUMN"] & 0xFF, sym["DRAW_COLUMN"] >> 8,
+                      0x18, 0xFE])
+        m.write_ram(STUB, code)
+        m.set_pc(STUB)
+        for _ in range(400000):
+            m.run_us(1)
+            if m.pc == STUB + len(code) - 2:
+                return
+
+    # a map where every cell differs from its neighbours in both axes
+    page(0xC4)
+    rng = random.Random(99)
+    m.write_ram(MAPA, bytes(rng.randrange(16) for _ in range(1024)))
+    tiles = [[m.peek(TILES + t * 128 + i) for i in range(128)] for t in range(16)]
+    mp = [m.peek(MAPA + i) for i in range(1024)]
+    page(0xC0)
+
+    bad = cases = stray = 0
+    for scroll in (0, 1, 39, 40, 512, 1000, 1023):
+        for wx, wcr in ((0, 0), (1, 1), (2, 7), (3, 15), (37, 8)):
+            for first, n in ((0, 24), (0, 18), (18, 6), (1, 1), (23, 1), (7, 9)):
+                m.poke(sym["SCROLL"], scroll & 255)
+                m.poke(sym["SCROLL"] + 1, scroll >> 8)
+                m.poke(sym["WORLD_X"], wx)
+                m.poke(sym["WORLD_CR"], wcr)
+                col = (scroll + wx) % 40
+                noise = bytes((i * 37 + 11) & 0xFF for i in range(0x4000))
+                m.write_ram(0xC000, noise)
+                draw(col, first, n)
+                cases += 1
+                written = set()
+                for r in range(first, first + n):
+                    wc, wr = wx + col, wcr + r
+                    t = mp[((wr >> 1) & 15) * 64 + ((wc >> 2) & 63)]
+                    off = (wc & 3) * 32 + (16 if wr & 1 else 0)
+                    addr = 0xC000 + (((scroll + col + r * 40) * 2) & 0x7FF)
+                    for line in range(8):
+                        for byte in range(2):
+                            a = addr + (line << 11) + byte
+                            written.add(a)
+                            if tiles[t][off + line * 2 + byte] != m.peek(a):
+                                bad += 1
+                after = m.read_ram(0xC000, 0x4000)
+                for i in range(0x4000):
+                    if after[i] != noise[i] and 0xC000 + i not in written:
+                        stray += 1
+    check("DRAW_COLUMN matches the address model over a map with no repeats",
+          bad == 0, f"{bad} wrong bytes over {cases} placements")
+    check("DRAW_COLUMN writes nothing outside its column", stray == 0,
+          f"{stray} bytes")
+
+
 def main():
     sym = symbols()
     machine = CPC()
@@ -308,8 +542,10 @@ def main():
     machine.poke(sym["DEMO_TIMER"], 2)
     machine.poke(sym["DEMO_TIMER"] + 1, 0)
     machine.run_frames(30)
-    check("handed over to the scrolling demo",
-          state(machine, sym)[0] > 0, f"scroll={state(machine, sym)[0]}")
+    check("handed over to the scrolling demo, and Kara has landed",
+          machine.peek(sym["KARA_GROUND"]) == 1,
+          f"grounded={machine.peek(sym['KARA_GROUND'])}, "
+          f"WY={machine.peek(sym['KARA_WY'])}")
 
     sprites = machine.read_ram(sym["KARA_SPRITES"], 4 * SPR_FRAME_SIZE)
     tiles = machine.read_ram(sym["CITY_TILES"], TILES_LEN)
@@ -338,6 +574,46 @@ def main():
           "3072 bytes compared")
 
     # ---------------------------------------------------------------
+    # 0. Kara's screen column while the camera follows her
+    #
+    # The CRTC scrolls 2 bytes a step and she walks 1 byte a frame, so
+    # the camera can only fire every other frame. Every one of those
+    # frames is drawn and erased correctly and passes every check above
+    # - but let her keep walking 1 byte a frame inside the push zone and
+    # the column the blitter draws her at goes 54, 55, 54, 55 at 25 Hz,
+    # which on a monitor is two Karas a character apart for as long as
+    # the screen moves. Driven by the joystick, not pump_h: pump_h moves
+    # her 2 bytes a frame and can never show it. It runs FIRST, from her
+    # landing spot, because the joystick respects walls and pump_h does
+    # not: after the other phases she can be standing against one, and a
+    # walk that never moves is a camera that never steps.
+    # ---------------------------------------------------------------
+    print("\n  Kara's screen column while the camera follows her:")
+    for mask, name, frames in [(0x08, "right", 40), (0x04, "left", 70)]:
+        if mask == 0x04:                # walk her well clear of the map's left
+            machine.joystick(0x08)      # edge first: the camera stops there and
+            machine.run_frames(70)      # she resumes walking a byte a frame,
+        machine.joystick(mask)          # which is correct and not what is tested
+        log = []
+        for _ in range(frames):
+            next_frame_top(machine, sym)
+            log.append(state(machine, sym))
+        machine.joystick(0)
+        moved = [i for i in range(1, len(log)) if log[i][0] != log[i - 1][0]]
+        # On a frame where the view moved, the column the blitter drew her
+        # at must not have moved. Checked per step, not over the whole
+        # span: at the map's edge the camera stops and she walks on
+        # normally, one byte a frame, which is correct and would otherwise
+        # read as a failure.
+        jumped = [(log[i - 1][3], log[i][3]) for i in moved
+                  if log[i][3] != log[i - 1][3]]
+        print(f"    {name:<6} camera stepped {len(moved)} times; "
+              f"KARA_X changed on {len(jumped)} of them {jumped[:4]}")
+        check(f"camera follows her {name} without moving her on screen",
+              len(moved) >= 4 and not jumped,
+              f"{len(moved)} camera steps, {len(jumped)} moved her")
+
+    # ---------------------------------------------------------------
     # 1. video RAM vs the map, across all three scroll phases
     # ---------------------------------------------------------------
     print("\n  video RAM vs map, Kara already erased (15,360 bytes per sample):")
@@ -345,9 +621,16 @@ def main():
     for label, advance in [("horizontal", 0), ("horizontal", 90),
                            ("vertical down", 130), ("vertical down", 90),
                            ("vertical up", 100), ("vertical up", 90)]:
-        if advance:
-            machine.run_frames(advance)
-        sync_to_frame_top(machine, sym)
+        drive(machine, sym, {"horizontal": 0, "vertical down": 1, "vertical up": 2}[label])
+        pump = vstep if label != "horizontal" else pump_h
+        for _ in range(advance // 10):
+            pump(machine, sym)
+            machine.run_frames(10)
+        settle(machine, sym)            # never mid vertical step: the incoming
+                                        # row is painted in two halves on
+                                        # consecutive frames and is off-screen
+                                        # until both are down, so RAM really
+                                        # does disagree with the map between
         st = state(machine, sym)
         scroll, wx, wcr = st[0], st[1], st[2]
         scrolls.append(scroll)
@@ -373,13 +656,15 @@ def main():
     # ---------------------------------------------------------------
     print("\n  step sizes:")
     for phase, name, frames, want, least in [
-            (0, "horizontal",    6,  (1, 1, 0),    6),
+            # Three steps in six frames, not six: the CRTC scrolls a whole
+            # character (2 bytes) and she walks 1 byte a frame, so the
+            # camera can only step every other frame. See PLAYER_X.
+            (0, "horizontal",    6,  (1, 1, 0),    3),
             (1, "vertical down", 16, (40, 0, 1),   3),
             (2, "vertical up",   16, (-40, 0, -1), 3)]:
-        machine.poke(sym["DEMO_PHASE"], phase)
-        machine.poke(sym["DEMO_PHASE_T"], 0)
-        settle(machine, sym)                  # drain a step left pending by the
-        deltas = step_deltas(machine, sym, frames)   # previous phase
+        drive(machine, sym, phase)
+        settle(machine, sym)
+        deltas = step_deltas(machine, sym, frames, pump_h if phase == 0 else vstep)
         uniform = deltas and all(d == want for d in deltas)
         # The COUNT in a fixed window is demo cadence - a vertical step now
         # commits two frames after it starts, so a window catches 3 or 4.
@@ -401,28 +686,37 @@ def main():
     # neither.
     # ---------------------------------------------------------------
     print("\n  rendered frame vs map (30,720 pixels per sample):")
-    machine.poke(sym["DEMO_PHASE"], 0)
-    machine.poke(sym["DEMO_PHASE_T"], 0)
+    drive(machine, sym, 0)
     check("test can sync to the instant after VSYNC", sync_to_vsync(machine, sym))
+    prev = state(machine, sym)
+    sync_to_vsync(machine, sym)
     st = state(machine, sym)
     y0, hits, probes = find_display_top(
-        machine, [expected_pens(model(tiles, level_map, sprites, st, True), st[0])],
+        machine, [expected_pens(model(tiles, level_map, sprites, st, True, kara_st=prev), st[0])],
         pen_to_hw)
     check("found the displayed area in the framebuffer", hits >= probes * 0.9,
           f"top scanline {y0}, {hits} of {probes} probes matched")
 
     for phase, name in [(0, "horizontal"), (1, "vertical down"), (2, "vertical up")]:
-        machine.poke(sym["DEMO_PHASE"], phase)
-        machine.poke(sym["DEMO_PHASE_T"], 0)
+        drive(machine, sym, phase)
         history = []
         for _ in range(6):
+            (vstep if phase else pump_h)(machine, sym)
             sync_to_vsync(machine, sym)
             history.append(state(machine, sym))   # mid-step frames included
+        # Kara is drawn at the top of a frame from the position the frame
+        # before worked out, so the frame that ended at sample i showed
+        # sample i's view with sample i-1's Kara. i-2 is allowed as well:
+        # sync_to_vsync searches coarsely and then finely for the instant
+        # after VSYNC and can land a frame further on, which shifts the
+        # whole pairing and has nothing to do with the engine.
         scores = [(render_mismatch(machine,
-                                   expected_pens(model(tiles, level_map, sprites, h, True), h[0]),
-                                   pen_to_hw, y0), h)
-                  for h in history[-3:]]
-        bad, st = min(scores)
+                                   expected_pens(model(tiles, level_map, sprites, history[i], True,
+                                                       kara_st=history[k]), history[i][0]),
+                                   pen_to_hw, y0), history[i])
+                  for i in range(max(1, len(history) - 3), len(history))
+                  for k in (i - 1, i - 2) if k >= 0]
+        bad, st = min(scores, key=lambda t: t[0])   # states carry None fields
         print(f"    {name:<14} scroll={st[0]:>4} world=({st[1]:>3},{st[2]:>3}) "
               f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
               f"{bad:>6} wrong pixels  (best of {len(scores)} candidate views)")
@@ -441,27 +735,37 @@ def main():
     # ---------------------------------------------------------------
     print("\n  Kara's screen position through a vertical scroll:")
     for phase, name in [(1, "vertical down"), (2, "vertical up")]:
-        machine.poke(sym["DEMO_PHASE"], phase)
-        machine.poke(sym["DEMO_PHASE_T"], 0)
+        drive(machine, sym, phase)
         tops = set()
+        prev = None
         for _ in range(14):
+            vstep(machine, sym)
             sync_to_vsync(machine, sym)
-            st = machine_state = state(machine, sym)
-            bare = expected_pens(model(tiles, level_map, sprites, st, False), st[0])
+            st = state(machine, sym)
+            if prev is None:
+                prev = st
+                continue
+            bare = expected_pens(expected_screen(tiles, level_map, st[0], st[1], st[2]), st[0])
             fb = machine.framebuffer()
             rows = [y for y, row in enumerate(bare)
                     if any(fb[(y0 + y) * FB_W + 64 + x * 4] != pen_to_hw[p]
                            for x, p in enumerate(row))]
-            tops.add(rows[0] if rows else None)
-        ky = machine.peek(sym["KARA_Y"])
-        seen = sorted(t for t in tops if t is not None)
-        print(f"    {name:<14} sprite top scanline(s) seen: {seen}  (KARA_Y = {ky})")
-        # Her first sprite lines are fully transparent, so the first row
-        # that differs from the bare tilemap sits a little below KARA_Y.
-        # What must hold is that it is the SAME row on every frame.
-        check(f"Kara holds her screen line through a {name} step",
-              len(seen) == 1 and ky <= seen[0] < ky + 8,
-              f"saw {seen}, want one value in {ky}..{ky + 7}")
+            rect = clip_rect(prev[3], prev[4])   # the Y she was DRAWN from
+            if rect is None:                     # culled: nothing to find
+                prev = st
+                continue
+            tops.add(rows[0] - first_opaque(sprites, prev[5], rect) if rows else None)
+            prev = st
+        seen = sorted(o for o in tops if o is not None)
+        print(f"    {name:<14} rendered top minus KARA_Y: {seen}")
+        # Her screen line MOVES during a vertical scroll - she holds a world
+        # position and the camera travels under her. What must not move is
+        # the offset between where the engine says she is and where she is
+        # actually drawn. When SCROLL ran ahead of the CRTC latch this took
+        # two values 8 apart: the "two Karas".
+        check(f"Kara is drawn where the engine says she is, through a {name} step",
+              len(seen) == 1 and 0 <= seen[0] < 8,
+              f"offsets seen {seen}, want a single value in 0..7")
 
     # ---------------------------------------------------------------
     # 4. R12/R13 are only ever written during vertical blanking
@@ -483,10 +787,10 @@ def main():
     worst = 0
     seen = 0
     for phase, name in [(0, "horizontal"), (1, "vertical down"), (2, "vertical up")]:
-        machine.poke(sym["DEMO_PHASE"], phase)
-        machine.poke(sym["DEMO_PHASE_T"], 0)
+        drive(machine, sym, phase)
         latest = None
         for _ in range(12):
+            (vstep if phase else pump_h)(machine, sym)
             sync_to_vsync(machine, sym)          # stops just past the VSYNC exit
             us = 0
             for _ in range(4800):                # stay inside ONE frame, or the
@@ -505,6 +809,8 @@ def main():
     check("R12/R13 written only in the border above the display",
           seen > 0 and worst < 4608,           # 72 scanlines x 64 us
           f"worst {worst} us (limit 4608 = 72 scanlines); {seen} writes seen")
+
+    column_sweep(machine, sym)
 
     print()
     if fails:

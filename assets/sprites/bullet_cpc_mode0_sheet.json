@@ -1,0 +1,56 @@
+{ "frames": [
+   {
+    "filename": "bullet_cpc_mode0 #bullet 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "sourceSize": { "w": 6, "h": 3 },
+    "duration": 60
+   },
+   {
+    "filename": "bullet_cpc_mode0 #bullet 1.aseprite",
+    "frame": { "x": 6, "y": 0, "w": 6, "h": 3 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "sourceSize": { "w": 6, "h": 3 },
+    "duration": 60
+   },
+   {
+    "filename": "bullet_cpc_mode0 #bullet_water 0.aseprite",
+    "frame": { "x": 0, "y": 3, "w": 6, "h": 3 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "sourceSize": { "w": 6, "h": 3 },
+    "duration": 80
+   },
+   {
+    "filename": "bullet_cpc_mode0 #bullet_water 1.aseprite",
+    "frame": { "x": 6, "y": 3, "w": 6, "h": 3 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 6, "h": 3 },
+    "sourceSize": { "w": 6, "h": 3 },
+    "duration": 80
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "bullet_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 12, "h": 6 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "bullet", "from": 0, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "bullet_water", "from": 2, "to": 3, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "heroine", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

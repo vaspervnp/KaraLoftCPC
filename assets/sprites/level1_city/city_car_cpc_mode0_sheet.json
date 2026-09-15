@@ -1,0 +1,55 @@
+{ "frames": [
+   {
+    "filename": "city_car_cpc_mode0 #drive 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 32 },
+    "sourceSize": { "w": 64, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "city_car_cpc_mode0 #drive 1.aseprite",
+    "frame": { "x": 64, "y": 0, "w": 64, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 32 },
+    "sourceSize": { "w": 64, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "city_car_cpc_mode0 #drive 2.aseprite",
+    "frame": { "x": 128, "y": 0, "w": 64, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 32 },
+    "sourceSize": { "w": 64, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "city_car_cpc_mode0 #drive 3.aseprite",
+    "frame": { "x": 192, "y": 0, "w": 64, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 32 },
+    "sourceSize": { "w": 64, "h": 32 },
+    "duration": 80
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "city_car_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 256, "h": 32 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "drive", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "city_car", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

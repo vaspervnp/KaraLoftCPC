@@ -1,0 +1,127 @@
+{
+  "level": "level6_station",
+  "sheets": [
+    {
+      "name": "station_tiles",
+      "file": "out/frames_station_tiles.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "bg_far": 5,
+        "window": 2,
+        "wall": 6,
+        "pillar": 3,
+        "ceiling": 2,
+        "platform": 4,
+        "door_closed": 4,
+        "door_open": 3,
+        "door_reader": 2,
+        "deco": 4,
+        "hazard": 4
+      },
+      "anchor": "tile grid, top-left",
+      "description": "Opaque 8x16 tiles, seamless left/right (pillars, door and beams also up/down). Background: space bands (black stars; flat bands: stars -> space_rim planet edge -> space_planet) seen through window frames, BLUE back wall with CYAN bevels, teal pillars. Foreground/collidable: GREY/WHITE ceiling, floor grating (white lip on row 0), hull, door slab. Frame order per tag: bg_far = space_a, space_b, space_c, space_rim, space_planet; window = win_top, win_bot; wall = wall, wall_seam, wall_vent, wall_pipe, wall_light, wall_stripe; pillar = pillar_top, pillar_mid, pillar_base; ceiling = ceiling, ceiling_light; platform = floor_l, floor_m, floor_r, hull; door_closed = door_head_shut, door_shut_top, door_shut_mid, door_shut_bot; door_open = door_head_open, door_open_mid, door_open_bot; door_reader = reader_locked, reader_ok; deco = console_tl, console_tr, console_bl, console_br; hazard = emit_ceiling, emit_floor, emit_wall_r, emit_wall_l. Window column (top->bottom): win_top, space_a/b/c, space_rim, space_planet, win_bot. Pillar: pillar_top, pillar_mid xN, pillar_base (ceiling row above, floor row below). Keycard door (1 tile wide, 5 tall): door_head_shut, door_shut_top, door_shut_mid x2, door_shut_bot; open: door_head_open, door_open_mid x3, door_open_bot; reader_locked/reader_ok go on the wall beside it. Console: 2x2 (tl tr / bl br), bottom row stands on the floor. Emitters: emit_ceiling (in ceiling row, fires down), emit_floor (walkable floor tile, receiver/fires up), emit_wall_r / emit_wall_l (wall tiles, beam leaves at col 7 / col 0, rows 7-9)."
+    },
+    {
+      "name": "station_laser",
+      "file": "out/frames_station_laser.txt",
+      "kind": "tiles",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "h_on": 2,
+        "h_off": 1,
+        "v_on": 2,
+        "v_off": 1
+      },
+      "anchor": "tile grid, top-left; OVERLAY: pen 0 = transparent, draw over the background tile",
+      "description": "Laser beam tiles (hazard). h_on: rows 7-9 (BRED/WHITE/BRED), flicker frame widens to rows 6-10; v_on: cols 2-4, flicker widens to cols 1-5. h_off / v_off: dim BROWN dotted guide on the beam line (harmless). Aligned with the emit_* tiles."
+    },
+    {
+      "name": "station_turret",
+      "file": "out/frames_station_turret.txt",
+      "kind": "sprites",
+      "size": [
+        16,
+        16
+      ],
+      "tags": {
+        "scan": 4,
+        "fire": 2
+      },
+      "anchor": "CEILING mounted, top-centre (x centre = col 8). Row 1 is the housing top: draw at y = ceiling underside - 1. Faces right (mirror for left).",
+      "description": "Laser turret: ceiling housing, ball joint with red eye, barrel. scan = barrel sweeps 0/13/26/13 deg below horizontal (eye dims on frame 4); fire = barrel at 13 deg, muzzle flash + recoil. Spawn station_turret_shot at frame col 14, row 10."
+    },
+    {
+      "name": "station_turret_shot",
+      "file": "out/frames_station_turret_shot.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        8
+      ],
+      "tags": {
+        "shot": 2
+      },
+      "anchor": "centre",
+      "description": "Turret plasma bolt, round (direction-free), no outline (bright pens), 2-frame pulse."
+    },
+    {
+      "name": "station_pickups",
+      "file": "out/frames_station_pickups.txt",
+      "kind": "sprites",
+      "size": [
+        8,
+        16
+      ],
+      "tags": {
+        "keycard": 4,
+        "map": 4
+      },
+      "anchor": "centre (float/bob in engine)",
+      "description": "keycard: white access card with red band and gold chip, 4-frame sparkle blink. map: the father's map as a holo scroll (metal rollers, glowing SKY sheet with land and a red marker), 4-frame scanline shine."
+    },
+    {
+      "name": "station_computer",
+      "file": "out/frames_station_computer.txt",
+      "kind": "sprites",
+      "size": [
+        32,
+        48
+      ],
+      "tags": {
+        "idle": 4,
+        "download": 4,
+        "done": 2
+      },
+      "anchor": "bottom-centre: row 47 stands on the floor top (EDGE bottom warning is intended)",
+      "description": "Final Cyber-Illuminati map computer (pyramid-eye crest). idle: text readout, bar graph, cursor blink, chasing lamps (loop). download: progress bar 25/50/75/100% (play once, hold each step while the player interacts). done: world map with route and blinking target (loop) - then award the map pickup."
+    },
+    {
+      "name": "station_pod",
+      "file": "out/frames_station_pod.txt",
+      "kind": "sprites",
+      "size": [
+        48,
+        32
+      ],
+      "tags": {
+        "idle": 2,
+        "launch": 4
+      },
+      "anchor": "centre; faces right; thruster nozzle mouth at col 9 row 16, flames extend left to col 1",
+      "description": "Escape pod for the ending cutscene. idle: nav lights blink (2 frames, slow). launch: 4-frame thruster flame flicker; move the sprite right/up in the engine."
+    }
+  ],
+  "mockups": [
+    "out/mockup_station.png",
+    "out/mockup_station_computer.png",
+    "out/mockup_station_escape.png"
+  ],
+  "notes": "39 tiles. Background stays BLUE/CYAN/black; everything collidable is GREY/WHITE with a white top lip. Use space_a/b/c in an irregular mix to avoid a star grid. Laser timing suggestion: h_on/v_on 2 frames at 70 ms while active, e.g. 1.2 s on / 0.8 s off; show *_off during the gap. Horizontal beam in tile row 9 (above floor) must be jumped, in row 7 it can be rolled under (clearance 32 rows). Door body = 4 tiles = heroine height; closed body tiles are solid, open tiles passable; swap head/body to open after the keycard is used on the reader. Turret is ceiling mounted only. Humanoid Elite Cyber-Illuminati guards are the lead's; the mockups use station_cyber (levels/_chars/out/frames_station_cyber.txt, fire frame 6, mirrored) with a station_plasma bolt in flight. Regenerate with `python make_station.py` (`--debug` also writes zoomed previews to _debug/)."
+}

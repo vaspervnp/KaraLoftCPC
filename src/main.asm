@@ -33,6 +33,8 @@
 ; not in the core image, so they cost nothing on disc.
 KARA_SAVE       equ &8000               ; 384 bytes
 BUL_SAVE        equ &8180               ; 56 bytes
+SPAN_SCRIPT     equ &8200               ; the span blitter's erase script,
+                                        ; which is also its save-under
 
 KARA_HOME_Y     equ 112
 STRIPE_TOP      equ 64
@@ -49,6 +51,8 @@ MARK_SPRITE     equ 12                  ; bright red
 MARK_BULLETS    equ 18                  ; bright green
 MARK_HUD        equ 24                  ; magenta
 MARK_IDLE       equ 20                  ; black
+MARK_COLUMN     equ 18                  ; bright green - the column head
+MARK_TAIL       equ 24                  ; magenta - the column tail
 
 ; =====================================================================
 ; BOOTSTRAP - entered from BASIC with CALL &4000, firmware still live.
@@ -161,142 +165,192 @@ MAIN_LOOP:      call WAIT_VSYNC
 ; is the first job of Module 5, and doing it badly would be worse than
 ; not doing it - see CLAUDE.md 8.2.
 ; =====================================================================
+; ---------------------------------------------------------------------
+; WHICH OF KARA'S LINES THE ERASE HAS TO WAIT FOR.
+;
+; The erase walks top-down and so does the beam, so whether the first or
+; the last line is the binding one is decided by which of them is
+; faster per line. The raster spends 256 T on a line. Measured:
+;
+;   full-width restore, 8 LDIs a line     241 T a line  - FASTER
+;   clipped restore, per-line overhead    336-466 T     - SLOWER
+;
+; A restore that is faster than the beam starts behind it and closes the
+; gap, so its LAST line is the one that must already have been
+; displayed. A restore that is slower can only fall further behind, so
+; clearing its FIRST line is enough - and that is worth having, because
+; her first line can be 47 lines and 12,000 T earlier than her last.
+;
+; Waiting on the last line in both cases would be safe but would put a
+; clipped erase after tick 6 with 22,000 T of work and only 16,800 T of
+; frame left.
+; ---------------------------------------------------------------------
+                ; ... and the erase has to fit between tick 6 and the END
+                ; of the next VSYNC pulse, not its start. SPR_RESTORE is
+                ; 11,628 T, 14,172 when a character row straddles the
+                ; 1024-word seam; tick 6 plus the worst case is 81,260,
+                ; which is 1,388 T past the pulse's start and 2,700 T
+                ; inside it. WAIT_VSYNC tests the level, not an edge, so
+                ; that frame starts late but on the SAME pulse - no frame
+                ; is dropped, and FRAME_TICK0 is stamped by the interrupt
+                ; inside the pulse rather than by the loop, so the frame's
+                ; raster gates stay correct even when it starts late.
+                ; The pulse is 16 scanlines: measured 4,060 and 4,112 T.
+                assert 67088 + 14172 < 79872 + 4060
+
 SCROLL_DEMO:    di
                 xor  a
                 call SCREEN_CLS
                 call SCROLL_INIT
+                call INPUT_INIT
+                call PLAYER_TO_SCREEN
                 ei
 
-                ; Each step routine owns its own SCROLL_APPLY, because the
-                ; safe moment to latch a new start address is different for
-                ; the two axes - see tilemap.asm. All this loop guarantees
-                ; is that a step begins at VSYNC.
+                ; THE FRAME IS A BEAM CHASE, and this is its schedule. The
+                ; beam reaches display line L about 15,400 + 256 L T after
+                ; WAIT_VSYNC returns on the headless emulator (60 border
+                ; scanlines) and 18,432 + 256 L on a 6845 programmed the
+                ; way the firmware leaves it (72). Everything below that
+                ; must be AHEAD of the beam is timed to the early figure,
+                ; everything that must be BEHIND it to the late one.
                 ;
-                ; ORDER IS LOAD-BEARING, and it is a beam chase, not just a
-                ; data-dependency order. Both constraints point the same way:
+                ;  - KARA_DRAW goes first, in the border, for the position
+                ;    PLAYER_TO_SCREEN worked out last frame. At ~560 T a
+                ;    line against the raster's 256 she only wins on a
+                ;    lead, and the whole top border is that lead: she is
+                ;    safe for any KARA_Y >= 13.
+                ;  - the incoming column is not painted here at all: its
+                ;    top 18 rows went in BEHIND the beam last frame
+                ;    (H_HEAD), the last 6 go in now, ~45,000 T ahead of
+                ;    the raster (H_TAIL).
+                ;  - input, physics and the camera decision for the NEXT
+                ;    frame sit in the middle, where nothing is urgent.
+                ;  - H_HEAD waits for interrupt tick 4 (40,468 T): the
+                ;    earliest moment every cell it touches is behind the
+                ;    beam. See tilemap.asm.
+                ;  - KARA_ERASE must trail the beam past her last line,
+                ;    and still finish before the next VSYNC. The CPC has
+                ;    no raster register, so the IM 1 interrupt is the only
+                ;    clock and the gate is a WHOLE tick, picked from her
+                ;    Y: 52 scanlines of granularity. A finer gate is not
+                ;    worth having. A delay loop after the tick can only
+                ;    measure from the moment it is entered, so a second
+                ;    one in the same frame adds its whole wait on top of
+                ;    the work between them: splitting the erase into two
+                ;    halves that way put the lower half 13,600 T late and
+                ;    dropped a frame on 12 scrolling frames out of 58.
                 ;
-                ;  - the scroll step must go FIRST because its incoming column
-                ;    is visible under the new start address and it only wins
-                ;    its race with the raster by starting at VSYNC;
-                ;  - KARA_DRAW must stay AHEAD of the beam. Her blitter runs
-                ;    at 651 T per line against the raster's 256, so she only
-                ;    survives by starting with a lead: at line 112 the beam
-                ;    arrives 47,104 T in and she starts at 23,548 T, which
-                ;    holds to line 172 - past her last line at 159;
-                ;  - KARA_ERASE must stay BEHIND it. Starting at 54,820 T it
-                ;    trails the beam at every one of her lines, so the restore
-                ;    is invisible. Erasing at the TOP of the frame instead
-                ;    pushes her draw 37,356 T in, the beam overtakes her at
-                ;    line 137, and she flickers from the waist down.
-                ;
-                ; Erasing last also satisfies the data rule for free:
-                ; KARA_LAST_ADDR is consumed in the same frame it was written,
-                ; before the next scroll step recycles that RAM to a new world
-                ; position.
+                ;    Ticks, measured from the WAIT_VSYNC exit:
+                ;      tick 1     532 T | tick 4  40,468 T
+                ;      tick 2  13,844 T | tick 5  53,780 T
+                ;      tick 3  27,152 T | tick 6  67,088 T
 .loop:          call WAIT_VSYNC
-                call SCROLL_VBLANK          ; R12/R13 may only be written here
-                ld   a,(IRQ_TICKS)
-                ld   (FRAME_TICK0),a        ; raster clock for this frame
+                call SCROLL_VBLANK          ; R12/R13 may only be written here:
+                call H_COMMIT               ; vertical, then horizontal
+
                 ld   a,MARK_SPRITE
                 call BORDER_SET
-                call SCROLL_SCRIPT          ; races the beam from the top
-                call KARA_WALK
-                call KARA_DRAW              ; stays ahead of it
+                call KARA_DRAW              ; ahead of the beam, in the border
+                ld   a,MARK_TAIL
+                call BORDER_SET
+                call H_TAIL                 ; rows 18-23 of the committed column
 
-                ; RASTER GATE. The erase must trail the beam past Kara's
-                ; first line, which the raster reaches 47,104 T after VSYNC.
-                ; On a horizontal-scroll frame the work above already takes
-                ; 54,772 T and this falls through; on a light frame - a
-                ; vertical phase between steps - the draw alone ends at
-                ; 31,272 T and without this the erase would wipe her top
-                ; lines BEFORE the beam displayed them, once every four
-                ; frames. The IM 1 interrupt is the cheapest raster clock
-                ; the CPC has - the 6845 exposes no scanline counter - and
-                ; its ticks were MEASURED from the WAIT_VSYNC exit rather
-                ; than assumed: the first lands after only 532 T, not a
-                ; full 52-line period, and then every 13,312 T:
-                ;
-                ;   tick 1   532 T | tick 4  40,464 T
-                ;   tick 2 13,844 T | tick 5  53,776 T   <- the one we want
-                ;   tick 3 27,152 T | tick 6  67,088 T
-                ;
-                ; Four ticks is 40,464 T and still AHEAD of the beam, which
-                ; is why the first version of this gate did not work. Five
-                ; clears 47,104 T and leaves 26,096 T for a 13,856 T erase.
-                ; On a horizontal-scroll frame the work above already costs
-                ; 54,772 T, so the gate falls straight through and costs
-                ; nothing.
+                ld   a,MARK_LOGIC
+                call BORDER_SET
+                di
+                call INPUT_SCAN             ; the AY address latch is shared
+                ei                          ; with the sound chip
+                call PLAYER_UPDATE
+                call CAMERA_DECIDE          ; requests next frame's step
+                call SCROLL_SERVICE         ; a vertical step in flight
+                call PLAYER_TO_SCREEN       ; where she goes, in that view
+
                 ld   a,MARK_IDLE
                 call BORDER_SET
-.gate:          ld   a,(IRQ_TICKS)
-                ld   hl,FRAME_TICK0
-                sub  (hl)                   ; wraps cleanly: small differences
-                cp   5
-                jr   c,.gate
+                ld   c,4
+                call TICK_WAIT
+                ld   a,MARK_COLUMN
+                call BORDER_SET
+                call H_HEAD                 ; rows 0-17, behind the beam
 
+                ld   a,MARK_IDLE
+                call BORDER_SET
+                ld   hl,(KARA_LAST_ADDR)    ; culled: nothing to wait for
+                ld   a,h
+                or   l
+                jr   z,.erased
+                ld   a,(KARA_CLIP_W)        ; WHICH of her lines binds depends
+                cp   SPR_WIDTH_BYTES        ; on which lane the erase will use
+                ld   a,(KARA_LAST_BOT)      ; - see below
+                jr   z,.gate
+                ld   a,(KARA_LAST_TOP)
+.gate:          call RASTER_WAIT
                 ld   a,MARK_ERASE
                 call BORDER_SET
-                call KARA_ERASE             ; stays behind the beam
-                ld   a,MARK_IDLE
-                call BORDER_SET
+                call KARA_ERASE
+.erased:
+
                 ld   hl,FRAME_COUNT
                 inc  (hl)
                 jp   .loop
 
-; Demo only: drift Kara across the scrolling world so the tests see her
-; at many (SCROLL, KARA_X) combinations rather than at one.
-KARA_WALK:      ld   a,(KARA_STEP)
-                inc  a
-                ld   (KARA_STEP),a
-                and  3
-                ret  nz
-                ld   a,(KARA_X)
-                inc  a
-                cp   SCREEN_WIDTH_BYTES - SPR_WIDTH_BYTES + 1
-                jr   c,.sx
-                xor  a
-.sx:            ld   (KARA_X),a
-                ld   a,(KARA_STEP)
-                rrca
-                rrca
-                rrca
-                and  3
-                ld   (KARA_FRAME),a
+; ---------------------------------------------------------------------
+; RASTER_WAIT - spin until the beam has FINISHED display line A.
+;
+; The CPC has no raster register, so this is the IM 1 interrupt as an
+; anchor plus a counted delay for the remainder. The interrupts fall at
+; scanlines 2, 54, 106, 158, 210 and 262 after the VSYNC exit - measured,
+; not assumed - and line A is finished at scanline A + 73 on the late
+; (72-border) model. So: wait for the last tick at or before that, then
+; delay the difference at 8 turns of a 32 T loop a scanline.
+;
+; *** ONE OF THESE PER FRAME, AND IT MUST BE THE LAST THING THAT WAITS.
+; The delay can only count from the moment it starts, so a second call
+; with work in between adds its whole remainder on top of that work.
+; That is exactly how the erase came to run 13,600 T late and drop a
+; frame on 12 scrolling frames out of 58. ***
+;
+; Arriving late is otherwise safe: the remainder is counted from a tick
+; that has already gone by, so the answer is only ever later than asked
+; for, never earlier.
+;
+; IN : A = display line 0-191                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+RASTER_WAIT:    add  a,73 - 2               ; scanlines past tick 1 (line 2)
+                ld   c,1
+.tick:          cp   52                     ; one tick is 52 scanlines
+                jr   c,.rem
+                sub  52
+                inc  c
+                jr   .tick
+.rem:           ld   l,a                    ; C = the tick, A = lines past it
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; 8 turns of 32 T = 256 T = a line
+                push hl
+                call TICK_WAIT
+                pop  hl
+                ld   a,h
+                or   l
+                ret  z
+.delay:         dec  hl                     ; 8
+                nop                         ; 4   measured at 28 T without it
+                ld   a,h                    ; 4
+                or   l                      ; 4
+                jr   nz,.delay              ; 12  = 32 T a turn
                 ret
 
 ; ---------------------------------------------------------------------
-; SCROLL_SCRIPT - 200 frames right, 200 down, 200 up, repeat. The
-; vertical phases step every 4th frame; 8 scanlines at 50 Hz would be
-; far too fast to look at.
+; TICK_WAIT - spin until C interrupt ticks have passed since FRAME_TICK0.
+; Returns at once if they already have.       destroys AF,HL
 ; ---------------------------------------------------------------------
-SCROLL_SCRIPT:  ld   hl,DEMO_PHASE_T
-                inc  (hl)                   ; keep the cadence regular even
-                                            ; on the frame a step finishes
-                ld   a,(V_PHASE)            ; a vertical step in progress?
-                or   a
-                jp   nz,SCROLL_V_FINISH     ; finish it before starting another
-                                            ; (V_PHASE can only be 1 here -
-                                            ; SCROLL_VBLANK cleared 2 already)
-                ld   a,(hl)
-                cp   200
-                jr   c,.act
-                ld   (hl),0
-                ld   a,(DEMO_PHASE)
-                inc  a
-                cp   3
-                jr   c,.store
-                xor  a
-.store:         ld   (DEMO_PHASE),a
-.act:           ld   a,(DEMO_PHASE)
-                or   a
-                jp   z,SCROLL_H_STEP
-                ld   b,a
-                ld   a,(DEMO_PHASE_T)
-                and  3
-                ret  nz
-                ld   a,b
-                dec  a                      ; phase 1 -> down, phase 2 -> up
-                jp   SCROLL_V_STEP
+TICK_WAIT:      ld   a,(IRQ_TICKS)
+                ld   hl,FRAME_TICK0
+                sub  (hl)                   ; wraps cleanly for small values
+                cp   c
+                jr   c,TICK_WAIT
+                ret
 
 ; ---------------------------------------------------------------------
 ; BUFFERS_CLEAR - the save-under buffers sit at &8000, which is ordinary
@@ -467,12 +521,21 @@ LAMP_BLOCK:     ld   a,56
 ; it only counts; the music player and raster splits hang off it later.
 ; ---------------------------------------------------------------------
 IRQ_HANDLER:    push af
-                ld   a,(IRQ_TICKS)
+                push bc
+                ld   bc,PPI_PORT_B * 256
+                in   a,(c)
+                rra                         ; carry = VSYNC still up: this is
+                ld   a,(IRQ_TICKS)          ; tick 1, 2 scanlines into the pulse
                 inc  a
                 ld   (IRQ_TICKS),a
-                pop  af
-                ei
-                ret
+                jr   nc,.counted
+                dec  a                      ; FRAME_TICK0 = the count before
+                ld   (FRAME_TICK0),a        ; tick 1. Stamped HERE and not in
+.counted:       pop  bc                     ; the main loop, so a frame that
+                pop  af                     ; starts late (WAIT_VSYNC returns at
+                ei                          ; once inside the 16-line pulse) can
+                ret                         ; not shift every raster gate by a
+                                            ; tick for the rest of the run.
 
 ; ---------------------------------------------------------------------
 ; BANK_TEST - acceptance test for Module 1.
@@ -623,8 +686,12 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "screen.asm"
                 include "palette.asm"
                 include "sprite.asm"
+                include "spanblit.asm"
+                include "unpack.asm"
                 include "bullets.asm"
                 include "input.asm"
+                include "collide.asm"
+                include "player.asm"
                 include "tilemap.asm"
 
 ; ---------------------------------------------------------------------
@@ -642,6 +709,15 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 assert SCR_CHARS * 2 == SCREEN_WIDTH_BYTES
                 ; SCR_ADDR indexes ROW_OFFSETS with ADD A,L over 64 bytes.
                 assert (ROW_OFFSETS AND 63) == 0
+                ; SPAN_EMIT indexes SPAN_ENTRY by writing the count into
+                ; the low byte of the address it reads, and patches only
+                ; the low byte of the jump into SPAN_RUN. So the table
+                ; has to start a page and the whole run has to stay in
+                ; one - both are alignment accidents waiting to happen
+                ; the next time anything above them grows.
+                assert (SPAN_ENTRY AND 255) == 0
+                assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
+                assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
 
 ; ---------------------------------------------------------------------
 ; Core variables
@@ -658,6 +734,19 @@ KARA_FRAME:     db 0
 KARA_FACING:    db 1                    ; 1 = right, 0 = left
 KARA_STEP:      db 0
 KARA_LAST_ADDR: dw 0
+KARA_LAST_TOP:  db 0            ; her first and last DRAWN screen lines,
+KARA_LAST_BOT:  db 0            ; which clipping makes different from Y, Y+47
+KARA_SAVE_PTR:  dw 0            ; where in KARA_SAVE the drawn part starts
+KARA_CLIP_W:    db 0            ; the drawn rectangle, so KARA_ERASE can
+KARA_CLIP_H:    db 0            ; replay exactly what KARA_DRAW wrote
+CLIP_SY0:       db 0            ; ... and the working state both lanes use
+CLIP_SX0:       db 0
+CLIP_SLINE:     db 0
+CLIP_OFF:       dw 0
+CLIP_ADDR:      dw 0
+CLIP_SPR:       dw 0
+CLIP_SAVE:      dw 0
+CLIP_STEP:      dw 0
 FIRE_TIMER:     db 0
 DEMO_TIMER:     dw 600                  ; frames of Module 1-3 screen
 DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up

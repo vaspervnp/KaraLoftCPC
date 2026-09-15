@@ -1,0 +1,112 @@
+{ "frames": [
+   {
+    "filename": "sea_cable_cpc_mode0 #off.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 200
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark 0.aseprite",
+    "frame": { "x": 0, "y": 16, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 80
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark 1.aseprite",
+    "frame": { "x": 8, "y": 16, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 60
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark 2.aseprite",
+    "frame": { "x": 16, "y": 16, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 80
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark 3.aseprite",
+    "frame": { "x": 24, "y": 16, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 60
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #off_h.aseprite",
+    "frame": { "x": 0, "y": 32, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 200
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark_h 0.aseprite",
+    "frame": { "x": 0, "y": 48, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 80
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark_h 1.aseprite",
+    "frame": { "x": 8, "y": 48, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 60
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark_h 2.aseprite",
+    "frame": { "x": 16, "y": 48, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 80
+   },
+   {
+    "filename": "sea_cable_cpc_mode0 #spark_h 3.aseprite",
+    "frame": { "x": 24, "y": 48, "w": 8, "h": 16 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 8, "h": 16 },
+    "sourceSize": { "w": 8, "h": 16 },
+    "duration": 60
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.5-dev",
+  "image": "sea_cable_cpc_mode0_sheet.png",
+  "format": "I8",
+  "size": { "w": 32, "h": 64 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "off", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" },
+   { "name": "spark", "from": 1, "to": 4, "direction": "forward", "color": "#000000ff" },
+   { "name": "off_h", "from": 5, "to": 5, "direction": "forward", "color": "#000000ff" },
+   { "name": "spark_h", "from": 6, "to": 9, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "sea_cable", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

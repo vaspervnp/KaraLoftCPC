@@ -60,8 +60,32 @@ MAP_COL_MASK    equ MAP_W - 1               ; both dimensions are powers of
 MAP_ROW_MASK    equ MAP_H - 1               ; two, so the map wraps with AND
 
 TILE_BYTES      equ 128                     ; 8 bytes * 16 lines
+; ---------------------------------------------------------------------
+; TILES ARE STORED COLUMN-MAJOR: for each character column of the tile,
+; all sixteen lines' two bytes, consecutively.
+;
+;       offset = char_column * 32 + line * 2 + byte
+;
+; Every blitter here paints a character column at a time - 2 bytes a
+; raster for 8 rasters - so in row-major order the source had to step 8
+; bytes a line, which is LD A,L / ADD A,7 / LD L,A. Column-major it is
+; one INC L: 64 T a raster instead of 76, 2,300 T off a column, and it
+; costs nothing because it is the same 128 bytes in a different order.
+; ---------------------------------------------------------------------
+TILE_H          equ 16
+TILE_COL_BYTES  equ TILE_H * 2              ; 32 - one character column
+TILE_HALF_BYTES equ 8 * 2                   ; 16 - its lower half, 8 lines on
+
+TILE_W_BYTES    equ 8                       ; a tile line, in screen bytes.
+                                            ; The drawn art is 8x16 = 4
+                                            ; bytes (CLAUDE.md 8.3); the
+                                            ; blitters take their stride
+                                            ; from here so the change is
+                                            ; this constant plus the map
+                                            ; dimensions.
 SCR_CHARS       equ 40                      ; R1 - characters across
 SCR_CHAR_ROWS   equ 24                      ; R6 - see EDGE 2 above
+SCR_LINES       equ SCR_CHAR_ROWS * 8       ; 192 displayed scanlines
 SCR_WORDS       equ SCR_CHARS * SCR_CHAR_ROWS
 CRTC_PAGE       equ &30                     ; MA bits 12-13: page &C000
 
@@ -200,14 +224,18 @@ TILE_SRC:       ld   a,b
                 ld   a,b
                 and  1
                 rrca
-                rrca                        ; (wr & 1) * 64
+                rrca
+                rrca
+                rrca                        ; (wr & 1) * 16 - the lower half
                 add  a,e
                 ld   e,a
                 ld   a,c
                 and  3
-                add  a,a                    ; (wc & 3) * 2
-                add  a,e                    ; max 128+64+6, never carries
-                ld   l,a
+                rrca
+                rrca
+                rrca                        ; (wc & 3) * 32 - the character
+                add  a,e                    ; column. Max 128+96+16 = 240,
+                ld   l,a                    ; so it still never carries
                 ld   a,d
                 and  7
                 add  a,TILES_ADDR / 256
@@ -240,16 +268,15 @@ DRAW_CELL:      ld   a,(CELL_WC)
                 ex   de,hl                  ; DE = screen, raster 0
                 pop  hl                     ; HL = tile source
 
-                ld   bc,7
                 repeat 8
-                ld   a,(hl)                 ; 7
-                ld   (de),a                 ; 7
-                inc  hl                     ; 6
-                inc  de                     ; 6
-                ld   a,(hl)                 ; 7
-                ld   (de),a                 ; 7
-                add  hl,bc                  ; 11  source += 8 (next tile line)
-                dec  de                     ; 6
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                inc  l                      ; 4
+                inc  e                      ; 4
+                ld   a,(hl)                 ; 8
+                ld   (de),a                 ; 8
+                inc  l                      ; 4   column-major: the next
+                dec  e                      ; 4   line is the next two bytes
                 ld   a,d                    ; 4
                 add  a,8                    ; 7   screen += &0800
                 ld   d,a                    ; 4   never carries: max &FFFE
@@ -259,10 +286,10 @@ DRAW_CELL:      ld   a,(CELL_WC)
 ; ---------------------------------------------------------------------
 ; DRAW_COLUMN - repaint one screen character column, top to bottom.
 ;
-; Top to bottom is not cosmetic: a horizontal step writes into memory
-; the current frame is still displaying, so the loop has to stay ahead
-; of the raster. Started right after VSYNC it has 72 scanlines of head
-; start and gains ground on the beam every character row.
+; Top to bottom matters: the column is painted BEHIND the beam (H_HEAD)
+; or ahead of it (H_TAIL, DRAW_PLAYFIELD), and either way the order the
+; raster sweeps the rows is the order that keeps every cell out of its
+; way. See the horizontal scrolling note above H_REQUEST_RIGHT.
 ;
 ; A tile is 16 pixels tall and a character row is 8, so ONE tile covers
 ; two character rows. The map column is fixed for the whole column, so
@@ -271,141 +298,194 @@ DRAW_CELL:      ld   a,(CELL_WC)
 ; column instead of 24, and it is most of the difference between this
 ; and calling DRAW_CELL 24 times.
 ;
+; The column is painted in two pieces, (COL_FIRST) for (COL_N) rows,
+; on two consecutive frames - see H_HEAD / H_TAIL.
+;
 ; IN:  A = screen character column, 0-39.  Bank C4 must be paged in.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-DRAW_COLUMN:    ld   e,a
+DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
+                ld   e,a
                 ld   d,0
-                ld   hl,(SCROLL)
+
+                ; ---- the screen address of the first row painted -----
+                ; word = SCROLL + column + COL_FIRST * 40, and the
+                ; address is &C000 + ((word * 2) AND &07FF). ADD A,A
+                ; carries out of the low byte and ADC A,A folds it in,
+                ; so the mask is AND 7 on the doubled value.
+                ld   a,(COL_FIRST)
+                ld   l,a
+                ld   h,0
+                add  hl,hl                  ; x2
+                add  hl,hl                  ; x4
+                add  hl,hl                  ; x8
+                ld   b,h                    ; ... keep x8: 40 is 32 + 8, and
+                ld   c,l                    ; keeping x4 here quietly makes
+                add  hl,hl                  ; x16   it 36. COL_FIRST is 0 for
+                add  hl,hl                  ; x32   the head, so that reads
+                add  hl,bc                  ; x40   correct until the tail
+                add  hl,de                  ; + the column
+                ld   de,(SCROLL)
                 add  hl,de
-                ld   (CELL_WORD),hl         ; word of (row 0, this column)
-
-                ld   a,(WORLD_X)
-                add  a,e                    ; world character column
-                ld   c,a
-                and  3
+                ld   a,l
                 add  a,a
-                ld   (COL_BYTEOFF),a        ; (wc AND 3) * 2
+                ld   e,a
+                ld   a,h
+                adc  a,a
+                and  7
+                add  a,SCREEN_BASE >> 8
+                ld   d,a                    ; DE = screen, this row, raster 0
 
-                ld   a,c
+                ; ---- the map pointer, which BC keeps for the whole run
+                ld   a,(WORLD_X)
+                ld   hl,COL_SCOL
+                add  a,(hl)                 ; world character column
+                ld   l,a
+                and  3
+                rrca
+                rrca
+                rrca                        ; (wc AND 3) * 32
+                ld   (COL_BOFF + 1),a       ; ... into the fetch below
+                ld   a,l
                 rrca
                 rrca
                 and  &3F                    ; map column 0-63
-                ld   e,a
+                ld   c,a
+
                 ld   a,(WORLD_CR)
-                ld   (CELL_WR),a
+                ld   hl,COL_FIRST
+                add  a,(hl)                 ; world character row of the
+                ld   l,a                    ; first row this piece paints
+                and  1
+                ld   (COL_ODD),a            ; which half of its tile it is on
+                ld   a,l
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
                 rrca
                 rrca                        ; -> (row AND 3)<<6 | row>>2
-                ld   d,a
+                ld   b,a
                 and  &C0
-                or   e
-                ld   l,a
-                ld   a,d
+                or   c
+                ld   c,a
+                ld   a,b
                 and  3
                 add  a,MAP_ADDR >> 8
-                ld   h,a
-                ld   (COL_MAPPTR),hl
+                ld   b,a                    ; BC = map pointer
 
-                call COL_FETCH              ; prime COL_TILEBASE
-                ld   a,SCR_CHAR_ROWS
-                ld   (COL_ROWS),a
-                ld   bc,(CELL_WORD)         ; the word index lives in BC for
-                                            ; the whole loop - the blit below
-                                            ; touches only AF, DE and HL
+                ld   a,(COL_N)
+                or   a
+                ret  z
+                exx
+                ld   b,a                    ; rows left, in the shadow so the
+                exx                         ; blit keeps all four main pairs
 
-                ; Screen address, 40 T, no scratch pair needed:
-                ;   addr = &C000 + ((word * 2) AND &07FF)
-                ; ADD A,A sets the carry out of the low byte and ADC A,A
-                ; folds it into the high byte, so the mask is AND 7 on the
-                ; doubled value rather than AND 3 on the word.
-.row:           ld   a,c                    ; 4
-                add  a,a                    ; 4
-                ld   e,a                    ; 4
-                ld   a,b                    ; 4   (LD does not touch flags)
-                adc  a,a                    ; 4
-                and  7                      ; 8
-                add  a,SCREEN_BASE >> 8     ; 8
-                ld   d,a                    ; 4   DE = screen, raster 0
-
-                ld   hl,(COL_TILEBASE)
-                ld   a,(CELL_WR)
-                and  1
-                jp   z,.top
-                ld   a,l                    ; odd world row: the lower half
-                add  a,64                   ; of the tile, 8 lines on
+                call COL_FETCH              ; HL = the tile's first line
+                ld   a,(COL_ODD)
+                or   a
+                jr   z,.pair
+                ld   a,l                    ; it starts on the lower half,
+                add  a,TILE_HALF_BYTES      ; eight lines down
                 ld   l,a
-.top:
+                jp   .odd
 
-                repeat 8
+; ---------------------------------------------------------------------
+; Two character rows an iteration, because two character rows are ONE
+; TILE. That is what makes the loop cheap: the map is read once for the
+; pair, and HL walks straight from the tile's line 7 into its line 8, so
+; the lower half needs no fetch, no parity test and no reload.
+;
+; The other half of it is that eight rasters of +&0800 leave D exactly
+; where the next row's address wants to start from. D is
+; &C0 + (v >> 8) with v >> 8 in 0-7, so eight times +8 is +64, which
+; carries out of the byte and leaves DE = v, 0-2047, with the page bits
+; gone. Adding 80 and masking to 11 bits is then the whole step.
+; ---------------------------------------------------------------------
+.pair:          repeat 8
                 ld   a,(hl)                 ; 8
                 ld   (de),a                 ; 8
                 inc  l                      ; 4   a tile is 128 bytes on a
-                inc  e                      ; 4   128-byte boundary, and
+                inc  e                      ; 4   128-byte boundary and
                 ld   a,(hl)                 ; 8   word*2 is even, so neither
                 ld   (de),a                 ; 8   of these can carry
-                ld   a,l                    ; 4
-                add  a,7                    ; 8   source: next tile line
-                ld   l,a                    ; 4
-                dec  e                      ; 4
+                inc  l                      ; 4   column-major: the next
+                dec  e                      ; 4   line is the next two bytes
                 ld   a,d                    ; 4
                 add  a,8                    ; 8   screen: next scanline
-                ld   d,a                    ; 4   -- 76 T per raster
+                ld   d,a                    ; 4   -- 76 T a raster
                 rend
 
-                ld   a,c                    ; word += 40: down one char row
-                add  a,SCR_CHARS
-                ld   c,a
-                jp   nc,.same_page
-                inc  b
-.same_page:     ld   hl,CELL_WR
-                inc  (hl)
+                exx                         ; 4
+                dec  b                      ; 4
+                exx                         ; 4
+                ret  z                      ; 16/8
+                ld   a,e                    ; 4   down one character row:
+                add  a,SCR_CHARS * 2        ; 8   40 words on, folded back
+                ld   e,a                    ; 4   into the 2 KB block
+                ld   a,d                    ; 4
+                adc  a,0                    ; 8
+                and  7                      ; 8
+                add  a,SCREEN_BASE >> 8     ; 8
+                ld   d,a                    ; 4
+
+.odd:           repeat 8
                 ld   a,(hl)
-                and  1
-                call z,COL_NEXT_TILE        ; crossed into a new map row
-                ld   hl,COL_ROWS
-                dec  (hl)
-                jp   nz,.row
-                ret
+                ld   (de),a
+                inc  l
+                inc  e
+                ld   a,(hl)
+                ld   (de),a
+                inc  l
+                dec  e
+                ld   a,d
+                add  a,8
+                ld   d,a
+                rend
 
-; ---------------------------------------------------------------------
-; COL_FETCH - read the tile under COL_MAPPTR and work out the address of
-; its first line, byte offset already folded in.
-;                                Clobbers AF, HL
-; ---------------------------------------------------------------------
-COL_FETCH:      ld   hl,(COL_MAPPTR)
-                ld   a,(hl)                 ; tile index 0-15
-                rrca                        ; -> (tile AND 1)<<7 | tile>>1
-                ld   h,a
-                and  &80
-                ld   l,a
-                ld   a,(COL_BYTEOFF)
-                add  a,l                    ; max 128+6, never carries
-                ld   l,a
-                ld   a,h
+                exx
+                dec  b
+                exx
+                ret  z
+                ld   a,e
+                add  a,SCR_CHARS * 2
+                ld   e,a
+                ld   a,d
+                adc  a,0
                 and  7
-                add  a,TILES_ADDR >> 8
-                ld   h,a
-                ld   (COL_TILEBASE),hl
-                ret
+                add  a,SCREEN_BASE >> 8
+                ld   d,a
+
+                ; the pair is done, so the map goes down a row. It is
+                ; 1024 bytes at &4800, so RES 2 folds &4C00 back to
+                ; &4800 - the 16-row wrap, free.
+                ld   a,c                    ; 4
+                add  a,MAP_W                ; 8
+                ld   c,a                    ; 4
+                jr   nc,.same_page          ; 12/8
+                inc  b                      ; 4
+.same_page:     res  2,b                    ; 8
+                call COL_FETCH
+                jp   .pair
 
 ; ---------------------------------------------------------------------
-; COL_NEXT_TILE - step the map pointer down one row and refetch.
+; COL_FETCH - the tile under BC, as the address of its first line with
+; the byte offset inside the tile already folded in.
 ;
-; The map is 1024 bytes at &4800, so the pointer runs &4800-&4BFF and
-; RES 2,H folds &4C00 back to &4800 - which is the 16-row wrap, free.
-;                                Clobbers AF, HL
+; The index is 0-15 and a tile is 128 bytes, so tile*128 is
+; (t AND 1) << 7 in the low byte and t >> 1 in the high - which is one
+; RRCA and two masks, not a multiply.
+;                                IN: BC = map pointer.  Clobbers AF, HL
 ; ---------------------------------------------------------------------
-COL_NEXT_TILE:  ld   hl,(COL_MAPPTR)
-                ld   a,l
-                add  a,MAP_W
-                ld   l,a
-                jp   nc,.stored
-                inc  h
-.stored:        res  2,h
-                ld   (COL_MAPPTR),hl
-                jp   COL_FETCH
+COL_FETCH:      ld   a,(bc)                 ; 8   tile index 0-15
+                rrca                        ; 4   -> (t AND 1)<<7 | t>>1
+                ld   h,a                    ; 4
+                and  &80                    ; 8
+COL_BOFF:       add  a,0                    ; 8   + (wc AND 3)*32, patched by
+                ld   l,a                    ; 4   the setup above
+                ld   a,h                    ; 4
+                and  7                      ; 8
+                add  a,TILES_ADDR >> 8      ; 8
+                ld   h,a                    ; 4
+                ret                         ; 12
 
 ; ---------------------------------------------------------------------
 ; DRAW_ROW - repaint one screen character row, left to right.
@@ -435,7 +515,9 @@ DRAW_ROW:       ld   e,a
                 ld   (ROW_WR),a             ; the map row needs it too, and C
                 and  1                      ; is about to become the column
                 rrca
-                rrca                        ; (wr AND 1) * 64
+                rrca
+                rrca
+                rrca                        ; (wr AND 1) * 16 - the lower half
                 ld   (ROW_LINEOFF),a
 
                 ld   a,(ROW_FIRST)
@@ -447,8 +529,10 @@ DRAW_ROW:       ld   e,a
                 add  a,e                    ; ... and the world column under it
                 ld   c,a
                 and  3
-                add  a,a
-                ld   (ROW_BYTEOFF),a        ; (wc AND 3) * 2
+                rrca
+                rrca
+                rrca
+                ld   (ROW_BYTEOFF),a        ; (wc AND 3) * 32
 
                 ; map pointer = MAP_ADDR + (map_row << 6) + map_col
                 ld   a,c
@@ -487,7 +571,7 @@ DRAW_ROW:       ld   e,a
 
                 ld   hl,(ROW_TILEBASE)
                 ld   a,(ROW_BYTEOFF)
-                add  a,l                    ; max 192+6, never carries
+                add  a,l                    ; max 128+16+96, never carries
                 ld   l,a
 
                 repeat 8
@@ -497,19 +581,17 @@ DRAW_ROW:       ld   e,a
                 inc  e                      ; 4
                 ld   a,(hl)                 ; 8
                 ld   (de),a                 ; 8
-                ld   a,l                    ; 4
-                add  a,7                    ; 8
-                ld   l,a                    ; 4
-                dec  e                      ; 4
+                inc  l                      ; 4   column-major: the next
+                dec  e                      ; 4   line is the next two bytes
                 ld   a,d                    ; 4
                 add  a,8                    ; 8
-                ld   d,a                    ; 4   -- 76 T per raster
+                ld   d,a                    ; 4   -- 64 T a raster
                 rend
 
                 inc  bc                     ; right one character
                 ld   a,(ROW_BYTEOFF)
-                add  a,2
-                cp   8
+                add  a,TILE_COL_BYTES
+                cp   TILE_BYTES             ; 4 character columns of 32
                 jr   c,.same_tile           ; still inside this tile
                 call ROW_NEXT_TILE          ; every 4th character column
                 xor  a
@@ -571,35 +653,143 @@ DRAW_PLAYFIELD: call BANK_SET_C4
                 jp   BANK_RESTORE
 
 ; ---------------------------------------------------------------------
-; SCROLL_H_STEP - one character right: MA += 1, so the picture slides
-; 2 bytes = 4 Mode 0 pixels left.
+; HORIZONTAL SCROLLING - one character a step, decided a frame ahead and
+; painted BEHIND the beam.
 ;
-; State, then apply, then paint - in that order. The cell being written
-; is off the right-hand edge only under the NEW start address; under
-; the old one it is the left edge of the row below, in plain view.
-; Clobbers AF, BC, DE, HL
+; Under the start address the CRTC is showing, the cell a step to the
+; right brings in at the far right of row cr is the same word as the
+; far-LEFT cell of row cr+1: SCROLL + 40(cr+1). A step to the left brings
+; in the far-left cell of row cr, which is the far-right cell of row
+; cr-1. So the incoming column is never hidden. But every one of its
+; cells IS finished with by the beam once the raster has swept the row
+; it doubles as - and painted after that, in the frame BEFORE the step
+; is latched, nothing the beam can see changes. The next frame then
+; starts with the column already in place and the whole top border is
+; free for the sprite.
+;
+;   frame N    CAMERA_DECIDE  -> H_REQUEST_*   pending SCROLL/WORLD_X
+;              H_HEAD   rows 0..COL_HEAD-1 under the PENDING view, from
+;                       interrupt tick 4 (40,468 T, beam at line 86)
+;   frame N+1  H_COMMIT SCROLL/WORLD_X := pending, R12/R13 - in vblank
+;              H_TAIL   rows COL_HEAD..23 under the now-current view,
+;                       straight after KARA_DRAW, ~45,000 T before the
+;                       beam reaches row 18
+;
+; Why the split is 18: cell cr may only be written once the beam has
+; left the row it shares. On a 72-line border that is 20,304 + 2,048*
+; (cr+1) T for a step right, and a head that starts at tick 4 and costs
+; 592 + 1,025 T a row clears it up to row 17 with 1,300 T to spare.
+; Row 18 would be 300 T early, so from there the tail waits for the
+; next frame, where its deadline is the beam's arrival at row 18 -
+; 52,000 T away.
+;
+; SCROLL and WORLD_X - what KARA_DRAW, BUL_DRAW and the tests read -
+; keep describing the view that is on screen until the commit, exactly
+; as V_SCROLL / V_WCR do for the vertical axis.
 ; ---------------------------------------------------------------------
-SCROLL_H_STEP:  ld   a,(WORLD_X)
+COL_HEAD        equ 18
+
+; H_REQUEST_RIGHT / H_REQUEST_LEFT - ask for a step at the next VSYNC.
+; Clobbers AF, HL
+H_REQUEST_RIGHT:
+                ld   a,(WORLD_X)
                 inc  a
-                ld   (WORLD_X),a
+                ld   (H_WX),a
                 ld   hl,(SCROLL)
                 inc  hl
-                call SCROLL_WRAP
-                call SCROLL_APPLY           ; this frame shows the new view
-                call BANK_SET_C4
-                ld   a,SCR_CHARS - 1        ; ... so paint the right edge,
-                call DRAW_COLUMN            ;     top down, ahead of the beam
-                jp   BANK_RESTORE
+                ld   a,SCR_CHARS - 1        ; incoming column: the far right
+                jr   H_REQUEST
 
-; ---------------------------------------------------------------------
-; SCROLL_WRAP - store HL as the new start, masked into the 1024-word
-; circular space. Subtraction relies on it too: 0 - 40 wraps to 984.
-; Clobbers AF
-; ---------------------------------------------------------------------
-SCROLL_WRAP:    ld   a,h
+H_REQUEST_LEFT: ld   a,(WORLD_X)
+                dec  a
+                ld   (H_WX),a
+                ld   hl,(SCROLL)
+                dec  hl                     ; 16-bit wrap, then masked:
+                xor  a                      ; 0 - 1 -> 1023.  Incoming
+H_REQUEST:      ld   (H_COL),a              ; column: the far left
+                ld   a,h
                 and  3
                 ld   h,a
+                ld   (H_SCROLL),hl
+                ld   a,1
+                ld   (H_PENDING),a
+                ret
+
+; ---------------------------------------------------------------------
+; H_HEAD - rows 0..COL_HEAD-1 of the pending column. DRAW_COLUMN works
+; from SCROLL and WORLD_X, so the pending view is swapped in around the
+; call and straight back out, like V_PAINT.
+;
+; CALL FROM INTERRUPT TICK 4 OR LATER - see the note above; earlier and
+; the top rows are written under the beam.
+; Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+H_HEAD:         ld   a,(H_PENDING)
+                or   a
+                ret  z
+                ld   hl,(SCROLL)
+                push hl
+                ld   a,(WORLD_X)
+                push af
+                ld   hl,(H_SCROLL)
                 ld   (SCROLL),hl
+                ld   a,(H_WX)
+                ld   (WORLD_X),a
+                xor  a
+                ld   (COL_FIRST),a
+                ld   a,COL_HEAD
+                ld   (COL_N),a
+                call BANK_SET_C4
+                ld   a,(H_COL)
+                call DRAW_COLUMN
+                call BANK_RESTORE
+                pop  af
+                ld   (WORLD_X),a
+                pop  hl
+                ld   (SCROLL),hl
+                ret
+
+; ---------------------------------------------------------------------
+; H_COMMIT - latch a pending step.  *** VERTICAL BLANKING ONLY ***
+; (it calls SCROLL_APPLY). The view and the state move together.
+; Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+H_COMMIT:       ld   a,(H_PENDING)
+                or   a
+                ret  z
+                xor  a
+                ld   (H_PENDING),a
+                inc  a
+                ld   (H_TAIL_DUE),a
+                ld   hl,(H_SCROLL)
+                ld   (SCROLL),hl
+                ld   a,(H_WX)
+                ld   (WORLD_X),a
+                jp   SCROLL_APPLY
+
+; ---------------------------------------------------------------------
+; H_TAIL - rows COL_HEAD..23 of the column H_COMMIT just latched. Call
+; it early in the frame: row 18 is displayed 52,240 T after VSYNC at
+; the earliest.
+; Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+H_TAIL:         ld   a,(H_TAIL_DUE)
+                or   a
+                ret  z
+                xor  a
+                ld   (H_TAIL_DUE),a
+                ld   a,COL_HEAD
+                ld   (COL_FIRST),a
+                ld   a,SCR_CHAR_ROWS - COL_HEAD
+                ld   (COL_N),a
+                call BANK_SET_C4
+                ld   a,(H_COL)
+                call DRAW_COLUMN
+                call BANK_RESTORE
+                xor  a                      ; leave the defaults alone for
+                ld   (COL_FIRST),a          ; DRAW_PLAYFIELD
+                ld   a,SCR_CHAR_ROWS
+                ld   (COL_N),a
                 ret
 
 ; ---------------------------------------------------------------------
@@ -690,6 +880,42 @@ SCROLL_VBLANK:  ld   a,(V_PHASE)
                 jp   SCROLL_APPLY
 
 ; ---------------------------------------------------------------------
+; SCROLL_SERVICE - advance a vertical step that is in flight.
+;
+; Call once per frame, after SCROLL_VBLANK. Phase 1 is the only phase
+; with work to do here; phase 2 belongs to SCROLL_VBLANK because it
+; writes R12/R13.
+;                                Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+SCROLL_SERVICE: ld   a,(V_PHASE)
+                or   a
+                jr   z,.idle
+                dec  a
+                ret  nz                     ; phase 2 is SCROLL_VBLANK's
+                jp   SCROLL_V_FINISH
+
+                ; Idle: start a step if the game asked for one. Levels 3
+                ; and 4 drive this from the player's climb or descent; for
+                ; now it is how a test asks for vertical motion without
+                ; hijacking the PC.
+.idle:          ld   a,(H_PENDING)          ; the other half of the guard in
+                or   a                      ; CAMERA_DECIDE: a horizontal step
+                ret  nz                     ; in flight holds a start address
+                ld   a,(H_TAIL_DUE)         ; worked out before this one, and
+                or   a                      ; committing both in one frame
+                ret  nz                     ; loses whichever went first
+                ld   a,(V_REQUEST)          ; ... and the direction is read
+                or   a                      ; AFTER those, not before: the
+                ret  z                      ; guards land in A too, and a DEC A
+                dec  a                      ; on the wrong one made every step
+                                            ; go up.  1 -> down (A=0), 2 -> up
+                ld   b,a
+                xor  a
+                ld   (V_REQUEST),a
+                ld   a,b
+                jp   SCROLL_V_STEP
+
+; ---------------------------------------------------------------------
 ; V_PAINT - paint part of the incoming row AS IF the step had happened.
 ;
 ; DRAW_ROW works from SCROLL and WORLD_CR, and those still describe the
@@ -740,10 +966,16 @@ CELL_WORD:      dw 0
 CELL_WC:        db 0
 CELL_WR:        db 0
 CELL_COUNT:     db 0
-COL_BYTEOFF:    db 0
-COL_MAPPTR:     dw 0
-COL_TILEBASE:   dw 0
-COL_ROWS:       db 0
+COL_SCOL:       db 0            ; DRAW_COLUMN's screen character column
+COL_ODD:        db 0            ; ... and whether it starts on a tile's
+                                ; lower half
+COL_FIRST:      db 0
+COL_N:          db SCR_CHAR_ROWS
+H_COL:          db 0
+H_PENDING:      db 0
+H_TAIL_DUE:     db 0
+H_SCROLL:       dw 0
+H_WX:           db 0
 ROW_LINEOFF:    db 0
 ROW_BYTEOFF:    db 0
 ROW_MAPPTR:     dw 0
@@ -756,3 +988,4 @@ V_SCROLL:       dw 0
 V_WCR:          db 0
 V_ROW:          db 0
 V_PHASE:        db 0
+V_REQUEST:      db 0
