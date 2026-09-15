@@ -7,12 +7,21 @@ corrections and why.
 
 ## 1. Status
 
-**Modules 1-4 done.** `./build.sh` regenerates the assets, assembles, and
-produces `build/kara.dsk`. It boots, relocates, passes its bank self-test, runs
-Kara walking and firing over a striped background with full save-under restore,
-and then hands over to the scrolling city: a tilemap in bank C4 moved by the
-CRTC start address, horizontally and both ways vertically. `./tools/run_tests.sh`
-runs every acceptance suite; all six pass. Modules 5-7 (§11) are not started.
+**Modules 1-4 done; Module 5 in progress.** `./build.sh` regenerates the assets,
+assembles, and produces `build/kara.dsk`. It boots, relocates, passes its bank
+self-test, runs Kara walking and firing over a striped background with full
+save-under restore, and then hands over to the scrolling city: a tilemap in bank
+C4 moved by the CRTC start address, horizontally and both ways vertically, with
+Kara drawn over it from keyboard or joystick input, walking, jumping and
+colliding with the tiles, and the camera following her. The loop holds 50 Hz on
+every path (§9).
+
+`./tools/run_tests.sh` runs every acceptance suite. Five pass;
+`test_module4.py` reports a residue from the one thing still missing — a sprite
+that is partly off the display is not clipped, and its addresses fold onto the
+top of the picture. Nothing in normal play reaches that state, because the
+camera keeps her clear of both edges; the suite's vertical driver does, because
+it pokes `V_REQUEST` with no player behind it. See §8.2.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -20,9 +29,12 @@ src/config.asm    ports and memory map constants
 src/bank.asm      bank switching (must stay outside &4000-&7FFF)
 src/screen.asm    Mode 0 addressing, block fill, palette, vsync
 src/palette.asm   the 16 pens + solid-pen byte table
-src/sprite.asm    masked blitter, save-under restore, scanline stepping
+src/sprite.asm    scroll-aware masked blitter, save-under restore
 src/bullets.asm   dual pistols, 14-round pool, reloading
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
+src/input.asm     keyboard and joystick scan, edge detection
+src/collide.asm   tile attributes, box-against-map probes
+src/player.asm    walking, jumping, gravity, and the camera
 disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
@@ -405,13 +417,26 @@ per axis:
 
 | Axis | Order | Why |
 |---|---|---|
-| Horizontal | state → apply → paint | The incoming column is not hidden: under the old start address those cells are the left edge of each row below. Latch the new address first, then paint top-down and outrun the beam. |
+| Horizontal | request → paint head → *next frame* → latch → paint tail | The incoming column is not hidden: under the old start address those cells are the left edge of each row below. But the beam is *finished* with them once it has swept that row, so rows 0-17 go down **behind** the beam in the frame before the step (`H_HEAD`, from interrupt tick 4), the latch happens in the next vblank (`H_COMMIT`), and rows 18-23 go down ahead of the beam after it (`H_TAIL`). |
 | Vertical down | state → apply → paint | New bottom row lands at offset 960 — hidden. Painted long before the raster reaches line 184. |
 | Vertical up | state → paint → apply | New top row lands at offset 984 — hidden — but the raster reaches line 0 only 18,432 T into the frame, far too early for a 51,600 T row redraw. Painting first and moving the picture one frame later is invisible and always correct. |
 
-The horizontal race is won comfortably: VSYNC leaves 72 scanlines (18,432 T) of
-head start, and a character cell costs ~1,290 T against the beam's 2,048 T per
-character row. It only holds if `DRAW_COLUMN` runs **top to bottom**.
+Splitting the column across two frames is what buys the whole top border for
+`KARA_DRAW`. Painting all 24 rows first left her starting 23,500 T in and the
+beam overtook her; painting her first left the column's top rows under the
+beam. Either way `DRAW_COLUMN` must run **top to bottom**.
+
+**The walk speed and the scroll step are the same number or the picture
+doubles.** The CRTC scrolls a whole character — 2 bytes — and Kara walks 1 byte
+a frame, so inside the camera's push zone the camera can only fire every other
+frame. Let her keep walking a byte a frame there and the column the blitter
+draws her at goes 54, 55, 54, 55 at 25 Hz: every frame is drawn and erased
+correctly, every RAM check passes, and on a real monitor there are two Karas a
+character apart for as long as the screen moves. `PLAYER_X` therefore moves her
+`P_PUSH` = 2 bytes on the camera's frame and nothing on the frame between, so
+her screen column never changes while the world goes by. Mid-screen she still
+walks 1 byte at 50 Hz. `test_module4.py` asserts the property directly: on
+every frame where the view moved, `KARA_X` must not have.
 
 Getting any of this backwards does not crash and does not corrupt video RAM —
 it puts a 4-pixel column of the wrong tile down one edge of every frame. That
@@ -435,13 +460,29 @@ C4 by `TILES_INSTALL`; they ride inside the core image, so the boot relocation
 has already put them in base RAM, which is the only reason a plain `LDIR` into
 the `&4000` window works.
 
-Not yet done, and deliberately: **sprites over a scrolled screen.** The blitter
-walks the screen with a fixed `+&0800` / `+&C050` step, which is only correct
-while the start address is zero. Over a scrolled screen a sprite must take its
-address from the same masked word index the tile engine uses, recomputed at
-each character-row boundary, and handle the case where its 4 words straddle the
-1024-word seam. Module 4's demo therefore does not draw Kara. This is the first
-task of Module 5.
+**Sprites over a scrolled screen** — done, and it was the first task of Module
+5. The blitter takes its address from the same masked word index the tile
+engine uses (`SCR_ADDR`), recomputed at each character-row boundary, with a
+slow lane for the lines whose 8 bytes straddle the 1024-word seam. It walks the
+sprite in groups that follow the SCREEN's character rows rather than the
+sprite's own 8-line blocks, because everything that varies per line — v, the
+seam test, the carry into the next row — is decided per row.
+
+**A sprite that leaves the display must be culled, not drawn.** `KARA_Y` is an
+unsigned screen line and the camera can carry her off either edge during a
+vertical scroll, which wraps it to 192-255. Drawn there, her 48 lines run past
+the 24 displayed rows, through the 64-word margin, and fold back over the top
+of the picture — and where the fold lands two of her own lines on one address,
+the save-under captures the first line's *output* as the second line's
+background and the erase leaves her debris behind. Measured at 32-56 bytes of
+video RAM left wrong per frame, accumulating. `KARA_DRAW` now refuses.
+
+**Still missing: clipping.** A sprite only PARTLY off the bottom still writes
+into the margin and, past character row 23, folds onto the top of the picture.
+The camera keeps Kara clear of both edges in normal play, so this only shows
+under the vertical driver in `test_module4.py`, which pokes `V_REQUEST` with no
+player behind it — which is why that suite still reports a residue. Levels 3
+and 4 will not be so kind; Module 6 needs a real clip.
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
@@ -501,57 +542,84 @@ while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
 |---|---:|---:|---|
 | `HUD_UPDATE` (dirty) | 49,040 | **15,560** | one pass per row, not 7 `DRAW_BLOCK` calls |
 | `DRAW_BLOCK` (3×8) | 3,308 | **1,696** | address computed once, not per scanline |
-| `SCROLL_H_STEP` | 29,620 | **23,500** | hoisted tile lookup, word index in `BC` |
+| `DRAW_COLUMN` (24 rows) | 29,620 | **23,560** | hoisted tile lookup, word index in `BC` |
 | `DRAW_ROW` (40 cells) | 49,208 | **37,124** | same, and now split across two frames |
-| `KARA_DRAW` | 30,948 | 31,272 | +324 for scroll-aware addressing |
-| `KARA_ERASE` | 13,584 | 13,856 | +272, same reason |
+| `KARA_DRAW` | 30,948 | **30,072** | scroll-aware, and grouped by character row |
+| `KARA_ERASE` | 13,584 | **11,592** | a whole row unrolled: 8 `LDI` + 24 T a line |
 | `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |
-| `GAME_LOGIC` | | 1,780 | |
+| `INPUT_SCAN` / `PLAYER_UPDATE` / `CAMERA_DECIDE` | | 804 / 704 / 108 | |
+
+`H_HEAD` is 18 of those rows (18,160 T) and `H_TAIL` the other 6 (9,792 T —
+its `.skip` loop pays ~3,800 T to walk the map pointer down to row 18).
+A seam-straddling character row costs `KARA_DRAW` 33,248 T and `KARA_ERASE`
+14,172, worst of 525 positions swept across scroll, X, Y and frame.
 
 ### The frame, in situ
 
-Measured as the real loop period (time between `FRAME_COUNT` increments), not
-as a sum of estimates:
+**Do not measure the frame as the time between `FRAME_COUNT` increments.** The
+counter is bumped at the end of the loop body, so the interval between bumps is
+the work length, and the work length legitimately differs between a scrolling
+frame and a still one. That makes a locked 50 Hz read as 21,372 µs alternating
+with 18,568 µs and invites a fix for a bug that is not there. Count **loop
+iterations against interrupt ticks** instead — the gate array delivers exactly
+6 per 50 Hz frame, so 200 iterations per 1,200 ticks is a hard lock:
 
-| Loop | Worst frame | Result |
-|---|---:|---|
-| Kara over the scrolling city, horizontal | 19,972 µs | **50 Hz** |
-| vertical down | 20,028 µs | **50 Hz** |
-| vertical up | 19,976 µs | **50 Hz** |
-| Module 1-3 acceptance screen | 24,252 µs | drops a frame when the HUD redraws |
+| Loop | iterations | hardware frames | |
+|---|---:|---:|---|
+| standing still | 200 | 200.00 | **locked** |
+| walking right, scrolling | 200 | 200.00 | **locked** |
+| walking left, scrolling | 200 | 200.17 | **locked** |
+| jumping while scrolling | 200 | 200.00 | **locked** |
 
-The scrolling path — which is the game — closes at about 86% of a frame with
-roughly 11,000 T spare. Two routines are 68% of it: `KARA_DRAW` at 31,272 and
-`SCROLL_H_STEP` at 23,500.
+A scrolling frame is ~71,000 T of the 79,872 available, and the three biggest
+pieces are `KARA_DRAW` 30,072, the column 27,952 across its two halves, and
+`KARA_ERASE` 11,592.
 
-### Three raster constraints, all of them load-bearing
+### Raster constraints, all of them load-bearing
 
 The order of work in the main loop is not a data-dependency order, it is a
-**beam chase**, and each of these was found by a test rather than by reasoning:
+**beam chase**, and each of these was found by a test rather than by reasoning.
+Two models of when the beam reaches display line L, both measured:
 
-1. **The scroll step must go first.** Its incoming column is visible under the
-   new start address; it only wins the race by starting at VSYNC.
-2. **`KARA_DRAW` must stay ahead of the beam.** Her blitter runs at 651 T per
-   line against the raster's 256, so she only survives on a lead. Starting at
-   23,548 T holds to line 172 — past her last line at 159. Starting at 37,356 T
-   (erase first, then scroll) means the beam overtakes her at line 137 and she
-   flickers from the waist down: exactly 23 lines × 8 pixels = 184 wrong pixels,
-   which is what `test_module4.py` measured.
-3. **`KARA_ERASE` must stay behind it**, or it wipes her before the beam shows
-   her. On a scroll frame the work above already costs 54,772 T and it trails
-   naturally; on a light frame the draw alone ends at 31,272 T and it does not.
-   The erase is therefore **raster-gated on the IM 1 interrupt count** — the
-   only raster clock the CPC offers, since the 6845 exposes no scanline
-   register. Ticks measured from the `WAIT_VSYNC` exit:
+| | border above the picture | line L displayed at |
+|---|---:|---|
+| headless emulator | 60 scanlines | 15,376 + 256 L |
+| a 6845 left as the firmware programs it | 72 scanlines | 18,432 + 256 L |
+
+Time anything that must be **ahead** of the beam against the early figure and
+anything that must be **behind** it against the late one.
+
+1. **`KARA_DRAW` goes first**, in the top border, at ~560 T a line against the
+   raster's 256. The whole border is her lead and she is safe for any
+   `KARA_Y >= 13`. Starting her after the column instead left her at 23,548 T
+   and the beam overtook her from the waist down.
+2. **The incoming column is split across two frames** so it never competes with
+   her for the border. See §8.2.
+3. **`KARA_ERASE` must stay behind the beam**, and still finish before the next
+   VSYNC. The IM 1 interrupt is the only raster clock the CPC offers — the 6845
+   exposes no scanline register — so the gate is a **whole tick** picked from
+   her Y: tick 4 up to Y=38, tick 5 up to 90, tick 6 up to 142. Ticks measured
+   from the `WAIT_VSYNC` exit:
 
    | tick | 1 | 2 | 3 | 4 | 5 | 6 |
    |---|---:|---:|---:|---:|---:|---:|
-   | T | 532 | 13,844 | 27,152 | 40,464 | 53,776 | 67,088 |
+   | T | 532 | 13,844 | 27,152 | 40,468 | 53,780 | 67,088 |
 
-   The first lands after only 532 T, not a full 52-line period. Four ticks is
-   40,464 T and still ahead of the beam — the first version of the gate used 4
-   and did not work. **Five** clears 47,104 T and leaves 26,096 T for a
-   13,856 T erase.
+   The first lands after only 532 T, not a full 52-line period.
+
+   **A finer gate than one tick does not work, and the failure is instructive.**
+   A delay loop after the tick can only measure from the moment it is entered,
+   so a second one in the same frame adds its whole wait on top of whatever ran
+   between them. Splitting the erase into halves gated that way put the lower
+   half 13,600 T late and dropped a frame on 12 scrolling frames out of 58 —
+   visible on hardware as the sprite flickering while the screen moves.
+4. **`FRAME_TICK0` is stamped by the interrupt handler, not by the main loop.**
+   The handler reads PPI port B and, on the tick that lands inside the VSYNC
+   pulse, records the count. `WAIT_VSYNC` tests the level rather than an edge,
+   so a frame whose work overran into the 16-scanline pulse starts late on the
+   *same* pulse — and its raster gates still fire at the right absolute time
+   because the anchor came from the interrupt. Stamping at the top of the loop
+   instead shifts every gate in that frame by a whole tick.
 
 ### What did not work, with the numbers
 
@@ -564,7 +632,8 @@ The order of work in the main loop is not a data-dependency order, it is a
   Kara's bounding box is inside her occupied span, which looks like a 10,000 T
   saving — but per-line span bookkeeping costs ~130 T against 48 lines, so the
   net is under 4,000 T for a large rise in complexity. It would pay for a
-  shorter sprite.
+  shorter sprite. Grouping the walk by the SCREEN's character rows, which is
+  bookkeeping the address model forces anyway, was the cheaper win.
 * **Compiled sprites (remedy 4)** would be ~10 KB for four frames against 7,808
   bytes of headroom below `&4000`. They would have to live in a bank.
 
@@ -617,8 +686,11 @@ the next one starts.
    per-axis latch ordering, `tools/test_module4.py` with a render-level
    tearing check and a negative control.
 5. **Objects, puzzles, NPCs** — inventory, interaction handlers, AABB.
-   Starts with scroll-aware sprite addressing (§8.2), which is the one piece
-   of Module 4 deliberately left out.
+   In progress. The scroll-aware sprite addressing it starts with (§8.2) is
+   done, and so are input, tile collision, the player's physics and the
+   camera. Still to do: the entity table, the five interaction handlers,
+   bullet-against-tile collision (`src/bullets.asm:130`), the game state of
+   §8.4, sprite clipping (§8.2), and `tools/test_module5.py`.
 6. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 7. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

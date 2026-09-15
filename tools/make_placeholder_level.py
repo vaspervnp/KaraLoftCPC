@@ -102,8 +102,15 @@ def build_map(path):
     for x in range(MAP_W):
         if (x * 7) % 11 == 0:
             grid[1][x] = STAR
-        # a skyline: building height varies slowly along the level
-        height = 3 + ((x // 6) % 4) + (1 if (x // 3) % 2 else 0)
+        # ONE continuous rooftop, not a varied skyline. A tile is 16 pixels
+        # and she walks 2 a frame, so any step up in the roof line is a wall
+        # that stops her dead - and a player who cannot walk is a camera
+        # that cannot scroll, which makes every scrolling test vacuous
+        # without failing it. The variety lives in the windows and pipes
+        # below the roof and in the ledges above it, neither of which is
+        # in her way. Replace this whole file with a designed level; the
+        # runway is a property the scroll tests need, not the game.
+        height = 6
         top = sky_rows - height
         grid[top][x] = ROOF
         for y in range(top + 1, sky_rows):

@@ -106,6 +106,42 @@ SCR_ADDR:       ld   b,a                    ; 4   keep the raw line
                 ret                         ; 12
 
 ; ---------------------------------------------------------------------
+; GROUPS. Both the draw and the restore walk the sprite in groups that
+; follow the SCREEN'S character rows, not the sprite's own 8-line
+; blocks: the sprite starts on any raster, so the first group is
+; 8 - raster lines, then whole rows, then whatever is left. Everything
+; that varies per line is decided per row - v, and with it the seam
+; test and the carry into the next row - so the seam is tested once a
+; group and the line step inside a group is a bare +&07F8 that cannot
+; carry (raster 0-6 -> 1-7). Only a row's last raster pays for
+; SPR_NEXT_LINE and its fixup. Getting this wrong is not a slow path,
+; it is the &07F8 overflow described at the top of this file.
+;
+; GROUP_LINES - size of the group starting at DE.
+; IN : DE = screen address of its first line, B' = lines remaining
+; OUT: A = C' = lines in this group (1-8), B' reduced by it
+;                                destroys AF
+; ---------------------------------------------------------------------
+GROUP_LINES:    ld   a,d
+                rrca
+                rrca
+                rrca
+                and  7                  ; raster of this line
+                neg
+                add  a,8                ; lines left in the character row
+                exx
+                cp   b
+                jr   c,.fits
+                ld   a,b                ; more than remain: the last group
+.fits:          ld   c,a
+                ld   a,b
+                sub  c
+                ld   b,a
+                ld   a,c
+                exx
+                ret
+
+; ---------------------------------------------------------------------
 ; SPR_DRAW_SAVE - composite a frame and stash what was underneath, in
 ; one pass.   SCREEN = (SCREEN AND MASK) OR DATA
 ;
@@ -114,48 +150,30 @@ SCR_ADDR:       ld   b,a                    ; 4   keep the raw line
 ;      BC = save-under buffer, SPR_SAVE_SIZE bytes
 ; OUT: HL = frame + 768, DE = one scanline past the sprite,
 ;      BC = save + 384
-;      destroys AF,BC,DE,HL and B' (the line counter).
+;      destroys AF,BC,DE,HL and B',C' (the counters).
 ;
-; NOT REENTRANT and NOT INTERRUPT-SAFE: the line counter lives in the
-; shadow B. Nothing in tilemap.asm, screen.asm or IRQ_HANDLER touches
-; the shadow set today - if Module 6's raster split or Module 7's AY
-; player ever EXX inside the interrupt, this breaks silently.
+; NOT REENTRANT and NOT INTERRUPT-SAFE: the counters live in the shadow
+; BC. Nothing in tilemap.asm, screen.asm or IRQ_HANDLER touches the
+; shadow set today - if Module 6's raster split or Module 7's AY player
+; ever EXX inside the interrupt, this breaks silently.
 ;
-; 29,884 T measured (33,052 T when a character row straddles the seam).
-; Fast byte group 64 T, last byte of a line 68 T, line test 28 T,
-; counter 24 T, SPR_NEXT_LINE 68 T / 120 T across a character row.
+; Fast byte group 64 T, last byte of a line 68 T, line bookkeeping ~60 T
+; against 120 for the per-line seam test this replaced.
 ; ---------------------------------------------------------------------
 SPR_DRAW_SAVE:  exx
-                ld   b,SPR_HEIGHT           ; the counter, not a memory static
+                ld   b,SPR_HEIGHT       ; lines remaining
                 exx
-                jp   .line
 
-                ; The slow lane sits BEFORE the loop head on purpose: it
-                ; lets the fast path fall through to .tail instead of
-                ; paying a JP on all 48 lines.
-.slow:          repeat SPR_WIDTH_BYTES
-                ld   a,(de)             ; 8   screen as it stands
-                ld   (bc),a             ; 8   ... straight into the save buffer
-                and  (hl)               ; 8   punch the sprite's hole in it
-                inc  hl                 ; 8   INC HL, not INC L: this lane does
-                or   (hl)               ; 8   not rely on the 16-byte alignment
-                inc  hl                 ; 8
-                ld   (de),a             ; 8
-                inc  bc                 ; 8
-                call SPR_STEP_BYTE      ; 40  wrap-aware +1   (104 T per byte)
-                rend
-                call SPR_NEXT_LINE_W
-                jp   .tail
-
-.line:          ld   a,d                ; 4   does this line cross the seam?
+.group:         call GROUP_LINES        ; C' = lines in this row
+                ld   a,d                ; 4   does this ROW cross the seam?
                 or   &F8                ; 8   Z iff (D AND 7) = 7, i.e. v >= &700
                 inc  a                  ; 4
-                jp   nz,.fast           ; 12  28 T on the common line
-                ld   a,e                ; 4
-                cp   SPR_SEAM_LO        ; 8
-                jp   nc,.slow           ; 12  v >= 2040: the 8 bytes wrap
+                jr   nz,.fastline       ; 12/8
+                ld   a,e
+                cp   SPR_SEAM_LO
+                jr   nc,.slowline       ; v >= 2040: the 8 bytes wrap
 
-.fast:          repeat SPR_WIDTH_BYTES - 1
+.fastline:      repeat SPR_WIDTH_BYTES - 1
                 ld   a,(de)             ; 8
                 ld   (bc),a             ; 8
                 and  (hl)               ; 8
@@ -175,63 +193,157 @@ SPR_DRAW_SAVE:  exx
                 ld   (de),a
                 inc  de
                 inc  bc
-                call SPR_NEXT_LINE
-
-.tail:          exx                     ; 4
-                dec  b                  ; 4
                 exx                     ; 4
-                jp   nz,.line           ; 12  24 T, against 48 for a memory count
+                dec  c                  ; 4
+                exx                     ; 4
+                jr   z,.rowend          ; 12/8  the row's last raster
+                ld   a,e                ; 4   +&07F8 inside the row: no carry
+                add  a,&F8              ; 8   is possible, raster 0-6 -> 1-7
+                ld   e,a                ; 4
+                ld   a,d                ; 4
+                adc  a,7                ; 8
+                ld   d,a                ; 4
+                jp   .fastline          ; 12
+.rowend:        call SPR_NEXT_LINE      ; raster 7 -> next row, with the fixup
+                jp   .next
+
+                ; The slow lane: wrap-aware, one byte at a time. About one
+                ; frame in 39 sends one group here.
+.slowline:      repeat SPR_WIDTH_BYTES
+                ld   a,(de)             ; 8   screen as it stands
+                ld   (bc),a             ; 8   ... straight into the save buffer
+                and  (hl)               ; 8   punch the sprite's hole in it
+                inc  hl                 ; 8   INC HL, not INC L: this lane does
+                or   (hl)               ; 8   not rely on the 16-byte alignment
+                inc  hl                 ; 8
+                ld   (de),a             ; 8
+                inc  bc                 ; 8
+                call SPR_STEP_BYTE      ; 40  wrap-aware +1   (104 T per byte)
+                rend
+                call SPR_NEXT_LINE_W    ; per line: it carries the row fixup
+                exx
+                dec  c
+                exx
+                jr   nz,.slowline
+
+.next:          exx
+                ld   a,b
+                exx
+                or   a
+                jp   nz,.group
                 ret
 
 ; ---------------------------------------------------------------------
-; SPR_RESTORE - put the saved background back.
+; SPR_RESTORE / SPR_RESTORE_N - put the saved background back.
 ;
 ; IN : HL = save-under buffer, DE = screen address (KARA_LAST_ADDR)
-; OUT: HL = save + 384, DE = one scanline past
-;      destroys AF,BC,DE,HL and B'.  Not reentrant - see SPR_DRAW_SAVE.
-;      BC is UNDEFINED on exit: a straddling line skips its LDIs, so the
-;      count no longer reaches zero. Nothing reads it; LDI only uses BC
-;      for its flag here.
+;      SPR_RESTORE_N: B = lines to restore, leaving DE and HL where a
+;      second call would carry on. Nothing needs the partial form today -
+;      see the raster-gate note in main.asm for why splitting the erase
+;      across two waits did not work.
+; OUT: HL = save + 8 * lines, DE = one scanline past the last line
+;      destroys AF,BC,DE,HL and B',C'.  Not reentrant - see SPR_DRAW_SAVE.
+;      BC is UNDEFINED on exit: LDI counts it down and nothing reads it.
 ;
 ; The straddle test reads DE, not SCROLL. That is the load-bearing
 ; property of this whole module: the erase reproduces exactly the byte
 ; sequence the draw used, even if SCROLL moved in between, because both
 ; derive the geometry from the same absolute address.
 ;
-; 14,392 T measured (17,872 T when a character row straddles).
+; A whole character row is unrolled - 8 LDI + 24 T a line, SPR_NEXT_LINE
+; once - and the partial rows at the top and bottom of the sprite go
+; through a one-line-at-a-time loop of the same code. A row on the seam
+; is two LDI runs with the raster field folded back between them: the
+; first n = 2048 - v bytes land at the end of the raster block and carry
+; into the raster field, SUB 8 undoes that, the remaining 8 - n bytes
+; start the block. That is SPR_STEP_BYTE's rule applied once per line
+; instead of once per byte.
+;
+; Measured: 9,900 T for 48 lines, 11,300 with a row on the seam. The
+; erase runs after the beam has passed Kara, so it has to fit between
+; her last line and the next VSYNC - see the schedule in main.asm.
 ; ---------------------------------------------------------------------
-SPR_RESTORE:    exx
-                ld   b,SPR_HEIGHT
+SPR_RESTORE:    ld   b,SPR_HEIGHT
+SPR_RESTORE_N:  ld   a,b
                 exx
-                ld   bc,SPR_SAVE_SIZE   ; LDI only uses BC for its flag here
-                jp   .line
+                ld   b,a                ; lines remaining
+                exx
+.group:         call GROUP_LINES        ; A = C' = lines in this row
+                ld   c,a
+                ld   a,d
+                or   &F8
+                inc  a
+                jr   nz,.fast
+                ld   a,e
+                cp   SPR_SEAM_LO
+                jp   nc,.slowline       ; JP: the unrolled row is 170 bytes
 
-.slow:          repeat SPR_WIDTH_BYTES
-                ld   a,(hl)             ; 8
-                ld   (de),a             ; 8
-                inc  hl                 ; 8
-                call SPR_STEP_BYTE      ; 40  64 T per byte against 20 for LDI
-                rend
-                call SPR_NEXT_LINE_W
-                jp   .tail
-
-.line:          ld   a,d                ; 4
-                or   &F8                ; 8
-                inc  a                  ; 4
-                jp   nz,.fast           ; 12
-                ld   a,e                ; 4
-                cp   SPR_SEAM_LO        ; 8
-                jp   nc,.slow           ; 12
-
-.fast:          repeat SPR_WIDTH_BYTES
+.fast:          ld   a,c
+                cp   8
+                jp   nz,.partial        ; JP: the unrolled row is in the way
+                repeat 7                ; rasters 0-6: +&07F8 each
+                repeat SPR_WIDTH_BYTES
                 ldi                     ; 20  (not 16: the gate array pads the
                 rend                    ;      5 T M-cycle up to 8)
+                ld   a,e
+                add  a,&F8
+                ld   e,a
+                ld   a,d
+                adc  a,7
+                ld   d,a
+                rend
+                repeat SPR_WIDTH_BYTES  ; raster 7, then the row step
+                ldi
+                rend
                 call SPR_NEXT_LINE
+                jr   .next
 
-.tail:          exx
-                dec  b
+.partial:       repeat SPR_WIDTH_BYTES  ; C' lines of a row, one at a time.
+                ldi                     ; C', not C: LDI counts BC down, so
+                rend                    ; a counter in C is eight short after
+                exx                     ; every line and the loop runs off
+                dec  c                  ; the end of memory
                 exx
-                jp   nz,.line
+                jr   z,.plast
+                ld   a,e
+                add  a,&F8
+                ld   e,a
+                ld   a,d
+                adc  a,7
+                ld   d,a
+                jr   .partial
+.plast:         call SPR_NEXT_LINE      ; the row's last raster - or the
+                jr   .next              ; sprite's last line; DE ends right
+                                        ; either way
+
+.slowline:      ld   a,e                ; a row on the seam, C' lines
+                neg                     ; n = 2048 - v: bytes before the fold
+                push af
+.run1:          ldi
+                dec  a
+                jr   nz,.run1
+                ld   a,d                ; the run carried into the raster
+                sub  8                  ; field: fold offset 2048 back to 0
+                ld   d,a
+                pop  af
+                ld   b,a
+                ld   a,8
+                sub  b                  ; 8 - n bytes after the fold, 0-7
+                jr   z,.run2done
+.run2:          ldi
+                dec  a
+                jr   nz,.run2
+.run2done:      call SPR_NEXT_LINE_W    ; per line: it carries the row fixup
+                exx
+                dec  c
+                exx
+                jr   nz,.slowline
+
+.next:          exx
+                ld   a,b
+                exx
+                or   a
+                jp   nz,.group
                 ret
 
 ; ---------------------------------------------------------------------
@@ -344,18 +456,44 @@ SPR_STEP_BYTE:  inc  e                  ; 4
 ; KARA_DRAW - the player sprite.
 ;
 ; IN : none.  Reads KARA_X, KARA_Y, KARA_FRAME, SCROLL.
-; OUT: KARA_LAST_ADDR = the absolute address she was drawn at.
-;      destroys AF,BC,DE,HL,B'.
+; OUT: KARA_LAST_ADDR = the absolute address she was drawn at,
+;      KARA_LAST_Y = the screen line, for the erase gate.
+;      destroys AF,BC,DE,HL,B',C'.
 ;
 ; KARA_LAST_ADDR is an ABSOLUTE RAM address and stays valid across a
 ; scroll step - changing R12/R13 moves the view, not the pixels. What it
-; does NOT survive is the incoming column or row being repainted, so the
-; erase must run BEFORE the scroll step. See the ordering note in
-; main.asm's MAIN_LOOP.
+; does NOT survive is the incoming column or row being repainted over
+; her, which the camera's edge margins rule out (CAM_RIGHT_EDGE + 8
+; bytes leaves 7 characters to the incoming column).
 ; ---------------------------------------------------------------------
-KARA_DRAW:      ld   a,(KARA_X)
+KARA_DRAW:      ld   a,(KARA_Y)
+                cp   SCR_CHAR_ROWS * 8  ; entirely off the display?
+                jr   c,.on_screen
+                ld   hl,0               ; ... then do not draw her at all, and
+                ld   (KARA_LAST_ADDR),hl ; tell the erase there is nothing to
+                ret                     ; put back
+                ; Not an optimisation - a correctness fix. Her Y is an
+                ; unsigned screen line and the camera can carry her off
+                ; either edge during a vertical scroll, which wraps it to
+                ; 192-255. Drawn there, her 48 lines run past the 24
+                ; displayed character rows, through the 64-word margin,
+                ; and fold back over the TOP of the screen - and because
+                ; the fold can land two of her own lines on one address,
+                ; the save-under holds the first line's output as the
+                ; second one's background and the erase leaves her debris
+                ; behind. Measured: 32 to 56 bytes of video RAM left wrong
+                ; per frame, accumulating, with her at Y = 196..244.
+                ;
+                ; STILL MISSING: clipping. A sprite that is PARTLY off the
+                ; bottom still writes into the margin and, past character
+                ; row 23, folds onto the top of the picture. The camera
+                ; keeps her away from both edges today; levels 3 and 4
+                ; will not, so Module 6 needs a real clip.
+.on_screen:     ld   (KARA_LAST_Y),a    ; the erase gate needs the line she
+                ld   b,a                ; is ON
+                ld   a,(KARA_X)
                 ld   c,a
-                ld   a,(KARA_Y)
+                ld   a,b
                 call SCR_ADDR           ; HL = top-left, under SCROLL
                 ld   (KARA_LAST_ADDR),hl
                 ex   de,hl              ; DE = screen
@@ -368,7 +506,7 @@ KARA_DRAW:      ld   a,(KARA_X)
 ; KARA_ERASE - put the background back.
 ;
 ; IN : none.  Reads KARA_LAST_ADDR.
-;      destroys AF,BC,DE,HL,B'.  BC is clobbered by SPR_RESTORE's
+;      destroys AF,BC,DE,HL,B',C'.  BC is clobbered by SPR_RESTORE's
 ;      "ld bc,SPR_SAVE_SIZE", not by anything visible here.
 ;
 ; Pairs with KARA_DRAW, which must run every frame: this never clears
