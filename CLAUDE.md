@@ -22,7 +22,7 @@ span blobs; the 16x16 placeholder tileset still scrolls under her,
 because the shipped tiles are 8x16 and that is the addressing rewrite
 of §8.3.
 
-`./tools/run_tests.sh` runs every acceptance suite and **all ten
+`./tools/run_tests.sh` runs every acceptance suite and **all eleven
 pass**, including the frame budget: a scrolling frame on Kara's
 heaviest animation frame is 77,916 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
@@ -38,7 +38,8 @@ src/sprite.asm    scroll-aware masked blitter, save-under restore
 src/bullets.asm   dual pistols, 14-round pool, reloading
 src/spanblit.asm  the span-compressed blitter and its erase script
 src/unpack.asm    ZX0 into a bank, and LEVEL_LOAD
-src/disc.asm      the uPD765 driver - raw sectors, no firmware
+src/disc.asm      the uPD765 driver - raw sectors, no firmware.
+                  READ docs/AmstradDskReadHowTo.md BEFORE TOUCHING IT
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
@@ -707,6 +708,55 @@ into `build/levels/disc.inc`. That costs a build step and saves parsing
 a directory. It runs twice: once before RASM to write the include from
 the stream sizes, once after iDSK to patch the image, so the two agree
 by construction.
+
+#### It passed every test here and black-screened on real hardware
+
+**cpcemu is not a witness about the FDC.** `chips/upd765.h` resolves the
+controller synchronously - the instant the last command byte is written
+- and never runs out of patience. A real uPD765 does neither, so every
+timing and sequencing assumption disc code makes is one cpcemu will
+agree with whether or not the hardware would. The first version of
+`disc.asm` passed all ten suites and showed **a black screen on Retro
+Virtual Machine**, with four separate faults, every one of them already
+paid for once in `~/repos/Homeplanet/src/sys/fdc.asm`:
+
+1. **END OF CYLINDER is not an error.** A single-sector transfer sends
+   EOT equal to R, so a real controller ends at the end of the cylinder
+   as a matter of course and says so with IC=01 and ST1 bit 7. The
+   bytes are already in memory. `AND &C0 / RET NZ` calls that a
+   failure; cpcemu returns IC=00 and never disagrees.
+2. **The transfer loop must watch RQM, DIO and EXM in ONE read.** A
+   refused command never enters the execution phase and a transfer the
+   controller abandons leaves it early - either way it is handing back
+   result bytes while we wait for data. Reading EXM separately, before
+   RQM, is also a race: the chip has not decided, EXM reads 0, and both
+   sides wait for the other.
+3. **Drain the result by status, not by count.** READ returns seven
+   bytes, SENSE INTERRUPT STATUS two, and SENSE with nothing pending
+   ONE. And drain before the FIRST command, because AMSDOS ran before
+   us and the chip keeps its state across the ROMs going out.
+4. **A seek is collected with SENSE INTERRUPT STATUS, not by polling
+   CB.** CB rises microseconds after the last command byte and is
+   cleared by the SENSE, so polling it either falls through a seek that
+   has not begun or waits for something only the next line can cause.
+   cpcemu never sets it at all.
+
+Plus one rule of this project's own: **nothing may hang**. Every wait
+outside the inner loop is counted out, `LEVEL_LOAD` returns carry clear
+rather than spinning, the demo then runs without the sprite instead of
+drawing out of a bank full of noise, and `DISC_DIAG` paints ST0/ST1/ST2
+as 24 blocks in the corner so a photograph of the screen is a complete
+bug report.
+
+`tools/test_fdc.py` checks what can be checked without a real
+controller: ten result-byte verdicts, the transfer loop counted from
+the source against the 128 T deadline, and that every wait is bounded.
+It carries a negative control - restoring `AND &C0` fails it. **Passing
+it is necessary and not sufficient; confirm on RVM.** The whole of it
+is written down in [docs/AmstradDskReadHowTo.md](docs/AmstradDskReadHowTo.md),
+including when NOT to write this code at all: if everything fits in RAM
+at once, load the banks from the BASIC loader with the firmware's own
+driver, the way `~/repos/TheShaft` does.
 
 **One sector an operation, not a multi-sector READ DATA with EOT.**
 Partly because the emulator does not implement the EOT form and asserts

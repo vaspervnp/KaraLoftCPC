@@ -213,8 +213,21 @@ SCROLL_DEMO:    di
                 ; stand-ins while Kara herself is the drawn sprite.
                 xor  a                      ; 0 = level 1, gameplay
                 call LEVEL_LOAD
+                ld   a,1
+                jr   c,.loaded
+                ; IT FAILED, AND THAT MUST NOT BE A BLACK SCREEN. The
+                ; banks now hold whatever was in them, so drawing her out
+                ; of one paints noise over the picture - the demo runs
+                ; without her instead, and the controller's own words go
+                ; on the top of the screen so the failure can be read off
+                ; a photograph. See docs/AmstradDskReadHowTo.md.
+                xor  a
+.loaded:        ld   (LEVEL_OK),a
                 call TILES_INSTALL          ; ... back over the level's C4
                 call SCROLL_INIT
+                ld   a,(LEVEL_OK)
+                or   a
+                call z,DISC_DIAG
                 call INPUT_INIT
                 call PLAYER_TO_SCREEN
                 ei
@@ -263,7 +276,9 @@ SCROLL_DEMO:    di
 
                 ld   a,MARK_SPRITE
                 call BORDER_SET
-                call KARA_SPAN_DRAW         ; ahead of the beam, in the border
+                ld   a,(LEVEL_OK)
+                or   a
+                call nz,KARA_SPAN_DRAW      ; ahead of the beam, in the border
                 ld   a,MARK_TAIL
                 call BORDER_SET
                 call H_TAIL                 ; rows 18-23 of the committed column
@@ -288,6 +303,9 @@ SCROLL_DEMO:    di
 
                 ld   a,MARK_IDLE
                 call BORDER_SET
+                ld   a,(LEVEL_OK)
+                or   a
+                jr   z,.erased              ; she was never drawn
                 ld   a,(KARA_LAST_CNT)      ; culled: nothing to wait for
                 or   a
                 jr   z,.erased
@@ -391,6 +409,58 @@ BUFFERS_CLEAR:  ld   hl,KARA_SAVE
                 ld   bc,SPR_SAVE_SIZE + BUL_MAX * 4 - 1
                 ld   (hl),0
                 ldir
+                ret
+
+; ---------------------------------------------------------------------
+; DISC_DIAG - the controller's three result bytes, as 24 blocks.
+;
+; There is no text output in this build and a failed load is otherwise
+; silent, so ST0, ST1 and ST2 go on the top-left of the screen as one
+; row of eight blocks each, bit 7 leftmost: white for a set bit, dark
+; for a clear one. A photograph of the screen is then a complete bug
+; report - which is exactly how the two FDC faults in
+; docs/AmstradDskReadHowTo.md were finally pinned down.
+;
+; Read it as: ST0 bits 7-6 are the interrupt code, bit 3 NOT READY.
+; ST1 bit 7 END OF CYLINDER (normal), bit 5 data error, bit 4 overrun,
+; bit 2 sector not found, bit 0 missing address mark.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+DISC_DIAG:      ld   hl,DISC_ST0
+                ld   de,0                   ; D = row, E unused
+.row:           ld   a,(hl)
+                ld   c,a                    ; C = the byte being shown
+                push hl
+                ld   a,d
+                add  a,a
+                add  a,a
+                add  a,a                    ; row * 8 scanlines
+                ld   (BLK_LINE),a
+                ld   a,8
+                ld   (BLK_HEIGHT),a
+                ld   a,2
+                ld   (BLK_W),a
+                ld   b,8                    ; eight bits, 7 first
+.bit:           ld   a,8
+                sub  b
+                add  a,a
+                add  a,a                    ; bit index * 4 byte columns
+                ld   (BLK_X),a
+                rlc  c                      ; bit 7 into carry, and round
+                ld   a,&00                  ; pen 0
+                jr   nc,.dark
+                ld   a,&FF                  ; pen 15 in both pixels
+.dark:          ld   (BLK_VAL),a
+                push bc
+                call DRAW_BLOCK
+                pop  bc
+                djnz .bit
+                pop  hl
+                inc  hl
+                inc  d
+                ld   a,d
+                cp   3
+                jr   c,.row
                 ret
 
 ; ---------------------------------------------------------------------
@@ -750,6 +820,14 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 assert (SPAN_ENTRY AND 255) == 0
                 assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
                 assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
+                ; FDC_DRAIN walks ST0..SPILL with INC L and compares the
+                ; low byte, so the four have to be adjacent and in one
+                ; page. Move one and the drain writes ST1 over whatever
+                ; happens to follow.
+                assert DISC_ST1 == DISC_ST0 + 1
+                assert DISC_ST2 == DISC_ST0 + 2
+                assert DISC_SPILL == DISC_ST0 + 3
+                assert (DISC_ST0 AND &FF00) == (DISC_SPILL AND &FF00)
 
 ; ---------------------------------------------------------------------
 ; Core variables
@@ -770,6 +848,7 @@ KARA_LAST_TOP:  db 0            ; her first and last DRAWN screen lines,
 KARA_LAST_BOT:  db 0            ; which clipping makes different from Y, Y+63
 KARA_LAST_CNT:  db 0            ; lines drawn; 0 = entirely off the display
 KARA_ANIM:      db 0            ; index within the current tag's frames
+LEVEL_OK:       db 0            ; did the disc load work? 0 = draw no sprite
 KARA_SAVE_PTR:  dw 0            ; where in KARA_SAVE the drawn part starts
 KARA_CLIP_W:    db 0            ; the drawn rectangle, so KARA_ERASE can
 KARA_CLIP_H:    db 0            ; replay exactly what KARA_DRAW wrote

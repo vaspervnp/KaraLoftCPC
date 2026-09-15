@@ -86,7 +86,7 @@ UNPACK_NEXT:    dw 0
 ; IN : A = index into DISC_LEVEL_SETS - the level number times two, plus
 ;      one for its set pieces
 ; OUT: carry SET on success, and the window left paged at the last bank.
-;      Carry clear means the disc read failed and (DISC_ST) says why.
+;      Carry clear means the disc read failed; DISC_ST0/ST1/ST2 say why.
 ;      destroys everything, INTERRUPTS OFF ON RETURN
 ;
 ; Interrupts stay off for the whole load: the 765 has no FIFO and an
