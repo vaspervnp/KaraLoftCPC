@@ -14,8 +14,13 @@ What it checks, in order:
      to the last row of wall, and a solid pavement under it
   2. the geometry: the roof's surface, the street's, and the fact that
      the display cannot show both
-  3. DOWN on the ladder tile puts her on it, and the cels come out of
-     the `kact` blob rather than kcore
+  3. DOWN on the ladder tile puts her on it, she plays the one cel of
+     turning to it before she plays any of the climb, and the cels come
+     out of the `kact` blob rather than kcore
+  3b. THE CLIMB IS A BACK VIEW AND HAS ONE FACING: the same cel comes
+     out whichever way KARA_FACING says she is turned, while the side-on
+     turn cel does not. Its negative control tells KARA_SETS the set has
+     two facings and watches the left-hand blob draw something else
   4. she arrives on the pavement at exactly the street's surface line,
      grounded and off the ladder, and the view travelled to get there
   5. UP brings her back to exactly the roof's surface, and the view with
@@ -89,7 +94,10 @@ def main():
     sym = symbols()
     for n in ("KARA_CLIMB", "PLAYER_CLIMB", "CLIMB_ENTER", "CLIMB_GRAB",
               "CLIMB_AT", "CAMERA_V", "KST_CLIMB", "KST_HANG", "KSET_ACT",
-              "V_CR_MAX", "CAM_TOP", "CAM_BOT", "TILE_ATTR"):
+              "V_CR_MAX", "CAM_TOP", "CAM_BOT", "TILE_ATTR",
+              "KST_CLIMB_TURN", "CLIMB_TURN_START", "CLIMB_TURN_OFF",
+              "KACT_CLIMB_FIRST", "KACT_CLIMB_TURN_FIRST", "KACT_DURATION",
+              "KARA_SETS", "KSET_BYTES", "KARA_SPAN_DRAW", "SPAN_ERASE"):
         if n not in sym:
             print(f"  [FAIL] the engine has no {n}")
             fails.append(n)
@@ -143,19 +151,103 @@ def main():
           and before["wy"] + KARA_BOX_H == ROOF_Y,
           f"feet at {before['wy'] + KARA_BOX_H}, still grounded")
     m.joystick(JOY_DOWN)
-    m.run_frames(2)
+    for _ in range(4):
+        m.run_frames(1)
+        if m.peek(sym["KARA_CLIMB"]):
+            break
     on = st(m, sym)
-    m.joystick(0)
     check("DOWN puts her on the ladder", on["climb"] == 1 and on["ground"] == 0,
           f"KARA_CLIMB {on['climb']}, KARA_GROUND {on['ground']}")
     check("and centres her box - and so her figure - on the shaft",
           on["wx"] == ladder * 4 - 1,
           f"KARA_WX {on['wx']} - her box's middle, byte {on['wx'] + 3}, "
           f"is inside the shaft's tile ({ladder * 4}..{ladder * 4 + 3})")
-    check("the cels come out of the ACTION blob, not kcore",
-          on["kset"] == sym["KSET_ACT"] and on["state"] == sym["KST_CLIMB"],
-          f"KARA_SET {on['kset']}, KARA_STATE {on['state']} "
-          f"(CLIMB is {sym['KST_CLIMB']})")
+
+    # SHE TURNS BEFORE SHE CLIMBS. `climb` is a back view and walk is
+    # side on, so there is one cel between them; it is drawn standing on
+    # the ground, which is why the engine holds her still while it is up.
+    check("the first thing she plays is the turn, not the climb",
+          on["state"] == sym["KST_CLIMB_TURN"]
+          and on["kset"] == sym["KSET_ACT"]
+          and on["frame"] == sym["KACT_CLIMB_TURN_FIRST"],
+          f"KARA_STATE {on['state']} (TURN is {sym['KST_CLIMB_TURN']}), "
+          f"cel {on['frame']} of the action blob")
+    dur = m.peek(sym["KACT_DURATION"] + sym["KACT_CLIMB_TURN_FIRST"])
+    turn = 0
+    while turn < 30 and m.peek(sym["KARA_STATE"]) == sym["KST_CLIMB_TURN"]:
+        m.run_frames(1)
+        turn += 1
+    turned = st(m, sym)
+    m.joystick(0)
+    check("and it holds her where she is, for the art's own beat",
+          turned["wy"] == on["wy"] and abs(turn - dur) <= 1,
+          f"{turn} frames, and the artist drew the cel for {dur}; "
+          f"world y {on['wy']} -> {turned['wy']}")
+    check("then the climb cels come up, out of the ACTION blob",
+          turned["kset"] == sym["KSET_ACT"]
+          and turned["state"] == sym["KST_CLIMB"]
+          and turned["frame"] >= sym["KACT_CLIMB_FIRST"],
+          f"KARA_SET {turned['kset']}, KARA_STATE {turned['state']} "
+          f"(CLIMB is {sym['KST_CLIMB']}), cel {turned['frame']}")
+
+    # ---- 3b. the back view has ONE facing --------------------------
+    # The four climb cels are stored once, at the END of the right-facing
+    # blob, and kact_l stops before them (CLAUDE.md 7.1). So the drawer
+    # has to ignore KARA_FACING from KACT_CLIMB_FIRST on - and this is
+    # the check that it does, on the screen and not on the table.
+    print("\n  the back view, which has no left and right:")
+    STUB = 0x9000
+    mm = boot(sym, scroll=True)
+
+    def call(machine, addr):
+        c = bytes([0xF3, 0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE])
+        machine.write_ram(STUB, c)
+        machine.set_pc(STUB)
+        for _ in range(400000):
+            machine.run_us(1)
+            if machine.pc == STUB + 4:
+                return True
+        return False
+
+    def shot(machine, facing, frame):
+        """Draw one cel straight through KARA_SPAN_DRAW and read the
+        screen back, then put the screen the way it was."""
+        machine.poke(sym["KARA_SET"], sym["KSET_ACT"])
+        machine.poke(sym["KARA_FRAME"], frame)
+        machine.poke(sym["KARA_FACING"], facing)
+        machine.poke(sym["KARA_X"], 30)
+        machine.poke(sym["KARA_Y"], 60)
+        if not call(machine, sym["KARA_SPAN_DRAW"]):
+            return None
+        out = bytes(machine.read_ram(0xC000, 0x4000))
+        call(machine, sym["SPAN_ERASE"])
+        return out
+
+    back = sym["KACT_CLIMB_FIRST"]
+    side = sym["KACT_CLIMB_TURN_FIRST"]
+    br, bl = shot(mm, 0, back), shot(mm, 1, back)
+    check("a climb cel draws the same pixels whichever way she faces",
+          br is not None and br == bl,
+          f"cel {back} - she is on a ladder with her back to the player, "
+          f"so there is nothing to mirror")
+    sr, sl = shot(mm, 0, side), shot(mm, 1, side)
+    check("... and the turn cel, which is side on, does not",
+          sr is not None and sl is not None and sr != sl,
+          f"cel {side} - drawn facing right, mirrored facing left")
+
+    # THE NEGATIVE CONTROL. Tell KARA_SETS the action set has two facings
+    # all the way up and the left-hand draw indexes kact_l past the end
+    # of its frame table, which has only the cels that HAVE two facings.
+    thresh = sym["KARA_SETS"] + sym["KSET_ACT"] * sym["KSET_BYTES"]
+    was = mm.peek(thresh)
+    check("the engine really is bounding it at the first back-view cel",
+          was == back, f"KARA_SETS row {sym['KSET_ACT']} says {was}")
+    mm.poke(thresh, 255)
+    wild = shot(mm, 1, back)
+    check("the negative control: told it has two facings, the left blob "
+          "draws something else", wild != br,
+          "kact_l holds only the cels with two facings, so frame "
+          f"{back} is past the end of its table")
 
     # ---- 4. all the way down ---------------------------------------
     print("\n  down to the street:")
@@ -167,9 +259,14 @@ def main():
         cr_seen.add(s["cr"])
         if s["ground"] and not s["climb"] and s["wy"] + KARA_BOX_H >= STREET_Y:
             break
+    landed = st(m, sym)
     m.joystick(0)
     m.run_frames(3)
     bot = st(m, sym)
+    check("stepping off onto the pavement plays the turn again",
+          landed["state"] == sym["KST_CLIMB_TURN"],
+          f"KARA_STATE {landed['state']} on the frame she let go "
+          f"(TURN is {sym['KST_CLIMB_TURN']})")
     check("she lands on the pavement, exactly on its surface",
           bot["ground"] == 1 and bot["climb"] == 0
           and bot["wy"] + KARA_BOX_H == STREET_Y,

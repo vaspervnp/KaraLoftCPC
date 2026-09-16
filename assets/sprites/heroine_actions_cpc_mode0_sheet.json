@@ -88,6 +88,87 @@
     "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
     "sourceSize": { "w": 24, "h": 64 },
     "duration": 130
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #climb_turn.aseprite",
+    "frame": { "x": 0, "y": 256, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 120
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #drop 0.aseprite",
+    "frame": { "x": 0, "y": 320, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 100
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #drop 1.aseprite",
+    "frame": { "x": 24, "y": 320, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 100
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #die 0.aseprite",
+    "frame": { "x": 0, "y": 384, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 90
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #die 1.aseprite",
+    "frame": { "x": 24, "y": 384, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 120
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #die 2.aseprite",
+    "frame": { "x": 48, "y": 384, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 130
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #die 3.aseprite",
+    "frame": { "x": 72, "y": 384, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 160
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #die 4.aseprite",
+    "frame": { "x": 96, "y": 384, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 110
+   },
+   {
+    "filename": "heroine_actions_cpc_mode0 #die 5.aseprite",
+    "frame": { "x": 120, "y": 384, "w": 24, "h": 64 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 24, "h": 64 },
+    "sourceSize": { "w": 24, "h": 64 },
+    "duration": 600
    }
  ],
  "meta": {
@@ -95,13 +176,16 @@
   "version": "1.3.18.5-dev",
   "image": "heroine_actions_cpc_mode0_sheet.png",
   "format": "I8",
-  "size": { "w": 96, "h": 256 },
+  "size": { "w": 144, "h": 448 },
   "scale": "1",
   "frameTags": [
    { "name": "climb", "from": 0, "to": 3, "direction": "forward", "color": "#000000ff" },
    { "name": "hang", "from": 4, "to": 5, "direction": "forward", "color": "#000000ff" },
    { "name": "use", "from": 6, "to": 7, "direction": "forward", "color": "#000000ff" },
-   { "name": "hurt", "from": 8, "to": 9, "direction": "forward", "color": "#000000ff" }
+   { "name": "hurt", "from": 8, "to": 9, "direction": "forward", "color": "#000000ff" },
+   { "name": "climb_turn", "from": 10, "to": 10, "direction": "forward", "color": "#000000ff" },
+   { "name": "drop", "from": 11, "to": 12, "direction": "forward", "color": "#000000ff" },
+   { "name": "die", "from": 13, "to": 18, "direction": "forward", "color": "#000000ff" }
   ],
   "layers": [
    { "name": "heroine_actions", "opacity": 255, "blendMode": "normal" }

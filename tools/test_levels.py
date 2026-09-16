@@ -25,6 +25,7 @@ import sys
 
 sys.path.insert(0, "/home/vasilhs/cpcemu")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import level_banks                                            # noqa: E402
 from bench import boot, symbols, sync, STUB          # noqa: E402
 
 # read_ram() reads the base 64 KB and ignores the RAM configuration, so
@@ -193,6 +194,13 @@ def main():
             bank = equ.get(sym_name[:-5] + "_BANK")
             src = os.path.join(d, blob + ".bin")
             if not os.path.exists(src):
+                # KACT is one symbol and two files: a level with no
+                # ladder tile in its tileset carries the action blob
+                # that stops before `climb` (CLAUDE.md 7.1). Resolved
+                # the way the allocator resolves it, so a level that got
+                # the wrong one fails here.
+                if blob == "kact" and not level_banks.has_ladder(lvl):
+                    blob = "kactnoclimb"
                 src = os.path.join(LEV, "_shared", blob + ".bin")
             if not os.path.exists(src) or bank is None:
                 wrong.append((sym_name, "no such blob"))

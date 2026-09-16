@@ -76,9 +76,9 @@ def in_vsync(machine, sym):
 def settle(machine, sym):
     """Advance to a frame with no vertical step in flight.
 
-    A vertical step paints its incoming row in two halves on consecutive
-    frames and only then latches the new start address, so between the
-    two SCROLL has moved but the picture has not. That is the design -
+    A vertical step paints its incoming row in V_PARTS pieces on
+    consecutive frames and only then latches the new start address, so
+    in between SCROLL has moved and the picture has not. That is the design -
     the row is hidden until it is whole - but it means SCROLL and the
     screen only agree while V_PHASE is clear. A horizontal step spans two
     frames the same way (H_HEAD then H_COMMIT / H_TAIL), so wait that out
@@ -746,10 +746,10 @@ def main():
             pump(machine, sym)
             machine.run_frames(10)
         settle(machine, sym)            # never mid vertical step: the incoming
-                                        # row is painted in two halves on
-                                        # consecutive frames and is off-screen
-                                        # until both are down, so RAM really
-                                        # does disagree with the map between
+                                        # row is painted a piece a frame and
+                                        # is off-screen until every piece is
+                                        # down, so RAM really does disagree
+                                        # with the map in between
         st = state(machine, sym)
         scroll, wx, wcr = st[0], st[1], st[2]
         scrolls.append(scroll)
@@ -883,7 +883,20 @@ def main():
     for phase in (1, 2):
         drive(machine, sym, phase)
         hist = []
-        for _ in range(26):
+        # DRIVEN UNTIL IT HAS SEEN BOTH SIDES OF THE THRESHOLD, not for
+        # a fixed number of frames. What this needs is a range of screen
+        # positions, and how many frames that takes is a property of the
+        # scroll engine: the row paint was split from two pieces into
+        # four when `climb` arrived (CLAUDE.md 8.2), which halved the
+        # lines a frame the view travels, and a count written against the
+        # old cadence quietly stopped reaching the top of the picture -
+        # the negative control below then passed for the wrong reason,
+        # which is exactly what a negative control is there to stop.
+        # The cap is what makes a genuine failure fail rather than hang.
+        for _ in range(140):
+            if (any(ln < KARA_RASTER_SAFE for ln in worst)
+                    and any(ln >= KARA_RASTER_SAFE for ln in worst)):
+                break
             vstep(machine, sym)
             sync_to_vsync(machine, sym)
             hist.append(state(machine, sym))

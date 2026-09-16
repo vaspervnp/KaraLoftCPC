@@ -1,0 +1,705 @@
+{
+  "level": "level6_station",
+  "about": "draw: 'opaque' = plain copy; 'overlay' = pen 0 is transparent, needs a masked blit (AND mask / OR data). mask_bytes = Mode 0 mask size per tile (2 pixels per byte). bbox = [x, y, w, h] of the non-transparent area, so the blitter can skip empty rows.",
+  "sheets": [
+    {
+      "sheet": "station_tiles",
+      "file": "station_tiles_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 39,
+      "names_from": "derived from tags",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "bg_far_1",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 126,
+          "bbox": [
+            2,
+            3,
+            5,
+            7
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "bg_far_2",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 125,
+          "bbox": [
+            1,
+            1,
+            6,
+            13
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "bg_far_3",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 125,
+          "bbox": [
+            3,
+            5,
+            5,
+            9
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "bg_far_4",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 67,
+          "bbox": [
+            0,
+            2,
+            8,
+            14
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "bg_far_5",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "window_1",
+          "tag": "window",
+          "draw": "opaque",
+          "pen0": 79,
+          "bbox": [
+            0,
+            0,
+            8,
+            13
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 6,
+          "name": "window_2",
+          "tag": "window",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 7,
+          "name": "wall_1",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 8,
+          "name": "wall_2",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 9,
+          "name": "wall_3",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 10,
+          "name": "wall_4",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 11,
+          "name": "wall_5",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 12,
+          "name": "wall_6",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 13,
+          "name": "pillar_1",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 14,
+          "name": "pillar_2",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 15,
+          "name": "pillar_3",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 16,
+          "name": "ceiling_1",
+          "tag": "ceiling",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 17,
+          "name": "ceiling_2",
+          "tag": "ceiling",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 18,
+          "name": "platform_1",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 8,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 19,
+          "name": "platform_2",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 8,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 20,
+          "name": "platform_3",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 8,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 21,
+          "name": "platform_4",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 22,
+          "name": "door_closed_1",
+          "tag": "door_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 23,
+          "name": "door_closed_2",
+          "tag": "door_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 24,
+          "name": "door_closed_3",
+          "tag": "door_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 25,
+          "name": "door_closed_4",
+          "tag": "door_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 26,
+          "name": "door_open_1",
+          "tag": "door_open",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 27,
+          "name": "door_open_2",
+          "tag": "door_open",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 28,
+          "name": "door_open_3",
+          "tag": "door_open",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 29,
+          "name": "door_reader_1",
+          "tag": "door_reader",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 30,
+          "name": "door_reader_2",
+          "tag": "door_reader",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 31,
+          "name": "deco_1",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 32,
+          "name": "deco_2",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 33,
+          "name": "deco_3",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 34,
+          "name": "deco_4",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 35,
+          "name": "hazard_1",
+          "tag": "hazard",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 36,
+          "name": "hazard_2",
+          "tag": "hazard",
+          "draw": "opaque",
+          "pen0": 8,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 37,
+          "name": "hazard_3",
+          "tag": "hazard",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 38,
+          "name": "hazard_4",
+          "tag": "hazard",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        }
+      ]
+    },
+    {
+      "sheet": "station_laser",
+      "file": "station_laser_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 6,
+      "names_from": "derived from tags",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "h_on_1",
+          "tag": "h_on",
+          "draw": "overlay",
+          "pen0": 104,
+          "bbox": [
+            0,
+            7,
+            8,
+            3
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "h_on_2",
+          "tag": "h_on",
+          "draw": "overlay",
+          "pen0": 92,
+          "bbox": [
+            0,
+            6,
+            8,
+            5
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "h_off_1",
+          "tag": "h_off",
+          "draw": "overlay",
+          "pen0": 124,
+          "bbox": [
+            0,
+            8,
+            6,
+            1
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "v_on_1",
+          "tag": "v_on",
+          "draw": "overlay",
+          "pen0": 80,
+          "bbox": [
+            2,
+            0,
+            3,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "v_on_2",
+          "tag": "v_on",
+          "draw": "overlay",
+          "pen0": 56,
+          "bbox": [
+            1,
+            0,
+            5,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "v_off_1",
+          "tag": "v_off",
+          "draw": "overlay",
+          "pen0": 124,
+          "bbox": [
+            3,
+            0,
+            1,
+            13
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        }
+      ]
+    }
+  ]
+}

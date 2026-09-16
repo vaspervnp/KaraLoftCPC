@@ -1,0 +1,648 @@
+{
+  "level": "level2_forest",
+  "about": "draw: 'opaque' = plain copy; 'overlay' = pen 0 is transparent, needs a masked blit (AND mask / OR data). mask_bytes = Mode 0 mask size per tile (2 pixels per byte). bbox = [x, y, w, h] of the non-transparent area, so the blitter can skip empty rows.",
+  "sheets": [
+    {
+      "sheet": "forest_tiles",
+      "file": "forest_tiles_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 42,
+      "names_from": "derived from tags",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "bg_1",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "bg_2",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "bg_3",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "bg_4",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "canopy_1",
+          "tag": "canopy",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "canopy_2",
+          "tag": "canopy",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 6,
+          "name": "canopy_3",
+          "tag": "canopy",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 7,
+          "name": "trunk_1",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 8,
+          "name": "trunk_2",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 9,
+          "name": "trunk_3",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 10,
+          "name": "trunk_4",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 11,
+          "name": "trunk_5",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 12,
+          "name": "trunk_6",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 13,
+          "name": "trunk_7",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 14,
+          "name": "trunk_8",
+          "tag": "trunk",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 15,
+          "name": "platform_1",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 16,
+          "name": "platform_2",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 17,
+          "name": "platform_3",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 18,
+          "name": "ground_1",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 19,
+          "name": "ground_2",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 20,
+          "name": "ground_3",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 21,
+          "name": "ground_4",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 22,
+          "name": "deco_1",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 23,
+          "name": "deco_2",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 24,
+          "name": "deco_3",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 25,
+          "name": "deco_4",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 26,
+          "name": "deco_5",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 27,
+          "name": "hazard_1",
+          "tag": "hazard",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 28,
+          "name": "mountain_1",
+          "tag": "mountain",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 29,
+          "name": "mountain_2",
+          "tag": "mountain",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 30,
+          "name": "mountain_3",
+          "tag": "mountain",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 31,
+          "name": "mountain_4",
+          "tag": "mountain",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 32,
+          "name": "cave_1",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 33,
+          "name": "cave_2",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 34,
+          "name": "cave_3",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 35,
+          "name": "cave_4",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 36,
+          "name": "cave_5",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 37,
+          "name": "cave_6",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 38,
+          "name": "cave_7",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 39,
+          "name": "cave_8",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 40,
+          "name": "cave_9",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 41,
+          "name": "cave_10",
+          "tag": "cave",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        }
+      ]
+    }
+  ]
+}

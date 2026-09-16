@@ -1,0 +1,930 @@
+{
+  "level": "level3_cave",
+  "about": "draw: 'opaque' = plain copy; 'overlay' = pen 0 is transparent, needs a masked blit (AND mask / OR data). mask_bytes = Mode 0 mask size per tile (2 pixels per byte). bbox = [x, y, w, h] of the non-transparent area, so the blitter can skip empty rows.",
+  "sheets": [
+    {
+      "sheet": "cave_tiles",
+      "file": "cave_tiles_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 47,
+      "names_from": "manifest.tile_names",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "bg_a",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 94,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "bg_b",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 88,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "bg_c",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 88,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "wall_fill",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "wall_l",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 27,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "wall_l_b",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 32,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 6,
+          "name": "wall_r",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 34,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 7,
+          "name": "wall_r_b",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 29,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 8,
+          "name": "ground",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 9,
+          "name": "ledge_l",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 16,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 10,
+          "name": "ledge_m",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 4,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 11,
+          "name": "ledge_r",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 20,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 12,
+          "name": "wall_l_ledge",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 3,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 13,
+          "name": "wall_r_ledge",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 2,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 14,
+          "name": "pillar_top",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 15,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 15,
+          "name": "pillar_body",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 16,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 16,
+          "name": "pillar_base",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 10,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 17,
+          "name": "ceil",
+          "tag": "ceil",
+          "draw": "opaque",
+          "pen0": 17,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 18,
+          "name": "ceil_stalactites",
+          "tag": "ceil",
+          "draw": "opaque",
+          "pen0": 12,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 19,
+          "name": "drip_0",
+          "tag": "drip",
+          "draw": "opaque",
+          "pen0": 28,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 20,
+          "name": "drip_1",
+          "tag": "drip",
+          "draw": "opaque",
+          "pen0": 27,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 21,
+          "name": "drip_2",
+          "tag": "drip",
+          "draw": "opaque",
+          "pen0": 27,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 22,
+          "name": "pool_0",
+          "tag": "pool",
+          "draw": "opaque",
+          "pen0": 3,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 23,
+          "name": "pool_1",
+          "tag": "pool",
+          "draw": "opaque",
+          "pen0": 3,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 24,
+          "name": "crystal_0",
+          "tag": "crystal",
+          "draw": "overlay",
+          "pen0": 40,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 25,
+          "name": "crystal_1",
+          "tag": "crystal",
+          "draw": "overlay",
+          "pen0": 34,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 26,
+          "name": "beam_top",
+          "tag": "beam",
+          "draw": "overlay",
+          "pen0": 14,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 27,
+          "name": "beam_post",
+          "tag": "beam",
+          "draw": "overlay",
+          "pen0": 36,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 28,
+          "name": "lamp_0",
+          "tag": "lamp",
+          "draw": "overlay",
+          "pen0": 25,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 29,
+          "name": "lamp_1",
+          "tag": "lamp",
+          "draw": "overlay",
+          "pen0": 28,
+          "bbox": [
+            0,
+            0,
+            8,
+            15
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 30,
+          "name": "ladder",
+          "tag": "ladder",
+          "draw": "overlay",
+          "pen0": 14,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 31,
+          "name": "panel_sun_moon",
+          "tag": "panel",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 32,
+          "name": "panel_eye_star",
+          "tag": "panel",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 33,
+          "name": "gate_slot_sun",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 34,
+          "name": "gate_slot_moon",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 35,
+          "name": "gate_slot_eye",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 36,
+          "name": "gate_slot_star",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 37,
+          "name": "gate_pillar_l",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 38,
+          "name": "gate_door_l",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 39,
+          "name": "gate_door_r",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 40,
+          "name": "gate_pillar_r",
+          "tag": "gate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 41,
+          "name": "gate_book_sun",
+          "tag": "gate_books",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 42,
+          "name": "gate_book_moon",
+          "tag": "gate_books",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 43,
+          "name": "gate_book_eye",
+          "tag": "gate_books",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 44,
+          "name": "gate_book_star",
+          "tag": "gate_books",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 45,
+          "name": "gate_open_l",
+          "tag": "gate_open",
+          "draw": "overlay",
+          "pen0": 108,
+          "bbox": [
+            0,
+            0,
+            5,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 46,
+          "name": "gate_open_r",
+          "tag": "gate_open",
+          "draw": "overlay",
+          "pen0": 88,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        }
+      ]
+    },
+    {
+      "sheet": "cave_quake",
+      "file": "cave_quake_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 13,
+      "names_from": "derived from tags",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "crack_1",
+          "tag": "crack",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "crack_2",
+          "tag": "crack",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "crack_3",
+          "tag": "crack",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "crack_4",
+          "tag": "crack",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "waterfall_1",
+          "tag": "waterfall",
+          "draw": "overlay",
+          "pen0": 45,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "waterfall_2",
+          "tag": "waterfall",
+          "draw": "overlay",
+          "pen0": 46,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 6,
+          "name": "waterfall_3",
+          "tag": "waterfall",
+          "draw": "overlay",
+          "pen0": 45,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 7,
+          "name": "waterfall_4",
+          "tag": "waterfall",
+          "draw": "overlay",
+          "pen0": 48,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 8,
+          "name": "flood_top_1",
+          "tag": "flood_top",
+          "draw": "overlay",
+          "pen0": 44,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 9,
+          "name": "flood_top_2",
+          "tag": "flood_top",
+          "draw": "overlay",
+          "pen0": 45,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 10,
+          "name": "flood_top_3",
+          "tag": "flood_top",
+          "draw": "overlay",
+          "pen0": 45,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 11,
+          "name": "flood_top_4",
+          "tag": "flood_top",
+          "draw": "overlay",
+          "pen0": 45,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 12,
+          "name": "flood_1",
+          "tag": "flood",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        }
+      ]
+    }
+  ]
+}

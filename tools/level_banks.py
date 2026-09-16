@@ -64,6 +64,26 @@ SHARED_SWIM = ["kcore", "kcore_l", "kswim", "kswim_l", "kact", "kact_l",
                "bullet", "bullet_l", "spear", "spear_l",
                "hudicon", "huddigit", "hudbar"]
 
+# CLIMB IS NOT SHARED, AND THE ART SAYS WHICH LEVELS GET IT. Only a
+# level with a ladder tile in its tileset has anything to climb, and
+# `climb` is 2,714 bytes - which four levels out of six would carry and
+# never draw. Since `drop` and `die` joined the action sheet there is no
+# level with room for that: level 5 is 2,029 bytes over five banks with
+# it and 685 under without. So the levels whose tile_table.json has no
+# tile called "ladder" take the blob that stops before it. The frames
+# they DO get are at the same indices, so nothing in the engine changes.
+LADDER_TILE = "ladder"
+
+
+def has_ladder(level):
+    p = os.path.join(ROOT, "assets", "sprites", level, "tile_table.json")
+    if not os.path.exists(p):
+        return True                          # unknown: carry it
+    t = json.load(open(p))
+    return any(tile["name"] == LADDER_TILE
+               for sheet in t["sheets"] for tile in sheet["tiles"])
+
+
 # One fixed moment each, loaded for that moment and not before.
 SETPIECE = {"citycar", "desertshuttle", "desertbasedoor",
             "stationpod", "stationcomputer", "seasiphon"}
@@ -192,11 +212,16 @@ def build(level, setpieces=False):
         items.append((stem(f), os.path.getsize(p)))
         src[stem(f)] = p
     if not setpieces:
+        climbs = has_ladder(level)
         for s in shared:
-            p = os.path.join(LEV, "_shared", s + ".bin")
+            f = s
+            if s == "kact" and not climbs:
+                f = "kactnoclimb"            # the same blob, minus the tail
+            p = os.path.join(LEV, "_shared", f + ".bin")
             if os.path.exists(p):
                 items.append((s, os.path.getsize(p)))
-                src[s] = p
+                src[s] = p                   # ... under the name KACT, so the
+                                             # engine's symbol does not move
     if not items:
         return None
     place, free = allocate(items)

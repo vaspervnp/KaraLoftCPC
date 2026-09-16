@@ -26,7 +26,14 @@
         "gate_books": 4,
         "gate_open": 2
       },
-      "anchor": "tile top-left",
+      "anchor": "tile top-left; opaque unless listed in 'overlay'",
+      "overlay": [
+        "crystal",
+        "beam",
+        "lamp",
+        "ladder",
+        "gate_open"
+      ],
       "tile_names": [
         "bg_a",
         "bg_b",
@@ -145,7 +152,11 @@
         "flood_top": 4,
         "flood": 1
       },
-      "anchor": "tile top-left",
+      "anchor": "tile top-left; opaque unless listed in 'overlay'",
+      "overlay": [
+        "waterfall",
+        "flood_top"
+      ],
       "description": "Earthquake/flood tiles. crack = wall_fill cracking open (one-shot, hold last frame; last frame seeps water). waterfall = vertical water stream over bg, loops and repeats vertically. flood_top = rising water surface with rolling waves (loops, repeats horizontally); flood = water body below it (static, seamless)."
     },
     {

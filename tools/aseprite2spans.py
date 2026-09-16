@@ -64,6 +64,19 @@ against 72, or about +7,900 T a frame, which the frame does not have.
 Mirroring at export time costs a bank instead, and after the --drop
 list there is a bank. See CLAUDE.md 7.1.
 
+AND NOT EVERY TAG HAS A LEFT AND A RIGHT. `climb` is drawn from
+BEHIND - she is on a ladder with her back to the player - so flipping
+it moves her holster and her braid to the other side of a figure that
+is otherwise symmetric, for no reason and to no effect but the wrong
+one. Nothing about the pixels says so: only the build does.
+
+Such a tag is stored ONCE, and `--tags` is what does it: name it LAST
+in the right-facing blob and leave it off the left one. Every other
+cel then has the same index in both blobs - which is what lets the
+engine hold one frame table - and the back view is simply drawn from
+the right-facing blob whichever way she is facing. Storing it in both
+would cost a bank the levels have not got; see tools/build_levels.py.
+
 Usage:
     aseprite2spans.py sheet.json -o out.bin --inc out.inc --name KARA
 """
@@ -251,6 +264,19 @@ def main():
                          "thinning a cycle makes it coarser and not faster - "
                          "which matters for a walk, where the feet have to "
                          "keep up with the distance travelled.")
+    ap.add_argument("--single-facing", default=None, metavar="TAG,TAG",
+                    help="these tags have no left and right - a BACK view - "
+                         "so they are emitted LAST, and a --mirror blob "
+                         "leaves them out altogether. Every other cel then "
+                         "has the same index in both blobs, the back view is "
+                         "stored once, and {NAME}_TWO_FACED says where the "
+                         "second facing stops. Nothing about the pixels says "
+                         "which tags these are: only this does.")
+    ap.add_argument("--two-faced-only", action="store_true",
+                    help="leave the --single-facing tags out of THIS blob as "
+                         "well, which --mirror does anyway. For a level that "
+                         "cannot use them - no ladder in its tileset, no "
+                         "climb - so it does not carry them.")
     ap.add_argument("--tags", default=None,
                     help="comma-separated tags to emit, in this order. The "
                          "sheet is bigger than a 16 KB bank, so it is split "
@@ -324,6 +350,27 @@ def main():
               + "; ".join(f"{k} {sorted(v)}" for k, v in drops.items()))
     else:
         kept_source = list(range(len(frames)))
+
+    # ---- a tag with no left and right goes to the END --------------
+    # ... and out of the mirrored blob entirely. Expressed as a tag
+    # ORDER rather than as a per-frame flag, so that the frames which do
+    # have two facings keep the same index in both blobs - which is what
+    # lets the engine hold one frame table and one duration table.
+    single = []
+    if args.single_facing:
+        if args.tags:
+            raise SystemExit("--single-facing and --tags both order the tags:"
+                             " say it in one place")
+        single = [t.strip() for t in args.single_facing.split(",") if t.strip()]
+        unknown = [w for w in single if w not in {t["name"] for t in tags}]
+        if unknown:
+            raise SystemExit(f"{args.json}: no such tag: {', '.join(unknown)}")
+        order = [t["name"] for t in tags if t["name"] not in single]
+        two_faced = sum(t["to"] - t["from"] + 1 for t in tags
+                        if t["name"] in order)
+        if not (args.mirror or args.two_faced_only):
+            order += single
+        args.tags = ",".join(order)
 
     if args.tags:
         wanted = [t.strip() for t in args.tags.split(",")]
@@ -421,6 +468,13 @@ def main():
             if "=" in kv:
                 k, v = kv.split("=", 1)
                 equate(f"{name}_{tag}_{ident(k)}", v.strip())
+    if single:
+        inc.append("")
+        inc.append("; The cels BEFORE this one have two facings and are in")
+        inc.append("; both blobs at the same index; the ones from here on are")
+        inc.append(f"; {', '.join(single)}, which have no left and right and")
+        inc.append("; are only in this one. See --single-facing.")
+        equate(f"{name}_TWO_FACED", two_faced)
     inc.append("")
     inc.append("; How many 50 Hz frames each cel is held for, rounded from the")
     inc.append("; milliseconds Aseprite stores. One byte per frame.")
@@ -438,6 +492,7 @@ def main():
                                        os.path.join(here, "..")),
                "name": name,
                "mirrored": bool(args.mirror),
+               "single_facing": single,
                "box": [fw // 2, fh],
                "source_frames": kept_source,
                "tags": [{"name": t["name"], "from": t["from"], "to": t["to"]}

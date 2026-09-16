@@ -969,6 +969,14 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 ; has to start a page and the whole run has to stay in
                 ; one - both are alignment accidents waiting to happen
                 ; the next time anything above them grows.
+                ; The back view is the TAIL of the action blob, which is
+                ; what lets KARA_SETS bound the second facing with one
+                ; number. tools/build_levels.py builds the two blobs from
+                ; the same tag list minus that tail, and test_spans.py
+                ; checks the left blob's frames really are the right
+                ; blob's first KACT_CLIMB_FIRST.
+                assert KACT_TWO_FACED + KACT_CLIMB_COUNT == KACT_FRAMES
+                assert KACT_TWO_FACED == KACT_CLIMB_FIRST
                 assert (SPAN_ENTRY AND 255) == 0
                 assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
                 assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000

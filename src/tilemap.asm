@@ -859,7 +859,7 @@ H_TAIL:         ld   a,(H_TAIL_DUE)
 ; ---------------------------------------------------------------------
 ; SCROLL_V_STEP / SCROLL_V_FINISH - one character row, 8 scanlines.
 ;
-; A whole row is 40 cells and 37,124 T - 46% of a frame - which does not
+; A whole row is 40 cells and 33,484 T - 42% of a frame - which does not
 ; fit alongside Kara. It does not have to: measured against the start
 ; address the CRTC is still displaying, the incoming row lands in the 64
 ; words R6 = 24 keeps off-screen,
@@ -868,18 +868,36 @@ H_TAIL:         ld   a,(H_TAIL_DUE)
 ;   up:   new top row    = SCROLL - 40          -> offset 984, hidden
 ;
 ; so it is invisible until SCROLL_APPLY moves the view. That buys the
-; freedom to paint it in two halves on consecutive frames and only then
-; latch the new start address. Nothing can tear, because nothing the
-; beam can see changes until both halves are down.
+; freedom to paint it A PIECE AT A TIME over consecutive frames and only
+; then latch the new start address. Nothing can tear, because nothing the
+; beam can see changes until every piece is down - so the number of
+; pieces is free, and it is a frame-budget decision and nothing else.
 ;
-; Three frames, because the latch may only happen in vertical blanking:
-;   frame N   SCROLL_V_STEP   state + left half   V_PHASE 0 -> 1
-;   frame N+1 SCROLL_V_FINISH right half          V_PHASE 1 -> 2
-;   frame N+2 SCROLL_VBLANK   latch R12/R13       V_PHASE 2 -> 0
+; IT IS FOUR, AND IT WAS TWO. Two halves are 16,742 T each, and that
+; fitted until `climb` arrived: the back view is 324 span bytes and
+; 55,548 T drawn and erased, more than her heaviest gun cel, so a half
+; row on the frame it lands on took the loop to 195 iterations per 200
+; hardware frames - five dropped frames, every one of them measured on a
+; frame with a paint in it. Four quarters are 8,400 and it is 200 again.
+; See CLAUDE.md 9.
+;
+; V_PARTS + 1 frames, because the latch may only happen in blanking:
+;   frame N     SCROLL_V_STEP   state + part 0    V_PHASE 0 -> 1
+;   frame N+k   SCROLL_V_PART   part k            V_PHASE k -> k+1
+;   frame N+4   SCROLL_VBLANK   latch R12/R13     V_PHASE 4 -> 0
+;
+; That is five frames to a character row, against the eight a climb at
+; P_CLIMB = 1 takes to need the next one, so the camera still keeps up.
+; A level that scrolls faster than a row every five frames does not tear
+; - it lags, which is the same thing the three-frame version did sooner.
 ;
 ; SCROLL_V_STEP:   IN A = 0 to scroll down the map, non-zero to scroll up.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
+V_PARTS         equ 4
+V_PART_CELLS    equ SCR_CHARS / V_PARTS
+                assert V_PART_CELLS * V_PARTS == SCR_CHARS
+
 SCROLL_V_STEP:  or   a
                 jr   nz,.up
 
@@ -906,19 +924,29 @@ SCROLL_V_STEP:  or   a
                 ld   a,1
                 ld   (V_PHASE),a
                 xor  a
-                ld   (ROW_FIRST),a          ; left half: columns 0-19
-                ld   a,SCR_CHARS / 2
+                ld   (ROW_FIRST),a          ; part 0: columns 0-9
+                ld   a,V_PART_CELLS
                 ld   (ROW_N),a
                 jr   V_PAINT
 
-SCROLL_V_FINISH:
-                ld   a,SCR_CHARS / 2        ; right half: columns 20-39
-                ld   (ROW_FIRST),a
+; ---------------------------------------------------------------------
+; SCROLL_V_PART - the next piece of the incoming row.
+;
+; ROW_FIRST WALKS, it is not computed from the phase: the phase counts
+; the pieces that are down and multiplying it back out would be a
+; multiply by V_PART_CELLS for nothing.
+;                                Clobbers AF, BC, DE, HL
+; ---------------------------------------------------------------------
+SCROLL_V_PART:  ld   hl,ROW_FIRST
+                ld   a,(hl)
+                add  a,V_PART_CELLS
+                ld   (hl),a
+                ld   a,V_PART_CELLS
                 ld   (ROW_N),a
                 call V_PAINT
-                ld   a,2                    ; the row is whole; the view moves
-                ld   (V_PHASE),a            ; at the next VSYNC, not here
-                ret
+                ld   hl,V_PHASE             ; one more piece down; when they
+                inc  (hl)                   ; are all down the view moves at
+                ret                         ; the next VSYNC, not here
 
 V_WRAP:         ld   a,h
                 and  3
@@ -933,7 +961,7 @@ V_WRAP:         ld   a,h
 ;                                Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 SCROLL_VBLANK:  ld   a,(V_PHASE)
-                cp   2
+                cp   V_PARTS                ; every piece of the row is down
                 ret  nz
                 xor  a
                 ld   (V_PHASE),a
@@ -946,17 +974,17 @@ SCROLL_VBLANK:  ld   a,(V_PHASE)
 ; ---------------------------------------------------------------------
 ; SCROLL_SERVICE - advance a vertical step that is in flight.
 ;
-; Call once per frame, after SCROLL_VBLANK. Phase 1 is the only phase
-; with work to do here; phase 2 belongs to SCROLL_VBLANK because it
-; writes R12/R13.
+; Call once per frame, after SCROLL_VBLANK. Phases 1 to V_PARTS-1 have a
+; piece of the row to put down; phase V_PARTS belongs to SCROLL_VBLANK,
+; because it writes R12/R13.
 ;                                Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
 SCROLL_SERVICE: ld   a,(V_PHASE)
                 or   a
                 jr   z,.idle
-                dec  a
-                ret  nz                     ; phase 2 is SCROLL_VBLANK's
-                jp   SCROLL_V_FINISH
+                cp   V_PARTS
+                ret  z                      ; the row is whole: not ours
+                jp   SCROLL_V_PART
 
                 ; Idle: start a step if the game asked for one. Levels 3
                 ; and 4 drive this from the player's climb or descent; for

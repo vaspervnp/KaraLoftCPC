@@ -1,0 +1,705 @@
+{
+  "level": "level5_desert",
+  "about": "draw: 'opaque' = plain copy; 'overlay' = pen 0 is transparent, needs a masked blit (AND mask / OR data). mask_bytes = Mode 0 mask size per tile (2 pixels per byte). bbox = [x, y, w, h] of the non-transparent area, so the blitter can skip empty rows.",
+  "sheets": [
+    {
+      "sheet": "desert_tiles",
+      "file": "desert_tiles_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 41,
+      "names_from": "manifest.tile_names",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "sky_deep",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "sky_pale",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "sky_haze",
+          "tag": "bg",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "far_plain",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "far_mesa_l",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "far_mesa_r",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 6,
+          "name": "far_sand",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 7,
+          "name": "sand_top",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 8,
+          "name": "sand_fill",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 9,
+          "name": "rock_l",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 10,
+          "name": "rock_m",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 11,
+          "name": "rock_r",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 12,
+          "name": "rock_fill",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 13,
+          "name": "quicksand",
+          "tag": "hazard",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 14,
+          "name": "cactus_top",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 15,
+          "name": "cactus_bot",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 16,
+          "name": "bones",
+          "tag": "deco",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 17,
+          "name": "pillar_top",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 18,
+          "name": "pillar_shaft",
+          "tag": "pillar",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 19,
+          "name": "sign",
+          "tag": "sign",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 20,
+          "name": "fence",
+          "tag": "sign",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 21,
+          "name": "tent_top",
+          "tag": "tent",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 22,
+          "name": "tent_l",
+          "tag": "tent",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 23,
+          "name": "tent_m",
+          "tag": "tent",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 24,
+          "name": "tent_r",
+          "tag": "tent",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 25,
+          "name": "palm_l",
+          "tag": "palm",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 26,
+          "name": "palm_m",
+          "tag": "palm",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 27,
+          "name": "palm_r",
+          "tag": "palm",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 28,
+          "name": "palm_trunk_hz",
+          "tag": "palm",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 29,
+          "name": "palm_trunk",
+          "tag": "palm",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 30,
+          "name": "pool_l",
+          "tag": "oasis",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 31,
+          "name": "pool_m",
+          "tag": "oasis",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 32,
+          "name": "pool_r",
+          "tag": "oasis",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 33,
+          "name": "pool_deep",
+          "tag": "oasis",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 34,
+          "name": "siphon_top",
+          "tag": "oasis",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 35,
+          "name": "siphon",
+          "tag": "oasis",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 36,
+          "name": "roof_l",
+          "tag": "base",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 37,
+          "name": "roof_m",
+          "tag": "base",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 38,
+          "name": "roof_r",
+          "tag": "base",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 39,
+          "name": "base_wall",
+          "tag": "base",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 40,
+          "name": "door",
+          "tag": "base",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        }
+      ]
+    },
+    {
+      "sheet": "desert_quicksand",
+      "file": "desert_quicksand_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 4,
+      "names_from": "derived from tags",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "churn_1",
+          "tag": "churn",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "churn_2",
+          "tag": "churn",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 2,
+          "name": "churn_3",
+          "tag": "churn",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "churn_4",
+          "tag": "churn",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        }
+      ]
+    }
+  ]
+}

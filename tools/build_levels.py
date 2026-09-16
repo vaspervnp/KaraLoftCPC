@@ -38,9 +38,10 @@ OUT = os.path.join(ROOT, "build", "levels")
 MIRRORED = {
     # the heroine and what she throws
     "heroine", "heroine_actions", "heroine_swim", "bullet", "spear",
-    # the seven people
+    # the people who move. desert_nomad and desert_informant do not:
+    # see below.
     "city_agent", "forest_sniper", "cave_excavator", "desert_mercenary",
-    "desert_nomad", "desert_informant", "station_cyber",
+    "station_cyber",
     # animals
     "forest_wolf", "forest_boar", "cave_bats",
     # machines that aim or travel
@@ -50,6 +51,16 @@ MIRRORED = {
     "sea_torpedo",
 }
 # Bolted down, symmetrical, or only ever seen one way round: one facing.
+#   desert_nomad, desert_informant
+#                   THE ONLY TWO CHARACTERS IN THE GAME WITH NO MOVEMENT
+#                   TAG - `idle` and `talk`, nothing else. Every other
+#                   character walks, runs, flies, charges or scans, and
+#                   gets both facings for it. These two stand where the
+#                   designer puts them and say a line, so they are drawn
+#                   the way the artist drew them and the player walks
+#                   round to the front. It is 8,214 bytes and level 5 has
+#                   not got them: with `drop` and `die` resident it is
+#                   80,203 of 80,896 and does not pack (7.5).
 #   city_car        the escape drives right and only right
 #   desert_shuttle, desert_basedoor, station_pod, station_computer,
 #   forest_altar, sea_siphon, sea_mine, sea_cable, sea_explosion
@@ -66,7 +77,29 @@ SHARED = [
      ["--tags", "run,roll",
       "--drop", "idle=3", "--drop", "walk=2,4,6",
       "--drop", "run=2,4,6", "--drop", "jump=3,5"]),
-    (A, "heroine_actions_cpc_mode0_sheet", "KACT", False, []),
+    # CLIMB IS DRAWN FROM BEHIND AND IS STORED ONCE. She is on a ladder
+    # with her back to the player, so it has no left and no right:
+    # flipping it moves her holster and her braid across for nothing,
+    # and storing the same bytes twice costs 2,714 of a bank that level
+    # 5 has not got. --single-facing puts it LAST and leaves it out of
+    # the mirrored blob - which keeps every other cel at the same index
+    # in both, and lets kara.asm say "from this frame on there is one
+    # facing" instead of carrying a second frame table. Every other tag
+    # of this sheet IS flipped, climb_turn, drop and die included: they
+    # are side on, drawn facing right like the rest. The tag list is not
+    # written out here, so a tag the artist adds is picked up.
+    # See CLAUDE.md 7.1 and 8.4.
+    (A, "heroine_actions_cpc_mode0_sheet", "KACT", False,
+     ["--single-facing", "climb"]),
+    # ... and the same sheet again WITHOUT the ladder, for the levels
+    # whose tilesets have no ladder tile to climb. Only levels 1 and 3
+    # have one, and tools/level_banks.py reads that off the art rather
+    # than being told: climb is 2,714 bytes that four levels out of six
+    # would carry and never draw, and after `drop` and `die` joined the
+    # sheet there is no level with room to spare. The frames it DOES
+    # have are at the same indices, so the engine cannot tell.
+    (A, "heroine_actions_cpc_mode0_sheet", "KACTNOCLIMB", False,
+     ["--single-facing", "climb", "--two-faced-only"]),
     (A, "heroine_cpc_mode0_swim_sheet", "KSWIM", False, []),
     (A, "bullet_cpc_mode0_sheet", "BULLET", False, []),
     (A, "spear_cpc_mode0_sheet", "SPEAR", False, []),
@@ -78,6 +111,9 @@ SHARED = [
 SHARED_MIRROR_KEY = {"KCORE": "heroine", "KEXTRA": "heroine",
                      "KACT": "heroine_actions", "KSWIM": "heroine_swim",
                      "BULLET": "bullet", "SPEAR": "spear"}
+# The no-ladder variant needs no second file: kact_l never had climb in
+# it, so the left-facing blob is the same one either way.
+SHARED_ONE_FACING = {"KACTNOCLIMB"}
 
 
 def export(js, out, inc, name, tiles=False, mirror=False, extra=()):
@@ -115,16 +151,23 @@ def zx0(path):
 BANK_LIMIT = 12288
 
 
-def do_sheet(dirn, stem, name, tiles, mirror, extra, dest):
+def do_sheet(dirn, stem, name, tiles, mirror, extra, dest, extra_l=None):
+    """`extra_l` is the left-facing blob's arguments where they DIFFER.
+
+    Only one sheet needs it and the reason is in SHARED: a tag with no
+    left and right is stored once, in the right-facing blob, and the
+    left one is the same list of tags with that one left off the end.
+    """
     js = os.path.join(dirn, stem + ".json")
     if not os.path.exists(js):
         return []
     rows = []
     for suffix, mir in ((("", False),) if not mirror
                         else (("", False), ("_l", True))):
+        args = (extra_l if mir and extra_l is not None else extra)
         base = os.path.join(dest, name.lower() + suffix)
         n = export(js, base + ".bin", base + ".inc",
-                   name + ("L" if mir else ""), tiles, mir, extra)
+                   name + ("L" if mir else ""), tiles, mir, args)
         if n > BANK_LIMIT and not tiles:
             tags = [t["name"] for t in
                     json.load(open(js))["meta"].get("frameTags", [])]
@@ -136,7 +179,7 @@ def do_sheet(dirn, stem, name, tiles, mirror, extra, dest):
                     b2 = os.path.join(dest, f"{name.lower()}_{t}{suffix}")
                     n2 = export(js, b2 + ".bin", b2 + ".inc",
                                 f"{name}{ident(t)}" + ("L" if mir else ""),
-                                tiles, mir, list(extra) + ["--tags", t])
+                                tiles, mir, list(args) + ["--tags", t])
                     rows.append((os.path.basename(b2) + ".bin", n2,
                                  zx0(b2 + ".bin")))
                 print(f"    {name}{suffix} was {n} bytes - split into "
@@ -155,9 +198,11 @@ def main():
     dest = os.path.join(OUT, "_shared")
     os.makedirs(dest, exist_ok=True)
     rows = []
-    for dirn, stem, name, tiles, extra in SHARED:
+    for dirn, stem, name, tiles, extra, *rest in SHARED:
         key = SHARED_MIRROR_KEY.get(name, name.lower())
-        rows += do_sheet(dirn, stem, name, tiles, key in MIRRORED, extra, dest)
+        mir = key in MIRRORED and name not in SHARED_ONE_FACING
+        rows += do_sheet(dirn, stem, name, tiles, mir, extra, dest,
+                         rest[0] if rest else None)
     report["_shared"] = rows
 
     # ---- one directory per level -------------------------------------

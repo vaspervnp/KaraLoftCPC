@@ -24,8 +24,13 @@
         "deco_lamp": 2,
         "crate": 1
       },
-      "anchor": "tile grid, opaque (pen 0 = black)",
-      "description": "Night city tiles, frame order: sky_stars, void, sky_mid, sky_low, far_tower, far_block, far_step, far_fill, brick, brick_win_lit, brick_win_dark, brick_top, concrete, roof_l, roof_m, roof_r, ac_unit, chimney, antenna, tank_00, tank_01, tank_10, tank_11, tank_20, tank_21, ladder, sidewalk, curb, street, street_line, jamb_l, sign_p, jamb_r, lock_red, shutter, shutter_bottom, lock_green, open_ramp, lamp_top, lamp_pole, crate. Sky bands stack top-down sky_stars (or void) / sky_mid / sky_low, then a bg_far top (far_tower/far_block/far_step, any order) over far_fill; void for deep gaps. Roofs: roof_l / roof_m... / roof_r with brick/brick_win_* below; brick_top = low non-lip wall edge. Props sit on black one row above a roof. deco_tank is a 2x3 group (tank_RC, row-major). Street: sidewalk (walk row) over curb over street/street_line. Garage 4x5: row0 jamb_l sign_p lock_(red|green) jamb_r; closed rows1-3 shutter x2, row4 shutter_bottom x2; open rows1-3 void x2, row4 open_ramp x2. Lamp: lamp_top over lamp_pole on the sidewalk row."
+      "anchor": "tile grid; opaque unless listed in 'overlay'",
+      "overlay": [
+        "deco_roof",
+        "deco_tank",
+        "deco_lamp"
+      ],
+      "description": "Night city tiles, frame order: sky_stars, void, sky_mid, sky_low, far_tower, far_block, far_step, far_fill, brick, brick_win_lit, brick_win_dark, brick_top, concrete, roof_l, roof_m, roof_r, ac_unit, chimney, antenna, tank_00, tank_01, tank_10, tank_11, tank_20, tank_21, ladder, sidewalk, curb, street, street_line, jamb_l, sign_p, jamb_r, lock_red, shutter, shutter_bottom, lock_green, open_ramp, lamp_top, lamp_pole, crate. Tiles in 'overlay' (roof props, water tanks, lamp post) keep pen 0 transparent and are drawn over the tile behind them with a masked blit; every other tile is a plain copy. Sky bands stack top-down sky_stars (or void) / sky_mid / sky_low, then a bg_far top (far_tower/far_block/far_step, any order) over far_fill; void for deep gaps. Roofs: roof_l / roof_m... / roof_r with brick/brick_win_* below; brick_top = low non-lip wall edge. Props sit on black one row above a roof. deco_tank is a 2x3 group (tank_RC, row-major). Street: sidewalk (walk row) over curb over street/street_line. Garage 4x5: row0 jamb_l sign_p lock_(red|green) jamb_r; closed rows1-3 shutter x2, row4 shutter_bottom x2; open rows1-3 void x2, row4 open_ramp x2. Lamp: lamp_top over lamp_pole on the sidewalk row."
     },
     {
       "name": "city_drone",

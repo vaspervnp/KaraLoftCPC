@@ -1,0 +1,633 @@
+{
+  "level": "level1_city",
+  "about": "draw: 'opaque' = plain copy; 'overlay' = pen 0 is transparent, needs a masked blit (AND mask / OR data). mask_bytes = Mode 0 mask size per tile (2 pixels per byte). bbox = [x, y, w, h] of the non-transparent area, so the blitter can skip empty rows.",
+  "sheets": [
+    {
+      "sheet": "city_tiles",
+      "file": "city_tiles_cpc_mode0_sheet.png",
+      "tile": [
+        8,
+        16
+      ],
+      "count": 41,
+      "names_from": "manifest.description",
+      "tiles": [
+        {
+          "index": 0,
+          "name": "sky_stars",
+          "tag": "bg_sky",
+          "draw": "opaque",
+          "pen0": 126,
+          "bbox": [
+            1,
+            3,
+            5,
+            9
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 1,
+          "name": "void",
+          "tag": "bg_sky",
+          "draw": "opaque",
+          "pen0": 128,
+          "bbox": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "mask_bytes": 0,
+          "empty": true
+        },
+        {
+          "index": 2,
+          "name": "sky_mid",
+          "tag": "bg_sky",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 3,
+          "name": "sky_low",
+          "tag": "bg_sky",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 4,
+          "name": "far_tower",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 5,
+          "name": "far_block",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 6,
+          "name": "far_step",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 7,
+          "name": "far_fill",
+          "tag": "bg_far",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 8,
+          "name": "brick",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 9,
+          "name": "brick_win_lit",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 10,
+          "name": "brick_win_dark",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 11,
+          "name": "brick_top",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 40,
+          "bbox": [
+            0,
+            5,
+            8,
+            11
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 12,
+          "name": "concrete",
+          "tag": "wall",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 13,
+          "name": "roof_l",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 14,
+          "name": "roof_m",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 15,
+          "name": "roof_r",
+          "tag": "platform",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 16,
+          "name": "ac_unit",
+          "tag": "deco_roof",
+          "draw": "overlay",
+          "pen0": 48,
+          "bbox": [
+            0,
+            5,
+            8,
+            11
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 17,
+          "name": "chimney",
+          "tag": "deco_roof",
+          "draw": "overlay",
+          "pen0": 74,
+          "bbox": [
+            1,
+            4,
+            6,
+            12
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 18,
+          "name": "antenna",
+          "tag": "deco_roof",
+          "draw": "overlay",
+          "pen0": 94,
+          "bbox": [
+            0,
+            0,
+            7,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 19,
+          "name": "tank_00",
+          "tag": "deco_tank",
+          "draw": "overlay",
+          "pen0": 69,
+          "bbox": [
+            1,
+            1,
+            7,
+            15
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 20,
+          "name": "tank_01",
+          "tag": "deco_tank",
+          "draw": "overlay",
+          "pen0": 69,
+          "bbox": [
+            0,
+            1,
+            7,
+            15
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 21,
+          "name": "tank_10",
+          "tag": "deco_tank",
+          "draw": "overlay",
+          "pen0": 32,
+          "bbox": [
+            2,
+            0,
+            6,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 22,
+          "name": "tank_11",
+          "tag": "deco_tank",
+          "draw": "overlay",
+          "pen0": 32,
+          "bbox": [
+            0,
+            0,
+            6,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 23,
+          "name": "tank_20",
+          "tag": "deco_tank",
+          "draw": "overlay",
+          "pen0": 52,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 24,
+          "name": "tank_21",
+          "tag": "deco_tank",
+          "draw": "overlay",
+          "pen0": 52,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 25,
+          "name": "ladder",
+          "tag": "ladder",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 26,
+          "name": "sidewalk",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 27,
+          "name": "curb",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 28,
+          "name": "street",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 29,
+          "name": "street_line",
+          "tag": "ground",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 30,
+          "name": "jamb_l",
+          "tag": "garage_frame",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 31,
+          "name": "sign_p",
+          "tag": "garage_frame",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 32,
+          "name": "jamb_r",
+          "tag": "garage_frame",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 33,
+          "name": "lock_red",
+          "tag": "garage_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 34,
+          "name": "shutter",
+          "tag": "garage_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 35,
+          "name": "shutter_bottom",
+          "tag": "garage_closed",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 36,
+          "name": "lock_green",
+          "tag": "garage_open",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 37,
+          "name": "open_ramp",
+          "tag": "garage_open",
+          "draw": "opaque",
+          "pen0": 72,
+          "bbox": [
+            0,
+            9,
+            8,
+            7
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        },
+        {
+          "index": 38,
+          "name": "lamp_top",
+          "tag": "deco_lamp",
+          "draw": "overlay",
+          "pen0": 78,
+          "bbox": [
+            1,
+            1,
+            6,
+            15
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 39,
+          "name": "lamp_pole",
+          "tag": "deco_lamp",
+          "draw": "overlay",
+          "pen0": 84,
+          "bbox": [
+            1,
+            0,
+            6,
+            16
+          ],
+          "mask_bytes": 64,
+          "empty": false
+        },
+        {
+          "index": 40,
+          "name": "crate",
+          "tag": "crate",
+          "draw": "opaque",
+          "pen0": 0,
+          "bbox": [
+            0,
+            0,
+            8,
+            16
+          ],
+          "mask_bytes": 0,
+          "empty": false
+        }
+      ]
+    }
+  ]
+}

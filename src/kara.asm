@@ -34,18 +34,37 @@ KARA_H          equ KCORE_BOX_H             ; 64 lines
 ; ---------------------------------------------------------------------
 KSET_CORE       equ 0                       ; idle, walk, jump, shoot
 KSET_EXTRA      equ 1                       ; run, roll
-KSET_ACT        equ 2                       ; climb, hang, use, hurt
-KSET_BYTES      equ 6
+KSET_ACT        equ 2                       ; hang, use, hurt, climb_turn, climb
+KSET_BYTES      equ 8
+KSET_TWO_FACED  equ 255                     ; ... every frame of this set is
 
-KARA_SETS:      db KCORE_PIN_BANK           ; facing right
+; AND THE FIRST BYTE OF A ROW IS WHERE THE SECOND FACING STOPS. `climb`
+; is drawn from BEHIND - she is on a ladder with her back to the player
+; - so it has no left and no right: mirrored, her holster and her braid
+; swap sides of a figure that is otherwise symmetric. It is stored once,
+; at the END of the right-facing blob, and the left-facing blob simply
+; stops before it (tools/build_levels.py). Every cel that DOES have two
+; facings is therefore at the same index in both, which is what lets
+; KARA_ANIMS name one frame number for both and the duration table be
+; the right-facing blob's.
+;
+; So a frame at or past this number is drawn out of the right-facing
+; blob whichever way she is facing, and the test costs 18 T against a
+; second frame table, a second duration table and 2,714 bytes of a bank
+; level 5 has not got.
+KARA_SETS:      db KSET_TWO_FACED
+                db KCORE_PIN_BANK           ; facing right
                 dw KCORE_PIN_ADDR
                 db KCORE_L_PIN_BANK         ; facing left
                 dw KCORE_L_PIN_ADDR
+                db 0                        ; pad: * 8 is three ADDs
 
+                db KSET_TWO_FACED
                 db KEXTRA_PIN_BANK
                 dw KEXTRA_PIN_ADDR
                 db KEXTRA_L_PIN_BANK
                 dw KEXTRA_L_PIN_ADDR
+                db 0
 
                 ; `kact` IS NOT PINNED, and this is the one set addressed
                 ; by its LEVEL. tools/level_banks.py pins kcore, kextra
@@ -54,10 +73,12 @@ KARA_SETS:      db KCORE_PIN_BANK           ; facing right
                 ; level 1 is the only one this demo loads. Module 6's
                 ; level reader turns these two rows into a table the
                 ; transition fills in - see CLAUDE.md 11.
+                db KACT_TWO_FACED           ; ... and from here she has one
                 db L1_KACT_BANK
                 dw L1_KACT_ADDR
                 db L1_KACT_L_BANK
                 dw L1_KACT_L_ADDR
+                db 0
 
 ; ---------------------------------------------------------------------
 ; KARA_SPAN_DRAW - composite her, clipped to the display.
@@ -76,14 +97,17 @@ KARA_SETS:      db KCORE_PIN_BANK           ; facing right
 ;      destroys AF,BC,DE,HL,B',C'
 ; ---------------------------------------------------------------------
 KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
-                ld   l,a
                 add  a,a
-                add  a,l
-                add  a,a                    ; * 6, the row's width
+                add  a,a
+                add  a,a                    ; * KSET_BYTES
                 ld   l,a
                 ld   h,0
                 ld   de,KARA_SETS
                 add  hl,de
+                ld   a,(KARA_FRAME)
+                cp   (hl)                   ; past the second facing's last?
+                inc  hl
+                jr   nc,.face               ; a back view: right blob, always
                 ld   a,(KARA_FACING)
                 or   a
                 jr   z,.face

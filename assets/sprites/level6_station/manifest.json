@@ -40,6 +40,12 @@
         "v_off": 1
       },
       "anchor": "tile grid, top-left; OVERLAY: pen 0 = transparent, draw over the background tile",
+      "overlay": [
+        "h_on",
+        "h_off",
+        "v_on",
+        "v_off"
+      ],
       "description": "Laser beam tiles (hazard). h_on: rows 7-9 (BRED/WHITE/BRED), flicker frame widens to rows 6-10; v_on: cols 2-4, flicker widens to cols 1-5. h_off / v_off: dim BROWN dotted guide on the beam line (harmless). Aligned with the emit_* tiles."
     },
     {

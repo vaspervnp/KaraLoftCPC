@@ -67,7 +67,25 @@ WORLD_W         equ MAP_W * TILE_W_BYTES    ; 128 tiles of 4 = 512 bytes,
                 ; art filled C4 (tilemap.asm), so the probes read it
                 ; wherever the window happens to be pointing - and the
                 ; 116 T this used to cost goes back to the frame.
-PLAYER_UPDATE:  ld   a,(KARA_CLIMB)
+                ; SHE IS STILL WHILE SHE TURNS TO THE LADDER. The cel
+                ; is drawn standing on the ground (CLAUDE.md 7.1), so
+                ; sliding it up a shaft or walking it along a street
+                ; would show a figure with its feet in the wrong place
+                ; for as long as it is up. Committed in action.asm, held
+                ; here: the two have to agree or she moves under a cel
+                ; that says she is not moving.
+PLAYER_UPDATE:  ld   a,(KARA_STATE)
+                cp   KST_CLIMB_TURN
+                ret  z
+                ; AND SHE TAKES NO INPUT ONCE SHE IS DEAD, but gravity
+                ; still owns her: the die cels are drawn standing on the
+                ; ground and settling onto it, so she has to reach it.
+                ; The body's own movement is inside the frames - nothing
+                ; here may move her while they play.
+                cp   KST_DIE
+                jr   z,.dead
+
+                ld   a,(KARA_CLIMB)
                 or   a
                 jp   nz,PLAYER_CLIMB        ; a ladder suspends both of them
 
@@ -81,6 +99,10 @@ PLAYER_UPDATE:  ld   a,(KARA_CLIMB)
                 ld   a,(KARA_CLIMB)
                 or   a
                 ret  nz
+                jp   PLAYER_Y
+
+.dead:          xor  a
+                ld   (KARA_CLIMB),a         ; a ladder does not hold a body
                 jp   PLAYER_Y
 
 ; ---------------------------------------------------------------------
@@ -254,14 +276,17 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 call BOX_SOLID_V
                 ret  nz                     ; still on something
                 xor  a
-                ld   (KARA_GROUND),a        ; walked off an edge
-                ld   (KARA_VY),a
+                ld   (KARA_GROUND),a        ; walked off an edge - which is
+                ld   (KARA_VY),a            ; a DROP and not a jump, and this
+                inc  a                      ; is the one place the two part
+                ld   (KARA_FELL),a          ; company (action.asm)
                 ret
 
 .jump:          ld   a,P_JUMP
                 ld   (KARA_VY),a
                 xor  a
                 ld   (KARA_GROUND),a
+                ld   (KARA_FELL),a          ; she chose this one
                                             ; fall through, so the jump moves
                                             ; her on the frame it is pressed
 
@@ -304,6 +329,7 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ld   (KARA_WY),a
                 xor  a
                 ld   (KARA_VY),a
+                ld   (KARA_FELL),a
                 inc  a
                 ld   (KARA_GROUND),a
                 ret
@@ -410,7 +436,57 @@ CLIMB_GRAB:     ld   hl,(KARA_WX)
                 ld   (KARA_GROUND),a
                 inc  a
                 ld   (KARA_CLIMB),a
+                jr   CLIMB_TURN_START       ; ... and turn to face it
+
+; ---------------------------------------------------------------------
+; CLIMB_TURN_START - play the one cel of her turning to the ladder.
+;
+; `climb` is a BACK view and idle, walk and hang are all side on, so
+; there is no cut from one to the other that does not read as her
+; spinning on the spot. The art has a single cel for it, and this is the
+; whole of playing it: the same five stores ACT_UPDATE's own .want makes
+; when a state changes, written from here because nothing action.asm can
+; see distinguishes the frame she grabs a ladder from the frame after.
+;
+; KST_CLIMB_TURN is COMMITTED, so ACT_UPDATE will hold it for the cel's
+; own duration and then re-decide - which lands on CLIMB or HANG going
+; up, and on IDLE or WALK coming off.
+;                                destroys AF
+; ---------------------------------------------------------------------
+CLIMB_TURN_START:
+                ld   a,KST_CLIMB_TURN
+                ld   (KARA_STATE),a
+                xor  a
+                ld   (KARA_DONE),a
+                dec  a                      ; 255: ACT_ANIMATE steps in the
+                ld   (KARA_ANIM),a          ; same call, so a state entered
+                ld   a,1                    ; at cel 0 shows its SECOND cel
+                ld   (KARA_TIMER),a         ; first - see action.asm
                 ret
+
+; ---------------------------------------------------------------------
+; CLIMB_TURN_OFF - the same cel, coming off the ladder onto a floor,
+; mirrored the way she is LEAVING.
+;
+; She has been facing whichever way she walked up to the shaft, and the
+; cel is side on, so the direction she is holding at the moment she
+; steps off is the one that reads right. Nothing is held: she keeps the
+; facing she arrived with.
+;                                destroys AF,BC
+; ---------------------------------------------------------------------
+CLIMB_TURN_OFF: ld   a,(INPUT_NOW)
+                ld   c,a
+                and  IN_LEFT
+                jr   z,.not_left
+                ld   a,1
+                ld   (KARA_FACING),a
+                jr   CLIMB_TURN_START
+.not_left:      ld   a,c
+                and  IN_RIGHT
+                jr   z,CLIMB_TURN_START
+                xor  a
+                ld   (KARA_FACING),a
+                jr   CLIMB_TURN_START
 
 ; ---------------------------------------------------------------------
 ; PLAYER_CLIMB - one frame on a ladder.
@@ -479,17 +555,26 @@ PLAYER_CLIMB:   ld   a,(INPUT_NOW)
                 ld   (KARA_WY),a
                 ; fall through
 
+                ; SHE ARRIVED ON A FLOOR, so she turns off the ladder
+                ; the way she turned onto it. CLIMB_LEAVE below does not:
+                ; that is the ladder ending in mid-air, and what follows
+                ; is a fall, which is a JUMP and not a turn.
 CLIMB_LAND:     xor  a
                 ld   (KARA_CLIMB),a
                 ld   (KARA_VY),a
+                ld   (KARA_FELL),a
                 inc  a
                 ld   (KARA_GROUND),a
-                ret
+                jp   CLIMB_TURN_OFF
 
+                ; LETTING GO IS A DROP, not a jump: the ladder ended in
+                ; mid-air and what follows is a fall she did not choose.
 CLIMB_LEAVE:    xor  a
                 ld   (KARA_CLIMB),a
                 ld   (KARA_VY),a
                 ld   (KARA_GROUND),a
+                inc  a
+                ld   (KARA_FELL),a
                 ret
 
 ; ---------------------------------------------------------------------
@@ -659,7 +744,8 @@ VIEW_NEXT_X:    ld   a,(H_PENDING)
                 ret
 
 VIEW_NEXT_CR:   ld   a,(V_PHASE)
-                cp   2
+                cp   V_PARTS                ; the row is whole, so the next
+                                            ; VSYNC is where the view moves
                 ld   a,(WORLD_CR)
                 ret  nz
                 ld   a,(V_WCR)
@@ -703,3 +789,5 @@ KARA_WY:        db 16           ; starts in the air and falls onto the roof.
 KARA_VY:        db 0
 KARA_GROUND:    db 0
 KARA_CLIMB:     db 0   ; non-zero while she is on a ladder
+KARA_FELL:      db 0   ; non-zero while she is in the air WITHOUT having
+                       ; jumped - which is `drop` and not `jump` (8.4)

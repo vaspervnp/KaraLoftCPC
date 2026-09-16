@@ -14,12 +14,24 @@
 ;   FIRE  SPACE released from AIM              shoot,      runs out
 ;   CLIMB UP or DOWN on a ladder               climb,      loops
 ;   HANG  on a ladder, nothing held            hang,       loops
+;   TURN  stepping on or off one                climb_turn, once
+;   DROP  off the ground WITHOUT jumping       drop,       loops
+;   DIE   hit points at zero                   die,        once, then holds
 ;
-; TWO OF THEM ARE COMMITTED. A roll runs its frames whatever the input
+; THREE OF THEM ARE COMMITTED. A roll runs its frames whatever the input
 ; does - that is what makes it a dodge rather than a nudge - and so does
 ; the shot, which is what stops a tapped trigger from playing one frame
 ; of a four-frame recoil. Everything else is re-decided every frame, so
 ; the input can change her mind mid-cel and usually should.
+;
+; THE THIRD IS THE LADDER TURN, and it is the only state nothing in this
+; file chooses. `climb` is a BACK view and everything around it is side
+; on, so she cannot cut from one to the other: the art has a single cel
+; of her turning to the ladder, and player.asm PLAYS it - at the moment
+; she grabs, and again when she steps off onto a floor - by writing the
+; state itself (CLIMB_TURN_START). Committed is what makes that stick
+; for the cel's own duration, and player.asm holds her still for exactly
+; as long, because the cel is drawn standing on the ground.
 ;
 ; THE CEL RATE COMES FROM THE ART. Every blob ships a Kxxxx_DURATION
 ; table - how many 50 Hz frames Aseprite held each cel for - and nine
@@ -39,7 +51,10 @@ KST_AIM         equ 5
 KST_FIRE        equ 6
 KST_CLIMB       equ 7           ; moving on a ladder
 KST_HANG        equ 8           ; ... and holding still on one
-KST_COUNT       equ 9
+KST_CLIMB_TURN  equ 9           ; ... and stepping on or off it
+KST_DROP        equ 10          ; falling, having not jumped
+KST_DIE         equ 11          ; ... and the last thing she does
+KST_COUNT       equ 12
 KST_BYTES       equ 4
 
 ; set, first frame in that blob, cels, loops?
@@ -52,6 +67,9 @@ KARA_ANIMS:     db KSET_CORE,  KCORE_IDLE_FIRST,       KCORE_IDLE_COUNT,       1
                 db KSET_CORE,  KCORE_SHOOT_FIRST,      KCORE_SHOOT_COUNT,      0
                 db KSET_ACT,   KACT_CLIMB_FIRST,       KACT_CLIMB_COUNT,       1
                 db KSET_ACT,   KACT_HANG_FIRST,        KACT_HANG_COUNT,        1
+                db KSET_ACT,   KACT_CLIMB_TURN_FIRST,  KACT_CLIMB_TURN_COUNT,  0
+                db KSET_ACT,   KACT_DROP_FIRST,        KACT_DROP_COUNT,        1
+                db KSET_ACT,   KACT_DIE_FIRST,         KACT_DIE_COUNT,         0
 
 ; One duration table per SET, indexed by the frame's number in its blob.
 KARA_DURATIONS: dw KCORE_DURATION
@@ -81,9 +99,24 @@ ACT_ROW:        add  a,a
 ;        (KARA_SET), (KARA_FRAME).
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-ACT_UPDATE:     ; ---- is the current state still owed its frames? -----
+ACT_UPDATE:     ; ---- nothing survives this -------------------------
+                ; DIE pre-empts the committed states as well, because the
+                ; artist drew its first cel as a recoil precisely so it
+                ; can be cut to from anything she is standing in. It has
+                ; no exit: the run holds its last cel, and the test above
+                ; keeps choosing it, so she stays down until something
+                ; puts her hit points back - which is the respawn's job
+                ; and does not exist yet.
+                ld   a,(PLAYER_HP)
+                or   a
+                ld   a,KST_DIE
+                jp   z,.want
+
+                ; ---- is the current state still owed its frames? -----
                 ld   a,(KARA_STATE)
                 cp   KST_ROLL
+                jr   z,.committed
+                cp   KST_CLIMB_TURN
                 jr   z,.committed
                 cp   KST_FIRE
                 jr   nz,.choose
@@ -108,10 +141,23 @@ ACT_UPDATE:     ; ---- is the current state still owed its frames? -----
                 jr   .want
 
                 ; ---- off the ground beats everything ----------------
+                ; A JUMP AND A FALL ARE DIFFERENT ANIMATIONS. `jump` is
+                ; the arc she chose; `drop` is the ground going away -
+                ; walking off a roof, or letting go of a ladder. The
+                ; physics is identical and only the cels differ, so the
+                ; one bit that tells them apart is written where the two
+                ; part company (player.asm) rather than worked out here
+                ; from a velocity that looks the same halfway down.
 .not_climb:     ld   a,(KARA_GROUND)
                 or   a
+                jr   nz,.on_feet
+                ld   a,(KARA_FELL)
+                or   a
+                ld   a,KST_DROP
+                jr   nz,.want
                 ld   a,KST_JUMP
-                jr   z,.want
+                jr   .want
+.on_feet:
 
                 ; ---- a roll is DOWN AND A DIRECTION, from the ground -
                 ; It was Z. It is the two keys a player's hands are

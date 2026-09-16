@@ -41,14 +41,26 @@ pistols and die (§8.7).
 from the roof's own row, and the street is 128 pixels below the roof —
 far enough that the 192-line display cannot show both. So reaching the
 pavement IS the vertical scroll, driven by the player rather than by a
-test poking `V_REQUEST`, and it is what §8.2 built the axis for. See
-§8.8.
+test poking `V_REQUEST`, and it is what §8.2 built the axis for. She
+turns to the ladder before she climbs it and turns off it again at the
+bottom, because the climb is drawn from BEHIND and everything either
+side of it is side on. See §8.8.
+
+**She can also fall and she can die.** `drop` is a fall she did not
+choose — walking off a roof edge, or letting go of a ladder — as
+against the `jump` arc she asked for; `die` plays once and then holds
+its last cel, and pre-empts everything including the committed states.
+Nothing puts her back on her feet yet: there is no respawn and no game
+over, and `ACT_UPDATE` chooses `die` from `PLAYER_HP == 0` and will
+stop the moment something restores it. See §8.4.
 
 `./tools/run_tests.sh` runs every acceptance suite and **all sixteen
 pass**, including the frame budget: a scrolling frame on Kara's
 heaviest animation frame is 79,712 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
-numbers are in §9.
+incoming ROW is painted in four pieces rather than two, because the
+action sheet's cels are heavier than the gun's and a half row no longer
+fits beside one. The numbers are in §9.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -82,7 +94,8 @@ tools/png2sprite.py        sprite sheet  -> data+mask binary (the placeholder)
 tools/aseprite2spans.py    Aseprite sheet+JSON -> span-compressed bank
 tools/spawns.py            projectile spawn points -> build/spawns.inc
 tools/pack.py              ZX0 for everything that goes on the disc
-tools/build_levels.py      the level art packages -> blobs, both facings
+tools/build_levels.py      the level art packages -> blobs, and which of
+                           them get a second facing
 tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
 tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
@@ -243,41 +256,54 @@ counted in every level:
 
 | level | unpacked | banks | packed | set pieces |
 |---|---:|---:|---:|---:|
-| 1 city | 62,048 | 4 | 14,223 | 487 |
-| 2 forest | 74,459 | 5 | 17,782 | — |
-| 3 cave | 65,507 | 5 | 16,242 | — |
-| 4 undersea | 59,226 | 4 | 13,877 | 1,074 |
-| 5 desert | 76,553 | 5 | 16,066 | 2,101 |
-| 6 station | 63,065 | 4 | 14,647 | 1,255 |
+| 1 city | 68,420 | 5 | 16,916 | 487 |
+| 2 forest | 78,109 | 5 | 19,547 | — |
+| 3 cave | 71,879 | 5 | 18,888 | — |
+| 4 undersea | 63,296 | 5 | 15,838 | 1,074 |
+| 5 desert | 71,989 | 5 | 17,356 | 2,101 |
+| 6 station | 66,715 | 5 | 16,736 | 1,255 |
 
 **Five banks, not four.** The window shows bank 1 as well as 4-7, so
-there are 81,920 bytes of art storage; level 2 and level 5 need all
-five. That puts the "level logic, collision data, entity management"
-of §6.1 into `&8000-&BFFF` instead, which has 14 KB free after the
-save-under buffers.
+there are 81,920 bytes of art storage — 80,896 after the bake reserve
+above — and **every level now needs all five.** That puts the "level
+logic, collision data, entity management" of §6.1 into `&8000-&BFFF`
+instead, which has 14 KB free after the save-under buffers.
 
-Two rules make it fit at all:
+**The heroine is two thirds of it.** `kcore` and `kcore_l` are 10,802
+each, `kextra` and `kextra_l` 6,931, `kact` 10,659 and `kact_l` 7,937:
+**53,062 bytes before a level has drawn a single tile.** The action
+sheet is what moved it — `drop` and `die` added 8,144 to every level at
+once, and at that point level 2 had 65 bytes of slack and level 5 was
+2,029 over. Four rules make it fit, and the last two are new:
 
 * **The set pieces load separately.** The escape car, the shuttle, the
   base door, the escape pod, the siphon and the computer are one fixed
   moment each; together they are 60 KB that never has to be resident
-  during play. Level 5 is 55,526 bytes of art and 28,134 of it is the
+  during play. Level 5 is 100,123 bytes of art and 28,134 of it is the
   finale.
 * **The swim set replaces the run/roll set.** She does not run or roll
   under water and she does not swim anywhere else.
+* **A level with no ladder carries no `climb`.** Only levels 1 and 3
+  have a `ladder` tile in their tilesets and `level_banks.py` reads that
+  off `tile_table.json` rather than being told; the other four take an
+  action blob 2,714 bytes shorter, with every frame they DO get at the
+  same index (§7.1).
+* **A character that never moves gets one facing.** `desert_nomad` and
+  `desert_informant` are the only two in the game whose sheets have no
+  movement tag. 8,214 bytes, and level 5 does not fit without them.
 
 **The banks are reloaded from disc at every level transition, and that
 is what makes this fit.** The earlier map gave a bank to each PAIR of
 levels' tiles, which only works while the tiles are the only large
-asset. Kara alone is 36 KB across both facings (§7.1) and the six enemy
-types are another 23 KB; one level's tiles are 3 KB. Since only one
+asset. Kara alone is 53 KB across both facings (§7.1) and the seven
+characters another 23 KB; one level's tiles are 3 KB. Since only one
 level is ever loaded, "levels 1-2 / 3-4 / 5-6" was paying three banks
 for something one bank holds at a time.
 
 **Everything on the disc is ZX0-packed** (§7.4) as one stream per bank,
-so a level transition reads 14-18 KB rather than 60-77 KB. Unpacking it
-costs **0.8-1.05 s** — measured on a 6128, all six levels, byte-exact
-(§7.5). The whole game's art packs to 97,754 bytes, which would fit in
+so a level transition reads 16-20 KB rather than 63-78 KB. Unpacking it
+costs **0.89-1.11 s** — measured on a 6128, all six levels, byte-exact
+(§7.5). The whole game's art packs to 110,198 bytes, which would fit in
 RAM; the unpacked working set would not, which is why it is a disc read
 and not a one-off load at boot.
 
@@ -455,6 +481,90 @@ and a separate swimming sheet, `heroine_cpc_mode0_swim.aseprite`, of 12
 frames at **64×24** — she is horizontal in the water — tagged `swim`
 (8) and `swim_shoot` (4).
 
+#### The ACTION sheet, and the one tag in it that has no left and right
+
+`heroine_actions_cpc_mode0.aseprite` is the second land sheet: same
+24×64 box, **144×448, 19 frames, one tag to a sheet row**, nothing
+dropped. It is where everything that is not walking, jumping or
+shooting lives:
+
+| tag | frames | sheet row | ms | plays | mirrored |
+|---|---:|---:|---|---|---|
+| `climb` | 4 | y=0 | 120 each | loops | **NO — see below** |
+| `hang` | 2 | y=64 | 240 | loops | yes |
+| `use` | 2 | y=128 | 140, 220 | once | yes |
+| `hurt` | 2 | y=192 | 90, 130 | once | yes |
+| `climb_turn` | 1 | y=256 | 120 | once | yes |
+| `drop` | 2 | y=320 | 100 each | loops | yes |
+| `die` | 6 | y=384 | 90,120,130,160,110,600 | once, then **holds** | yes |
+
+**`climb` IS DRAWN FROM BEHIND.** She is on a ladder with her back to
+the player, so the cel has no left and no right: mirrored, her holster
+and her braid swap sides of a figure that is otherwise symmetric, and
+nothing about the pixels says so. **It is stored once**, and
+`--single-facing climb` is how:
+
+* the tag is emitted **LAST** in the right-facing blob, so every cel
+  that does have two facings keeps the same index in both blobs — which
+  is what lets `KARA_ANIMS` name one frame number for both and
+  `KARA_DURATIONS` point at the right-facing blob's table;
+* the mirrored blob simply stops before it — `kact` is 19 frames and
+  10,659 bytes, `kact_l` is 15 and 7,937;
+* the exporter emits `KACT_TWO_FACED`, and `src/kara.asm` puts it in
+  the `KARA_SETS` row: **a frame at or past that number is drawn out of
+  the right-facing blob whichever way she is facing**, at 18 T against a
+  second frame table, a second duration table and 2,714 duplicated
+  bytes (§8.10).
+
+`tools/test_climb.py` checks it on the screen rather than in the table
+— the same cel must come out pixel for pixel with `KARA_FACING` either
+way round, while `climb_turn`, which is side on, must not — and its
+negative control tells `KARA_SETS` the set has two facings all the way
+up and watches the left blob index past the end of its own frame table.
+
+**`climb_turn` is what makes the back view usable at all.** Everything
+around it — idle, walk, hang — is side on, so there is no cut from one
+to the other that does not read as her spinning on the spot. The artist
+drew one cel of her turning to the ladder, standing on the ground with
+her sole on line 63 like `idle`, and it plays once at each end:
+
+```
+idle/walk -> climb_turn -> climb (loop)          stepping on
+climb     -> climb_turn -> idle/walk             stepping off onto a floor
+```
+
+mirrored the way she is LEAVING, which is the direction held at the
+moment she steps off. **The engine holds her still while it is up**,
+because the cel is drawn standing on the ground and sliding it up a
+shaft would put her feet through the wall — §8.4 for how, §8.8 for where.
+
+**`drop` is a fall she did not choose** — walking off a roof, or letting
+go of a ladder that ends in mid-air — as against `jump`, which is the
+arc she asked for. The physics is identical and only the cels differ,
+so `KARA_FELL` is written where the two part company and not worked out
+from a velocity that looks the same halfway down (§8.4). Its two cels
+are a line apart vertically, which is the shake; the body is placed
+from the hips like `jump`, not from the ground.
+
+**`die` runs once and then holds its last cel for ever.** Its first cel
+is a recoil, drawn so it can be cut to from any standing state, so it
+pre-empts even the committed states of §8.4; the body walks BACKWARD
+inside the frame as she kneels, so **nothing in the engine may move her
+while it plays** — the movement is in the art. She keeps her input
+locked out and gravity keeps her, so a death in mid-air still reaches
+the floor. There is no way out of it yet because there is no respawn:
+`ACT_UPDATE` chooses it from `PLAYER_HP == 0` and will stop choosing it
+the moment something puts her hit points back.
+
+**Which frames a level carries is not the same question as which frames
+exist.** Only levels 1 and 3 have a `ladder` tile in their tileset, and
+`tools/level_banks.py` reads that off `tile_table.json` (§7.3) rather
+than being told: the other four take a blob that stops before `climb`
+and is 2,714 bytes smaller. After `drop` and `die` joined the sheet
+there was no level with room to carry frames it cannot draw — level 5
+is 80,203 bytes of 80,896 with them and does not pack. The frames it
+does get are at the same indices, so nothing in the engine changes.
+
 #### Frames are stored as SPANS, not boxes
 
 A full box would be 12 × 64 = 768 bytes of data and as much mask, so
@@ -509,9 +619,11 @@ its frames from zero, so each bank is self-contained:
 
 | blob | tags | bytes | spare in a 16 KB bank |
 |---|---|---:|---:|
-| `kara_core.bin` / `_l` | idle, walk, jump, shoot_draw, shoot | 10,910 | 5,474 |
-| `kara_extra.bin` / `_l` | run, roll | 7,155 | 2,074 for the pair |
-| `kara_swim.bin` / `_l` | swim, swim_shoot | 6,464 | 3,456 for the pair |
+| `kcore.bin` / `_l` | idle, walk, jump, shoot_draw, shoot | 10,802 | 5,582 |
+| `kextra.bin` / `_l` | run, roll | 6,931 | 2,522 for the pair |
+| `kswim.bin` / `_l` | swim, swim_shoot | 6,450 | 3,484 for the pair |
+| `kact.bin` | hang, use, hurt, climb_turn, drop, die, **climb** | 10,659 | 5,725 |
+| `kact_l.bin` | ... the same minus `climb`, which is a back view | 7,937 | 8,447 |
 
 **That makes the 24×64 sprite CHEAPER to draw than the 16×48 one it
 replaces** (30,072 T), which is the opposite of what §9 concluded when
@@ -544,14 +656,29 @@ instead — and after the nine dropped frames there is a bank:
 
 | | one facing | both |
 |---|---:|---:|
-| `kara_core` idle/walk/jump/shoot | 10,910 B | 21,820 B — two banks |
-| `kara_extra` run/roll | 7,155 B | 14,310 B — one bank |
-| `kara_swim` | 6,464 B | 12,928 B — one bank |
+| `kcore` idle/walk/jump/shoot | 10,802 B | 21,604 B — two banks |
+| `kextra` run/roll | 6,931 B | 13,862 B — one bank |
+| `kswim` | 6,450 B | 12,900 B — one bank |
+| `kact` the actions | 10,659 B | 18,596 B — the back view is not doubled |
 
 `--mirror` emits the left-facing blob: each line's span moves to
 `BOX_W - skip - count`, its bytes reverse, and each byte's two pixels
 swap. `test_spans.py` checks those blobs against the art flipped, not
 merely against themselves.
+
+**And a tag with no left and right is stored ONCE** — `climb`, which is
+a back view. `--single-facing` puts those tags at the end of the
+right-facing blob and leaves them out of the mirrored one; every other
+cel keeps its index in both, and `{NAME}_TWO_FACED` tells the engine
+where the second facing stops. See the action sheet above.
+
+**Two characters get one facing for the same kind of reason.**
+`desert_nomad` and `desert_informant` are the only two in the whole
+game with **no movement tag** — `idle` and `talk`, nothing else; every
+other character walks, runs, flies, charges or scans. They stand where
+the designer puts them and say a line, so they are drawn the way the
+artist drew them and the player walks round to the front. It is 8,214
+bytes and level 5 has not got them (§7.5).
 
 #### Mask convention
 
@@ -602,7 +729,7 @@ the next new colour costs a used one.
 The art arrives as `assets/sprites/level<n>_<name>/` with a
 `manifest.json` listing that level's sheets and what each is for, plus
 a shared set at the top (the heroine, her actions, the projectiles) and
-in `common/` (the HUD). **622 frames across 55 sheets.**
+in `common/` (the HUD). **631 frames across 56 sheets.**
 
 `tools/build_levels.py` walks all of it: tiles out raw, everything else
 span-compressed, both facings for anything that turns to face her.
@@ -617,7 +744,9 @@ heavy) was the first pass; the art now has `city_agent`,
 `forest_sniper`, `cave_excavator`, `desert_mercenary`, `desert_nomad`,
 `desert_informant` and `station_cyber`, one or more per level, in that
 level's own directory. `common/preview_chars_lineup.png` is the set.
-The generic sheet and `enemies_swim` are no longer exported.
+The generic sheet and `enemies_swim` are no longer exported. **Five of
+the seven get both facings and two do not** — the tags say which, and
+the rule is above.
 
 **A blob has to fit one bank whole**, because its frame table is at its
 start and its offsets are relative to it. Only the set pieces come
@@ -796,7 +925,7 @@ wins on both axes at once**, which is unusual and is why there is no
 trade-off to argue about. Use `dzx0_standard` instead only if 119 bytes
 of core image ever matter more than two frames of load time.
 
-The whole asset set is **140,602 bytes raw, 40,177 packed — 28.6%**.
+The whole asset set is **224,897 bytes raw, 45,035 packed — 20%**.
 Sprite data packs hardest (17-29%) because the masks are nearly all
 `&00` or `&FF` and adjacent frames share most of their bytes; the
 dithered title screen packs worst (59%) because dithering is noise.
@@ -831,7 +960,7 @@ tools/test_levels.py    every bank of all six levels, byte-exact on a
 `LEVEL_STAGE` is `&8000`. **The staging buffer cannot be in the window**
 — the unpacker reads from it and writes to `&4000-&7FFF` — so it sits
 in base RAM on top of the save-under buffers, which are scratch while a
-level is changing. The biggest stream measured is 4,695 bytes against
+level is changing. The biggest stream measured is 4,836 bytes against
 8 KB of room.
 
 #### Getting it off the disc: the engine drives the 765 itself
@@ -928,15 +1057,15 @@ Measured end to end, `LEVEL_LOAD` off a real disc image:
 
 | level | banks | T | |
 |---|---:|---:|---:|
-| 1 city | 4 | 5,716,176 | 1.43 s |
-| 2 forest | 5 | 6,956,952 | **1.74 s** |
-| 3 cave | 5 | 6,272,852 | 1.57 s |
-| 4 undersea | 4 | 5,505,196 | 1.38 s |
-| 5 desert | 5 | 6,507,456 | 1.63 s |
-| 6 station | 4 | 5,855,936 | 1.46 s |
-| a set piece | 1-2 | | 0.20-0.45 s |
+| 1 city | 5 | 6,497,920 | 1.62 s |
+| 2 forest | 5 | 7,404,240 | **1.85 s** |
+| 3 cave | 5 | 7,056,908 | 1.76 s |
+| 4 undersea | 5 | 6,093,152 | 1.52 s |
+| 5 desert | 5 | 6,622,436 | 1.66 s |
+| 6 station | 5 | 6,435,328 | 1.61 s |
+| a set piece | 1-2 | | 0.20-0.46 s |
 
-of which 0.14 s is motor spin-up, ~0.6 s the read and ~1 s the
+of which 0.14 s is motor spin-up, ~0.6 s the read and ~1.1 s the
 unpacking. `tools/test_levels.py` loads every set of every level and
 compares each bank byte for byte; flipping a single byte of one sector
 makes it report 12,144 wrong, because ZX0 amplifies.
@@ -1012,6 +1141,27 @@ Splitting the column across two frames is what buys the whole top border for
 `KARA_DRAW`. Painting all 24 rows first left her starting 23,500 T in and the
 beam overtook her; painting her first left the column's top rows under the
 beam. Either way `DRAW_COLUMN` must run **top to bottom**.
+
+**The incoming ROW is split FOUR ways, and the number is a frame-budget
+decision and nothing else.** Nothing the beam can see changes until the
+latch, so how many frames the row is painted over is free — it only
+costs latency. It was two halves of 16,742 T, and that fitted until
+`climb` arrived: the back view is 324 span bytes and **55,548 T drawn
+and erased, more than her heaviest gun cel**, so a half row on the
+frame it landed on took the loop to **195 iterations per 200 hardware
+frames**. Four quarters are 9,192 T each and it is 200 again — measured
+on the five frames that dropped, every one of them a frame with a paint
+in it. `V_PARTS` is the constant.
+
+That makes a vertical step **five frames**: `SCROLL_V_STEP` and part 0,
+then `SCROLL_V_PART` three times, then `SCROLL_VBLANK` latches R12/R13.
+A climb at `P_CLIMB` = 1 needs the next row after eight, so the camera
+still keeps up; a level that scrolls faster than a row every five frames
+does not tear, it lags — which is what the three-frame version did
+sooner. **A test that counts FRAMES to drive this axis is counting the
+wrong thing** and `tools/test_module4.py` says so: written against the
+old cadence it sampled five steps where it used to sample eight, and its
+tearing negative control passed for the wrong reason.
 
 **The camera keeps her BEHIND the middle of where she is going.** One
 fixed column cannot do that in both directions, so the mark moves with
@@ -1175,8 +1325,43 @@ the frame counts in §7.1 rather than inferred at each call site.
 | `ROLL` | `roll` 8 | **DOWN + left or right**, on the ground | the 8 frames are done |
 | `AIM` | `shoot_draw` 2 then hold | **SPACE held** | SPACE released |
 | `FIRE` | `shoot` 4 | **SPACE released** from `AIM` | the 4 frames are done |
+| `CLIMB` | `climb` 4 | UP or DOWN on a ladder | she steps off it |
+| `HANG` | `hang` 2 | on a ladder, nothing held | UP or DOWN |
+| `TURN` | `climb_turn` 1 | grabbing a ladder, or stepping off one onto a floor | the cel's own 120 ms |
+| `DROP` | `drop` 2 | off the ground **without having jumped** | she lands |
+| `DIE` | `die` 6 | `PLAYER_HP` reaches 0 | **never** — it holds its last cel |
 | `SWIM` | `swim` 8 | level 4, in water | out of the water |
 | `SWIM_FIRE` | `swim_shoot` 4 | SPACE released while swimming | the 4 frames are done |
+
+**A JUMP AND A FALL ARE DIFFERENT ANIMATIONS AND THE SAME PHYSICS.**
+`jump` is the arc she chose; `drop` is the ground going away — walking
+off a roof edge, or letting go of a ladder that ends in mid-air. Only
+the cels differ, so nothing can tell them apart from the state halfway
+down: `KARA_FELL` is set in the two places where the ground goes away
+without her asking (`PLAYER_Y`'s "walked off an edge" and
+`CLIMB_LEAVE`) and cleared in the three where she chooses to leave it or
+arrives back on it (`.jump`, `.land`, `CLIMB_LAND`).
+
+**THE LADDER TURN IS THE ONE STATE NOTHING IN `action.asm` CHOOSES.**
+`climb` is a back view and idle, walk and hang are all side on, so she
+cannot cut from one to the other (§7.1). `player.asm` plays the cel by
+writing the state itself — `CLIMB_TURN_START` at the grab,
+`CLIMB_TURN_OFF` when she steps off onto a floor, which also faces her
+the way she is leaving. It is COMMITTED, which is what makes it stick
+for the cel's own duration, and `PLAYER_UPDATE` **holds her still for
+exactly as long**: the cel is drawn standing on the ground, and the two
+have to agree or she moves under a cel that says she is not moving.
+
+**DEATH PRE-EMPTS EVERYTHING, INCLUDING THE COMMITTED STATES.** The
+artist drew `die`'s first cel as a recoil precisely so it can be cut to
+from anything she is standing in, so the `PLAYER_HP == 0` test is the
+first thing `ACT_UPDATE` does — 30 T a frame. While it plays she takes
+no input but gravity still owns her, so a death in mid-air reaches the
+floor; **nothing moves her sprite**, because the body's own walk
+backward as she kneels is inside the frames. It has no exit: the run
+holds its last cel and the test keeps choosing it, so she stays down
+until something puts her hit points back. **There is no respawn and no
+game over yet** — that is §11 step 8's, and this is the hook it needs.
 
 **The gun is draw-hold-release, not a trigger.** SPACE going down plays
 `shoot_draw` and then holds its last frame; SPACE coming up plays
@@ -1185,8 +1370,11 @@ the frame counts in §7.1 rather than inferred at each call site.
 muzzle's X inside the box — the bullet spawns there, not at the edge of
 the sprite.
 
-A roll is committed: it runs its 8 frames whatever the input does, which
-is what makes it a dodge. It cannot start in the air.
+**Three states are committed**: a roll runs its 8 frames whatever the
+input does, which is what makes it a dodge and not a nudge; the shot
+runs its 4, which is what stops a tapped trigger playing one frame of a
+four-frame recoil; and the ladder turn runs its one. A roll cannot start
+in the air.
 
 **Implemented** - `src/action.asm`, one table, driven by
 `tools/test_actions.py`. Two things about it are worth having written
@@ -1581,14 +1769,29 @@ others hands the wheel back on the frames it skips and measures the
 camera's correction as a step in the wrong direction.
 `tools/test_module4.py`'s `vstep` says so.
 
+**SHE TURNS TO THE LADDER AND TURNS OFF IT AGAIN.** `climb` is a back
+view and everything around it is side on, so one cel of `climb_turn`
+plays at each end (§7.1): `CLIMB_GRAB` starts it, `CLIMB_LAND` starts it
+again — facing the way she is leaving — and `CLIMB_LEAVE` does not,
+because a ladder that ended in mid-air is followed by a fall and a fall
+is `drop`, not a turn. **`PLAYER_UPDATE` holds her still while it is
+up.** The cel is drawn standing on the ground with her sole on line 63,
+so sliding it up a shaft would draw her feet through the wall; the state
+is committed in `action.asm` for exactly as long, and the two have to
+agree.
+
 `tools/test_climb.py` drives the whole thing from the joystick — onto
 the ladder, down to the pavement, along it, back up to the roof — and
 checks her feet land on exactly the surface lines above, that the view
-travelled its full range, that the cels come out of `kact` and not
-`kcore`, and that the loop still holds 50 Hz. Its negative control takes
-`TA_CLIMB` off the ladder tile, after which DOWN does nothing at all:
-without it the suite would pass on a build where DOWN simply dropped her
-through a hole in the roof.
+travelled its full range, that the turn plays first and holds her where
+she is for the art's own beat, that the cels come out of `kact` and not
+`kcore`, and that the loop still holds 50 Hz. It also checks the back
+view **on the screen**: a climb cel must come out pixel for pixel with
+`KARA_FACING` either way round while `climb_turn`, which is side on,
+must not. Two negative controls — `TA_CLIMB` taken off the ladder tile,
+after which DOWN does nothing at all, and `KARA_SETS` told the action
+set has two facings all the way up, after which the left-hand draw
+indexes past the end of `kact_l`'s frame table.
 
 ### 8.9 The art package's mockups are the reference for composition
 
@@ -1645,12 +1848,19 @@ edge to stand on the lip of; the ladder showed it at once (§8.8).
 
 | | |
 |---|---|
-| every cel's last drawn line | 63 — all 18 of `kcore`, all 10 of `kact`, 11 of `kextra`'s 13 (the two at 60 are run cels with the back foot lifted) |
+| every cel's last drawn line | 63 wherever she is standing on something — all 18 of `kcore`, 11 of `kextra`'s 13, and 13 of `kact`'s 19 |
 | her boots' byte range | 3..8 on idle and walk, 1..9 at the widest stride |
 
 so the box is the full 64 lines and 6 bytes at an offset of 3. Her
 boots now rest ON the floor line, which is what the artist's
 `mockup_city.png` draws (§8.9).
+
+**The six that stop at 62 are the six with nothing on the floor**, and
+they are drawn from the body rather than from the ground: `climb` 1 and
+3, which is the one-line bob written into the ladder cycle; `drop` 0,
+placed from the hips like a `jump` cel; and `die` 3, 4 and 5, where she
+is already down and the body has walked backward inside the frame. None
+of them is standing, so none of them measures the box.
 
 **What else moved with it**, and each of these was a mixed-unit bug:
 
@@ -1722,11 +1932,11 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 
 | Loop | iterations per 200 hardware frames | |
 |---|---:|---|
-| standing still | 201 | **locked** |
-| walking right, scrolling, no enemy | 200 | **locked** |
+| standing still | 200 | **locked** |
 | walking right with a drone in view | 199 | one frame an encounter |
-| turning round, with a drone in view | 198 | two, through the camera's pan |
-| walking right and FIRING, with a drone | 199 | the pool costs her nothing now |
+| turning round, with a drone in view | 199 | the camera's pan |
+| walking right and FIRING, with a drone | 198 | the pool costs her nothing now |
+| jumping and firing, scrolling | 198 | |
 | climbing down the ladder | 200 | **locked** — and the view scrolling with her |
 | standing on the street | 201 | **locked** |
 | walking the street | 201 | **locked** |
@@ -1758,6 +1968,32 @@ between them — `CLIMB_ENTER` on every grounded frame, `CAMERA_V` on
 every frame, and `ENEMY_PICK`'s new vertical cull. `ENT_UPDATE` is the
 other 2,000: it sweeps the entity table on every other frame and the
 table went from nine records to ten.
+
+#### The action sheet moved the worst case, and the row paint paid for it
+
+The heaviest cel in the game is no longer a gun cel. Measured draw plus
+erase, `kact` against `kcore`'s worst:
+
+| cel | span bytes | lines | draw | erase | both |
+|---|---:|---:|---:|---:|---:|
+| `drop` 1 | 294 | 63 | 43,496 | 13,140 | **56,636** |
+| `drop` 0 | 315 | 62 | 42,180 | 13,548 | 55,728 |
+| `climb` 0 | 324 | 62 | 41,784 | 13,764 | 55,548 |
+| `kcore` `shoot` | 324 | 58 | 41,064 | 13,380 | 54,444 |
+| `die` 5, the cel she holds | 133 | 19 | 17,720 | 5,052 | 22,772 |
+
+**`drop` 1 carries 21 span bytes FEWER than `drop` 0 and costs 1,316 T
+more**, which is §7.1's per-line bookkeeping showing through: it is a
+line taller and its spans group worse. Bytes alone do not order these.
+
+A `climb` cel and a **half** of the incoming row (16,742 T) came to
+72,290 before the logic, and the loop dropped **five frames in 200**
+climbing — every one of them on a frame with a paint in it, measured by
+counting loop iterations against hardware frames one at a time rather
+than in aggregate. Splitting the row four ways (§8.2) puts a quarter at
+**9,192 T** and the climb back at **200 of 200**. The heaviest case
+left is a `drop` cel over a vertical step at 65,828 T before the logic,
+and the two axes cannot fire together (§8.8).
 
 It was 79,452 with 420 to spare before the enemies went in, and the
 4,300 came out of the logic, not the drawing:
@@ -2132,7 +2368,7 @@ the next one starts.
    4. ~~the level loader~~ — done: `src/disc.asm` drives the uPD765,
       `src/unpack.asm` unpacks a bank image, and `LEVEL_LOAD` chains
       them. Every set of every level loads off a real disc image and
-      comes back byte-exact, in 1.38-1.74 s (§7.5);
+      comes back byte-exact, in 1.52-1.85 s (§7.5);
    5. ~~wire the span blitter in~~ — done: `src/kara.asm` pages the
       facing's bank, finds the frame, clips it to the display and hands
       the rest to `SPAN_DRAW`; the loop calls it and `SPAN_ERASE`, and
@@ -2191,8 +2427,23 @@ the next one starts.
       `CAMERA_V` — the first thing but a test to drive §8.2's vertical
       axis. `tools/test_climb.py` drives all of it from the joystick and
       carries a negative control. See §8.8;
-   11. `tools/test_module5.py` — started, with the bullet/tile checks in
+   11. ~~the rest of the action sheet~~ — done: `climb_turn`, `drop` and
+      `die` are states of §8.4, the back-view `climb` is stored once and
+      drawn from the right-facing blob whichever way she faces (§7.1),
+      and the incoming row is painted in four pieces because the new
+      cels are heavier than the gun's (§8.2, §9). What that cost the
+      memory map is §6.2: a level with no ladder carries no `climb`, and
+      the two characters who never move carry one facing;
+   12. `tools/test_module5.py` — started, with the bullet/tile checks in
       it. It still owes the rest of the module.
+
+   **What the action sheet needs that does not exist yet**: there is no
+   `hurt` state, no respawn and no game over. `die` is chosen from
+   `PLAYER_HP == 0` and holds its last cel for ever, which is the hook
+   the level FSM (step 8) plugs into; `use` and `hurt` are exported and
+   nothing plays them. **And a deadly fall is not a thing the engine
+   knows**: `drop` ends in `idle` however far she fell, because there is
+   no fall damage to turn it into a `die`.
 6. **The level format, engine side** — 8×16 tiles and a 20×11 play
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
    `collide.asm`'s probes, then a reader for `level_<n>.lvl` and
