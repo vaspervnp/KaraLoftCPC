@@ -840,7 +840,9 @@ EBUL_UPDATE:    ld   a,(EBUL_LIVE)
 ;
 ; Her box is in WORLD units and the round is in SCREEN ones, so the
 ; comparison is done on screen: KARA_X and KARA_Y are where the loop
-; draws her, which is exactly where the player sees her get hit.
+; draws her, which is exactly where the player sees her get hit. KARA_X
+; is her SPRITE's left edge, so KARA_ART_X puts the box back on her body
+; - a round that passed six pixels to her left used to count as a hit.
 ;                                destroys AF,BC,DE
 ; ---------------------------------------------------------------------
 EBUL_HITS_HER:  push hl
@@ -849,6 +851,7 @@ EBUL_HITS_HER:  push hl
                 inc  hl
                 ld   e,(hl)                 ; its screen line
                 ld   a,(KARA_X)
+                add  a,KARA_ART_X
                 ld   c,a
                 ld   a,d
                 sub  c

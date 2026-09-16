@@ -75,8 +75,10 @@ def stripe_byte(table, line):
     return table[band] if band < len(table) else None
 
 
-KARA_HOME_Y = 96      # her box is 64 lines now, so 96 + 64 = 160,
-                      # the same floor the 48-line sprite stood on
+KARA_HOME_Y = 96      # the DEV SCREEN's own line for the 16x48
+                      # placeholder, in the middle of the stripes at
+                      # 64-175. It is not a collision-box number: this
+                      # screen does not run the span blitter at all.
 
 
 def main():

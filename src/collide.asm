@@ -40,8 +40,42 @@ TA_WATER        equ %00000100   ; RESERVED, level 4 - defined, never read
 TA_SINK         equ %00000010   ; RESERVED, level 5 - defined, never read
 TA_BLOCK        equ TA_SOLID + TA_PLATFORM
 
+; ---------------------------------------------------------------------
+; HER BOX, AND WHERE THE SPRITE SITS ON IT
+;
+; KARA_WX / KARA_WY are the BOX, not the sprite. The drawer subtracts
+; KARA_ART_X once a frame (PLAYER_TO_SCREEN) and every probe in this
+; file, in entity.asm and in enemy.asm gets the body's own edges for
+; nothing - which matters, because the frame has 160 T spare (CLAUDE.md
+; 9) and adding the offset at each of the six probe sites instead cost
+; more than that.
+;
+; THEY USED TO BE THE SPRITE, and the box was its LEFT HALF: 6 bytes of
+; box against a 12-byte sprite box, with the figure drawn in bytes 3..9
+; of it. So her collision box was three bytes - six pixels - to the left
+; of her boots, everywhere. Nothing in the City showed it because the
+; roof has no edge to stand on the lip of, and the ladder made it
+; visible for the first time: centred by the box she was drawn climbing
+; the brick beside the shaft.
+;
+; BOTH NUMBERS ARE MEASURED OFF THE SHIPPED BLOBS, not guessed:
+;
+;   * every cel's last drawn line is 63 - all 18 of kcore, all 10 of
+;     kact, and 11 of kextra's 13 (the two that stop at 60 are run cels
+;     with the back foot lifted). So the box is the full 64 and her
+;     boots rest ON the floor line instead of three pixels through it.
+;   * the boots occupy bytes 3..8 on the idle and walk cels and 1..9 at
+;     the widest stride, so a 6-byte box at KARA_ART_X = 3 is centred
+;     under what she stands on.
+;
+; KARA_ART_X falls out of the two widths - (12 - 6) / 2 - which is the
+; same statement as "the box is centred in the sprite box", and is why
+; it is written that way rather than as a literal 3.
+; ---------------------------------------------------------------------
 KARA_BOX_W      equ 6           ; bytes - 12 pixels, narrower than her sprite
-KARA_BOX_H      equ 60          ; lines - her 64 less a little headroom
+KARA_BOX_H      equ 64          ; lines - all of it: her feet are on line 63
+KARA_ART_X      equ (KARA_W_BYTES - KARA_BOX_W) / 2   ; 3 - the sprite's left
+                                ; edge, relative to the box's
 
 ; A tile is TILE_W_BYTES wide, so a box of KARA_BOX_W bytes spans at
 ; most this many of them. At 8 bytes a tile the answer was always 1 or
@@ -301,12 +335,9 @@ BOX_SOLID_V:    ld   c,a                    ; C = the scanline for a moment
 ; shaft and every probe inside the wall comes back solid. The climb
 ; therefore probes ONE column.
 ;
-; AND IT IS THE MIDDLE OF HER FIGURE, NOT OF HER COLLISION BOX. Those
-; are not the same byte: KARA_WX is the left edge of her 12-byte sprite
-; and KARA_BOX_W is 6, so the box is her LEFT HALF while the drawn
-; figure sits in bytes 3..9 of it - measured off the blobs. A player
-; lines the ladder up with what they can see, and CLIMB_GRAB then puts
-; what they can see on it.
+; The middle of her box, which is now also the middle of her figure -
+; see the note by KARA_ART_X. A player lines a ladder up with what they
+; can see, and CLIMB_GRAB puts what they can see on it.
 ;
 ; IN : A = world pixel row      OUT: A = attribute byte
 ;      destroys AF,DE,HL.  BC preserved - PLAYER_CLIMB keeps the line it
@@ -314,7 +345,7 @@ BOX_SOLID_V:    ld   c,a                    ; C = the scanline for a moment
 ; ---------------------------------------------------------------------
 CLIMB_AT:       push af
                 ld   hl,(KARA_WX)
-                ld   de,KARA_W_BYTES / 2    ; the middle of her SPRITE
+                ld   de,KARA_BOX_W / 2      ; the middle of her
                 add  hl,de
                 pop  af
                 jp   MAP_ATTR

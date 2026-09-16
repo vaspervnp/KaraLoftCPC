@@ -35,7 +35,11 @@ ENT_STRIDE, ENT_MAX = 8, 24
 HITBOX = {EK_PICKUP: (4, 16), EK_DOOR: (16, 80), EK_RECEPTACLE: (4, 16),
           EK_NPC: (6, 64), EK_ENEMY: (6, 64), EK_CHECKPOINT: (4, 16),
           EK_PLAYER_START: (6, 64), EK_HAZARD: (4, 16)}
-KARA_W, KARA_H = 6, 60
+# Her collision box. KARA_WX / KARA_WY ARE THIS BOX, not her sprite -
+# the sprite is 12 bytes wide, the box is centred in it, and the drawer
+# takes the difference off (src/collide.asm). So the model below needs
+# no offset at all; what it needs is the right height, and 64 is it.
+KARA_W, KARA_H = 6, 64
 
 fails = []
 
@@ -384,7 +388,7 @@ def main():
         w.load(record(EK_PICKUP, 80, ROOF, EF_ACTIVE | EF_TOUCH, pu, p1))
         w.give(KEYS_COUNT=0, COINS_COUNT=0, STATUES_HELD=0,
                CURRENT_BOOK_ID=0, AMMO_RESERVE=0)
-        w.place(40, ROOF - 60)
+        w.place(40, ROOF - KARA_H)
         w.run("ENT_UPDATE")
         got = w.st(counter)
         taken = bool(w.flags(0) & EF_TAKEN)
@@ -415,7 +419,7 @@ def main():
                                               (100, 100, ER_FULL, False)):
         w.load(record(EK_PICKUP, 80, ROOF, EF_ACTIVE | EF_TOUCH, PU_MEDKIT))
         w.give(PLAYER_HP=hp)
-        w.place(40, ROOF - 60)
+        w.place(40, ROOF - KARA_H)
         w.run("ENT_UPDATE")
         got, taken = w.st("PLAYER_HP"), bool(w.flags(0) & EF_TAKEN)
         ok = got == want_hp and taken == want_taken and w.result() == want_res
@@ -462,7 +466,7 @@ def main():
     print("\n  the altar, which wants two idols:")
     w.load(record(EK_RECEPTACLE, 80, ROOF, EF_ACTIVE, PU_IDOL, 2))
     w.give(STATUES_HELD=0)
-    w.place(40, ROOF - 60)
+    w.place(40, ROOF - KARA_H)
     w.run("ENT_UPDATE", up=True)
     check("empty-handed, it says so", w.result() == ER_EMPTY,
           ER_NAME[w.result()])
@@ -480,7 +484,7 @@ def main():
     print("\n  the gate slot, which wants ONE symbol:")
     w.load(record(EK_RECEPTACLE, 80, ROOF, EF_ACTIVE, PU_BOOK, 3))
     w.give(CURRENT_BOOK_ID=0)
-    w.place(40, ROOF - 60)
+    w.place(40, ROOF - KARA_H)
     w.run("ENT_UPDATE", up=True)
     check("no book, nothing to read", w.result() == ER_EMPTY,
           ER_NAME[w.result()])
@@ -500,7 +504,7 @@ def main():
     print("\n  the informant, three coins:")
     w.load(record(EK_NPC, 80, ROOF, EF_ACTIVE, 3, 7))
     w.give(COINS_COUNT=2, NPC_LINE=0)
-    w.place(40, ROOF - 60)
+    w.place(40, ROOF - KARA_H)
     w.run("ENT_UPDATE", up=True)
     check("two coins is not enough, and buys nothing",
           w.result() == ER_POOR and w.st("COINS_COUNT") == 2,
@@ -523,7 +527,7 @@ def main():
     w.load(bytes(8), record(EK_PICKUP, 80, ROOF, EF_ACTIVE | EF_TOUCH,
                             PU_KEY))
     w.give(KEYS_COUNT=0)
-    w.place(40, ROOF - 60)
+    w.place(40, ROOF - KARA_H)
     w.run("ENT_UPDATE")
     check("an all-zero slot is empty, not a PlayerStart at (0,0)",
           w.st("KEYS_COUNT") == 1,

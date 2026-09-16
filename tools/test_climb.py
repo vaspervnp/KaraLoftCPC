@@ -39,7 +39,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 JOY_UP, JOY_DOWN, JOY_LEFT, JOY_RIGHT = 0x01, 0x02, 0x04, 0x08
 TA_SOLID, TA_PLATFORM, TA_CLIMB = 0x80, 0x40, 0x08
 TILE_LADDER = 25
-KARA_BOX_H = 60
+KARA_BOX_H = 64
 SCREEN_LINES = 192
 
 fails = []
@@ -63,7 +63,7 @@ def st(m, sym):
 def onto_ladder(m, sym, tile):
     """Walk her right until her box straddles the ladder at map tile
     `tile`, which is where DOWN can find it under her feet."""
-    want = tile * 4 - 4              # CLIMB_GRAB's own answer, see player.asm
+    want = tile * 4 - 1              # CLIMB_GRAB's own answer, see player.asm
     m.joystick(JOY_RIGHT)
     for _ in range(300):
         m.run_frames(1)
@@ -148,10 +148,10 @@ def main():
     m.joystick(0)
     check("DOWN puts her on the ladder", on["climb"] == 1 and on["ground"] == 0,
           f"KARA_CLIMB {on['climb']}, KARA_GROUND {on['ground']}")
-    check("and centres her FIGURE on the shaft", on["wx"] == ladder * 4 - 4,
-          f"KARA_WX {on['wx']} - her sprite is 12 bytes and its middle, "
-          f"byte {on['wx'] + 6}, is inside the shaft's tile "
-          f"({ladder * 4}..{ladder * 4 + 3})")
+    check("and centres her box - and so her figure - on the shaft",
+          on["wx"] == ladder * 4 - 1,
+          f"KARA_WX {on['wx']} - her box's middle, byte {on['wx'] + 3}, "
+          f"is inside the shaft's tile ({ladder * 4}..{ladder * 4 + 3})")
     check("the cels come out of the ACTION blob, not kcore",
           on["kset"] == sym["KSET_ACT"] and on["state"] == sym["KST_CLIMB"],
           f"KARA_SET {on['kset']}, KARA_STATE {on['state']} "
@@ -203,7 +203,7 @@ def main():
     for _ in range(300):
         m.run_frames(1)
         if (m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)) \
-                <= ladder * 4 - 4:
+                <= ladder * 4 - 1:
             break
     m.joystick(0)
     m.run_frames(2)

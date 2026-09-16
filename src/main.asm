@@ -39,8 +39,11 @@ ENEMY_SCRIPT    equ &8700               ; ... and the one enemy on screen has
                                         ; its own, the same size
 EBUL_SAVE       equ &81C0               ; their rounds, 4 bytes a slot
 
-KARA_HOME_Y     equ 96          ; 96 + KARA_BOX_H = 156, her feet on
-                                ; the same roof the 16x48 sprite stood on
+KARA_HOME_Y     equ 96          ; the line the DEV SCREEN draws her on, and
+                                ; nothing to do with KARA_BOX_H: that screen
+                                ; runs the 16x48 placeholder path, not the
+                                ; span blitter, and 96 puts it in the middle
+                                ; of the stripes at 64-175
 STRIPE_TOP      equ 64
 STRIPE_BANDS    equ 14
 HUD_LEFT_LINE   equ 180

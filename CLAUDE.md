@@ -894,16 +894,22 @@ beam. Either way `DRAW_COLUMN` must run **top to bottom**.
 
 **The camera keeps her BEHIND the middle of where she is going.** One
 fixed column cannot do that in both directions, so the mark moves with
-her facing: walking right she rides at `CAM_TRAIL` = 24 and the 50
+her facing: walking right she rides at `CAM_TRAIL` = 27 and the 44
 bytes of level in front of her are the ones on screen; walking left she
-rides at `CAM_LEAD` = 50, its mirror. It was a static zone of 16..56,
+rides at `CAM_LEAD` = 47, its mirror. It was a static zone of 16..56,
 which meant walking right she sat at column 56 with 18 bytes of
 warning.
 
-**Turning round therefore PANS.** She is 26 bytes from the new mark, so
+**The marks are BOX columns, because `PLAYER_SCREEN_X` returns one**
+(§8.10). While `CAM_TRAIL` was a sprite column and `KARA_BOX_W` a box
+width the mirror was out by the difference: 50 bytes of warning walking
+left against 44 walking right. Mixing the two units in one expression
+is the whole class of bug §8.10 is about.
+
+**Turning round therefore PANS.** She is 20 bytes from the new mark, so
 the camera scrolls a whole character every frame while she walks her
 own byte and she drifts across the picture at 1 byte a frame, arriving
-in 26. A pan is exactly a run's frame cost — a column every frame — and
+in 20. A pan is exactly a run's frame cost — a column every frame — and
 it is the one thing that makes the loop drop a frame or two (§9).
 `CAM_BAND` is what tells "the camera is following her" from "the camera
 is panning to catch up": only the first gets the lock-step below, and
@@ -1365,18 +1371,11 @@ onto.
 at every rung. `CLIMB_AT` (collide.asm) asks about a single column
 instead.
 
-**And that column is the middle of her FIGURE, not of her box.** They
-are different bytes: `KARA_WX` is the left edge of her 12-byte sprite
-and `KARA_BOX_W` is 6, so the collision box is her LEFT HALF while the
-drawn figure sits in bytes 3..9 of the sprite — measured off the blobs,
-every cel. A player lines a ladder up with what they can see, so the
-probe and `CLIMB_GRAB`'s snap both work from `KARA_W_BYTES / 2`.
-**The box/figure offset is a real mismatch and it is not fixed**: her
-collision box is three bytes left of her boots everywhere, not just on
-a ladder. Nothing in the City shows it because the roof has no edge,
-but a level with one will, and fixing it means moving `KARA_BOX_W`'s
-origin through `BOX_SOLID_H`/`BOX_SOLID_V`, `ENT_OVERLAP`, the hit
-tests and the camera marks together.
+**And the ladder is what found §8.10's bug.** Her collision box used to
+be the LEFT HALF of her sprite box, so centring the box on the shaft
+drew her climbing the brick three bytes to the right of it. The box is
+centred under her body now and the snap is `KARA_BOX_W / 2` — the
+middle of the box, which is also the middle of the figure.
 
 **THE BUILDING'S FACE IS BACKGROUND, NOT A WALL.** `brick`,
 `brick_win_lit`, `brick_win_dark` and `brick_top` have no attributes.
@@ -1439,6 +1438,62 @@ The lesson generalises: when a report says something is in the wrong
 place, check the composition against the mockup before moving the thing
 that was reported. Moving Kara down to the arrow was tried first and it
 put her knee-deep in the parapet.
+
+### 8.10 Her collision box, and where the sprite sits on it
+
+**`KARA_WX` / `KARA_WY` are the BOX, not the sprite.** The sprite box is
+12 bytes by 64 lines; the collision box is 6 by 64, centred in it, and
+the drawer takes the difference off once a frame:
+
+```
+KARA_BOX_W  6       bytes            KARA_ART_X  (KARA_W_BYTES - KARA_BOX_W) / 2
+KARA_BOX_H  64      lines                        = 3, the sprite's left edge
+                                                 relative to the box's
+PLAYER_TO_SCREEN:   KARA_X = KARA_WX - view * 2 - KARA_ART_X
+```
+
+That is the ONLY place the offset is paid. Every probe — `BOX_SOLID_H`,
+`BOX_SOLID_V`, `CLIMB_AT`, `ENT_OVERLAP`, `ENEMY_SEES` — reads her
+body's own edges for nothing, which matters because the frame has 160 T
+spare (§9): adding the offset at each of the six probe sites instead
+cost more than that.
+
+**It was the other way round and it was wrong.** `KARA_WX` was the
+SPRITE's left edge and the box its leftmost 6 bytes, so her collision
+box sat three bytes — six pixels — to the left of her boots, and
+`KARA_BOX_H` was 60 against a figure whose feet are on line 63, so her
+boots were drawn three lines THROUGH whatever she was standing on.
+Nothing in the City showed the horizontal half because the roof has no
+edge to stand on the lip of; the ladder showed it at once (§8.8).
+
+**Both numbers are measured off the shipped blobs, not chosen:**
+
+| | |
+|---|---|
+| every cel's last drawn line | 63 — all 18 of `kcore`, all 10 of `kact`, 11 of `kextra`'s 13 (the two at 60 are run cels with the back foot lifted) |
+| her boots' byte range | 3..8 on idle and walk, 1..9 at the widest stride |
+
+so the box is the full 64 lines and 6 bytes at an offset of 3. Her
+boots now rest ON the floor line, which is what the artist's
+`mockup_city.png` draws (§8.9).
+
+**What else moved with it**, and each of these was a mixed-unit bug:
+
+* `CAM_TRAIL` / `CAM_LEAD` are box columns now, because
+  `PLAYER_SCREEN_X` returns one. See §8.2.
+* The world's edges are still the SPRITE's, because what must stay on
+  screen is the picture: the right bound is
+  `WORLD_W - KARA_W_BYTES + KARA_ART_X` and the left one is
+  `KARA_ART_X`, not 0. A box clamped to 0 puts the sprite at -3,
+  `KARA_X` comes back 253 and the blitter culls her — which is how the
+  left-hand bound was found, by measuring her screen column at the edge
+  rather than by looking at the picture.
+* `EBUL_HITS_HER` compares on SCREEN, where `KARA_X` is the sprite, so
+  it adds `KARA_ART_X` back. A round six pixels to her left used to
+  count as a hit.
+* `ENT_HITBOX`'s PlayerStart row is `KARA_BOX_W, KARA_BOX_H` rather
+  than a copied `6, 64` — it said 64 while `KARA_BOX_H` said 60 and
+  neither side knew.
 
 ## 9. Performance budget — measured directly, and it closes
 

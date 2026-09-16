@@ -85,7 +85,11 @@ ENT_TABLE       equ MAP_ADDR + MAP_W * MAP_H    ; &A800, straight after the
 ; is sized against. Widen the door and this has to widen with it.
 HITBOX_W_MAX    equ 16
                 align 32
-ENT_HITBOX:     db  6, 64       ; PlayerStart - her own box
+ENT_HITBOX:     db KARA_BOX_W, KARA_BOX_H   ; PlayerStart - her own box, from
+                                            ; collide.asm rather than copied,
+                                            ; because it was 6,64 while
+                                            ; KARA_BOX_H was 60 and neither
+                                            ; side knew
                 db  4, 16       ; Checkpoint
                 db  6, 64       ; Enemy
                 db  6, 64       ; Npc

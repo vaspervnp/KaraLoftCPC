@@ -7,6 +7,13 @@
 ;   KARA_WX  world byte column, 0-511   1 unit = 2 Mode 0 pixels
 ;   KARA_WY  world pixel row,   0-255   the box's TOP line
 ;
+; BOTH ARE THE COLLISION BOX, NOT THE SPRITE. The sprite is 12 bytes
+; wide and the box 6, and the box is centred in it: PLAYER_TO_SCREEN
+; takes KARA_ART_X off once a frame and everything else - the probes
+; here, the AABB in entity.asm, the enemy's sight line - reads her body's
+; own edges with no arithmetic at all. See the note by KARA_BOX_W in
+; collide.asm for what this was before and what it cost.
+;
 ; X is byte-granular because the blitter is, and because the map column
 ; is then a shift rather than a divide. Y is a single byte, which wraps
 ; with the 256-pixel-tall map and makes every comparison 8-bit.
@@ -130,16 +137,18 @@ PLAYER_X:       ld   a,(INPUT_NOW)
 .step_r:        ld   d,0
                 ld   hl,(KARA_WX)
                 add  hl,de                  ; the proposed position
-                ld   de,WORLD_W - KARA_W_BYTES
+                ld   de,WORLD_W - KARA_W_BYTES + KARA_ART_X
                 or   a
                 sbc  hl,de                  ; past the world's right edge?
                 add  hl,de
                 jr   c,.probe_r
                 ex   de,hl                  ; ... then stop exactly on it
                 ; The bound is on her SPRITE, not her collision box, and
-                ; that is what keeps her whole on screen. WORLD_X stops at
-                ; 216 characters = 432 bytes, so a KARA_WX of 504 is screen
-                ; byte 72 and her eighth byte is the last one the display
+                ; that is what keeps her whole on screen - which is why
+                ; KARA_ART_X is added back on: KARA_WX is the box now, and
+                ; the sprite starts that many bytes to the left of it.
+                ; WORLD_X stops at 216 characters = 432 bytes, so the last
+                ; byte her sprite reaches is the last one the display
                 ; has. A box-width bound would let her reach byte 76, where
                 ; the blitter has to clip - which is correct (see
                 ; sprite.asm) but costs 34,412 T against 30,624, and a
@@ -180,10 +189,17 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   hl,(KARA_WX)
                 or   a
                 sbc  hl,de                  ; the proposed position IS the
-                jr   nc,.probe_l            ; leading edge
-                ld   hl,0                   ; ... and 0 is as far as it goes.
-                                            ; Without this she walks off the
-                                            ; left of the world: KARA_WX wraps
+                jr   c,.edge_l              ; leading edge
+                ld   a,h                    ; ... and KARA_ART_X is as far as
+                or   a                      ; it goes, not 0: KARA_WX is her
+                jr   nz,.probe_l            ; BOX and her sprite starts that
+                ld   a,l                    ; many bytes to the LEFT of it, so
+                cp   KARA_ART_X             ; a box at 0 puts the sprite at -3
+                jr   nc,.probe_l            ; - KARA_X comes back 253 and the
+.edge_l:        ld   hl,KARA_ART_X          ; blitter culls her.
+                                            ; Without a bound at all she walks
+                                            ; off the left of the world:
+                                            ; KARA_WX wraps
                                             ; to 65535, PLAYER_SCREEN_X reads a
                                             ; huge column, and CAMERA_DECIDE
                                             ; then scrolls RIGHT while she walks
@@ -372,23 +388,21 @@ CLIMB_ENTER:    ld   a,(KARA_GROUND)
 ; ---------------------------------------------------------------------
 ; CLIMB_GRAB - put her ON the shaft and hand her to PLAYER_CLIMB.
 ;
-; Centred on her FIGURE, for the reason CLIMB_AT gives: her collision
-; box is the left half of her sprite box, so centring the box would draw
-; her climbing the brick three bytes to the right of the ladder. The
-; shaft is TILE_W_BYTES wide and its middle is TILE_W_BYTES / 2 in, so
-; KARA_WX ends up 4 bytes left of the tile - and CLIMB_AT, which probes
-; the same byte, then reads the shaft she is on.
+; The shaft is TILE_W_BYTES wide and her box KARA_BOX_W, so "centred"
+; puts the box's left edge one byte to the left of the tile's - and
+; CLIMB_AT, which probes the same middle byte, then reads the shaft she
+; is on. Her sprite follows, because the sprite is centred on the box.
 ;                                destroys AF,DE,HL
 ; ---------------------------------------------------------------------
 CLIMB_GRAB:     ld   hl,(KARA_WX)
-                ld   de,KARA_W_BYTES / 2
+                ld   de,KARA_BOX_W / 2
                 add  hl,de                  ; the byte her middle is over
                 ld   a,l
                 and  256 - TILE_W_BYTES     ; ... and its tile's left edge.
                 ld   l,a                    ; H is untouched: TILE_W_BYTES
                                             ; divides 256, so the mask cannot
                                             ; borrow out of the low byte
-                ld   de,TILE_W_BYTES / 2 - KARA_W_BYTES / 2   ; -4
+                ld   de,TILE_W_BYTES / 2 - KARA_BOX_W / 2   ; -1
                 add  hl,de
                 ld   (KARA_WX),hl
                 xor  a
@@ -517,8 +531,14 @@ CLIMB_LEAVE:    xor  a
 ; P_PUSH below. Without it she would freeze at whatever column she
 ; turned round on and the camera would pan for ever.
 ; ---------------------------------------------------------------------
-CAM_TRAIL       equ 24          ; her column while she walks RIGHT
-CAM_LEAD        equ SCR_CHARS * 2 - CAM_TRAIL - KARA_BOX_W   ; 50, its mirror
+; PLAYER_SCREEN_X returns her BOX's screen column, so these are in box
+; columns - and the mirror below is then exactly right, which it was not
+; while CAM_TRAIL was a sprite column and KARA_BOX_W a box width. At
+; CAM_TRAIL = 27 her sprite's left edge is 24 and 44 bytes of level are
+; in front of her; at CAM_LEAD = 47 her sprite's right edge is 55 and
+; the same 44 bytes are in front of her the other way.
+CAM_TRAIL       equ 27          ; her box's column while she walks RIGHT
+CAM_LEAD        equ SCR_CHARS * 2 - CAM_TRAIL - KARA_BOX_W   ; 47, its mirror
 CAM_BAND        equ 4           ; within this of the mark, she is pushing it
                                 ; and not drifting toward it
 
@@ -614,9 +634,11 @@ CAMERA_V:       ld   a,(V_REQUEST)
 .none:          xor  a
                 ret
 
-; PLAYER_SCREEN_X - A = her screen byte column (KARA_WX - WORLD_X * 2)
-; in the view that is on screen NOW. This is what the physics and the
-; camera reason about.               destroys AF,DE,HL
+; PLAYER_SCREEN_X - A = her BOX's screen byte column (KARA_WX -
+; WORLD_X * 2) in the view that is on screen NOW. This is what the
+; physics and the camera reason about; the sprite's column is
+; KARA_ART_X less, and only PLAYER_TO_SCREEN wants that.
+;                                    destroys AF,DE,HL
 PLAYER_SCREEN_X:
                 ld   a,(WORLD_X)
                 add  a,a                    ; world byte column of screen 0
@@ -654,9 +676,10 @@ VIEW_NEXT_CR:   ld   a,(V_PHASE)
 PLAYER_TO_SCREEN:
                 call VIEW_NEXT_X
                 add  a,a
-                ld   e,a
-                ld   a,(KARA_WX)
-                sub  e
+                add  a,KARA_ART_X           ; THE ONE PLACE THE ART OFFSET IS
+                ld   e,a                    ; PAID: KARA_X is the sprite's
+                ld   a,(KARA_WX)            ; left edge and KARA_WX the box's,
+                sub  e                      ; and the blitter wants the sprite
                 ld   (KARA_X),a
                 call VIEW_NEXT_CR
                 add  a,a
@@ -669,11 +692,11 @@ PLAYER_TO_SCREEN:
                 ret
 
 PLAYER_SPEED:   db P_WALK       ; this frame's step, walk or run
-KARA_WX:        dw 40
+KARA_WX:        dw 43           ; her BOX - the sprite's left edge is 40
 KARA_WY:        db 16           ; starts in the air and falls onto the roof.
                                 ; HIGH ENOUGH THAT HER FEET START ABOVE IT:
                                 ; 64 was right for a 44-line box and puts a
-                                ; 60-line one inside the tiles, where the
+                                ; 64-line one inside the tiles, where the
                                 ; landing snaps her a whole tile row too low
                                 ; and BOX_SOLID_H then refuses every step -
                                 ; she animates on the spot and never moves.
