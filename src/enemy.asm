@@ -906,8 +906,11 @@ ENEMY_SHOT_CHECK:
                 ld   a,(BUL_LIVE)
                 or   a
                 ret  z                      ; she has not fired
+                ld   a,(BUL_TOP)            ; only as deep as the pool went -
+                or   a                      ; see UPDATE_BULLETS
+                ret  z
+                ld   b,a
                 ld   hl,BULLETS
-                ld   b,BUL_MAX
 .next:          push hl
                 ld   a,(hl)
                 or   a

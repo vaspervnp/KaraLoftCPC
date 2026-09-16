@@ -1152,6 +1152,47 @@ on the SAME count, because `UPDATE_BULLETS` runs between them and can
 kill a round that still has to be lifted off the screen; `BUL_DREW` is
 the count as the draw found it.
 
+**And a BUSY pool is fourteen slots for three rounds, which is the same
+fault one step along and the bigger one.** Measured over all four walks
+— `UPDATE_BULLETS`, `BUL_DRAW`, `BUL_ERASE`, `ENEMY_SHOT_CHECK` — one
+live round costs 7,452 T and each extra one 1,224, so **6,228 T of every
+firing frame was the thirteen DEAD slots behind the first**. The frame
+has 160 T spare (§9), so tap-firing while the screen scrolled dropped
+**43 frames in 200**.
+
+**What that looks like is a character who has stopped walking**, which
+is how it was reported and why it survived so long. In the camera's push
+zone her screen column never changes — the walk IS the scroll (§8.2) —
+so a dropped frame is not a stutter, it is a byte of ground she does not
+cover. She travelled 159 bytes in 200 frames instead of 199.
+
+`BUL_TOP` is the fix: **one past the deepest slot ever taken since the
+pool last emptied**. `BUL_SPAWN` always takes the lowest free slot, so
+the live rounds are a prefix with holes and the mark bounds them
+exactly; it costs nothing per slot, which an exact live-count test would
+not. Measured in play it peaks at **3**. `BUL_DREW_TOP` is its snapshot
+at draw time, for the same reason `BUL_DREW` is `BUL_LIVE`'s: `ACT_MUZZLE`
+fires between the draw and the erase and can raise the mark, and the
+erase must not walk past what the draw wrote save entries for. With it,
+tap-firing while scrolling is **198 loop iterations in 200** and she
+covers her full 199 bytes.
+
+| walking right, scrolling | loops / 200 | bytes travelled |
+|---|---:|---:|
+| not firing | 199 | 199 |
+| trigger HELD | 198 | 199 |
+| tapping the trigger | 198 | 199 |
+| ... with `BUL_TOP` forced to `BUL_MAX` | 174 | 175 |
+
+**THE TEST THAT MISSED THIS HELD THE TRIGGER.** The gun is
+draw-hold-RELEASE (§8.4), so `JOY_FIRE` held down for 200 frames is
+`AIM` and never puts a round in the air: every "walking right + firing"
+measurement in `tools/test_enemies.py` was a frame with an idle pool.
+Both of its firing cases tap now, and `tools/test_module5.py` owns the
+property that was actually broken — **she must cover the same ground
+firing as not** — with the last row of that table as its negative
+control.
+
 ### 8.6 The entity table, and game state — implemented
 
 ```asm
@@ -1550,7 +1591,8 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 | standing still | 201 | **locked** |
 | walking right, scrolling, no enemy | 200 | **locked** |
 | walking right with a drone in view | 199 | one frame an encounter |
-| turning round, with a drone in view | 195 | five, through the camera's pan |
+| turning round, with a drone in view | 198 | two, through the camera's pan |
+| walking right and FIRING, with a drone | 199 | the pool costs her nothing now |
 | climbing down the ladder | 200 | **locked** — and the view scrolling with her |
 | standing on the street | 201 | **locked** |
 | walking the street | 201 | **locked** |
@@ -1560,7 +1602,7 @@ threshold.** A drone costs 17,968 T and a scrolling frame cannot carry
 it, so it is a persistent sprite (§8.7) — but the frame it comes into
 view on and the frame it leaves on pay whatever it costs, because what
 the screen shows is not negotiable. And turning round makes the camera
-pan (§8.2): a whole column every frame for about 26 frames instead of
+pan (§8.2): a whole column every frame for about 20 frames instead of
 every other one, which is a run's cost applied to a walk.
 `tools/test_enemies.py` carries those two numbers as its floors and
 prints the reason beside them.
@@ -1593,6 +1635,11 @@ It was 79,452 with 420 to spare before the enemies went in, and the
   same decision on the same count, because `UPDATE_BULLETS` runs
   between them and can kill a round that still has to be lifted off the
   screen; `BUL_DREW` is that count as the draw found it.
+* **And a busy pool was fourteen slots for three rounds**, which cost
+  **6,228 T** of every frame she fired on and dropped 43 frames in 200
+  — measured, and visible in play as a character who stops walking
+  while she shoots (§8.5). `BUL_TOP` bounds the walk at the deepest slot
+  ever taken, which in play is 3.
 * **A cheap X reject before the real one.** `ENT_OVERLAP` looks the
   hitbox up and tests both axes, about 450 T to discover that something
   twenty tiles away is twenty tiles away. The widest row of

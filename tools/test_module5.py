@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Module 5's own checks: a round that meets a wall stops there.
+"""Module 5's own checks: rounds, and what firing costs the frame.
 
 The pool holds SCREEN coordinates and the map is in WORLD ones, so the
 whole of this is a coordinate conversion with a tile probe on the end,
@@ -7,6 +7,13 @@ and the way to test a conversion is to drive it from both sides: put a
 solid tile under the round and it must die, put sky under it and it
 must not. The map cell is chosen from the round's position by the test's
 own arithmetic, not by the engine's, so the two have to agree.
+
+And then: SHE HAS TO KEEP WALKING WHILE SHE FIRES. In the camera's push
+zone her screen column never moves - the walk IS the scroll - so a frame
+the loop drops while she is firing does not look like a dropped frame,
+it looks like a character who has stopped. That is exactly how it was
+reported, and it is the reason this suite counts her TRAVEL against the
+loop rather than trusting a T-state model.
 """
 import os
 import sys
@@ -53,11 +60,20 @@ def run(m, sym, routine):
 
 
 def fire(m, sym, pool, live, sx, sy, direction=0):
-    """One round in slot 0 and nothing else in the pool."""
+    """One round in slot 0 and nothing else in the pool.
+
+    AND HOW DEEP THE POOL IS, for hers. BUL_TOP bounds every walk of it
+    (src/bullets.asm) exactly as ENT_COUNT bounds the entity sweep, so a
+    test that writes the table by hand has to write the bound too -
+    left at 0 the engine correctly walks nothing and the round sits
+    there for ever.
+    """
     base = sym[pool]
     m.write_ram(base, bytes([1, sx, sy, direction, 60])
                 + bytes(3 * BUL_STRIDE))
     m.poke(sym[live], 1)
+    if "BUL_TOP" in sym and pool == "BULLETS":
+        m.poke(sym["BUL_TOP"], 1)
 
 
 def main():
@@ -113,12 +129,95 @@ def main():
                   survived == 1,
                   "the probe really is in world coordinates")
 
+    firing_costs_her_nothing(sym)
+
     print()
     if fails:
         print(f"FAILED: {len(fails)} check(s): " + ", ".join(sorted(set(fails))))
         return 1
     print("ALL CHECKS PASSED")
     return 0
+
+
+JOY_RIGHT, JOY_FIRE = 0x08, 0x10
+FRAMES = 200
+
+
+def walk(sym, pattern, frames=FRAMES, top=None):
+    """Hold a joystick pattern and report (loop iterations, bytes travelled).
+
+    `top` pokes BUL_TOP every frame, which is the negative control: it
+    puts the pool walk back to the full BUL_MAX depth it used to run at.
+    """
+    m = boot(sym, scroll=True)
+    m.run_frames(5)
+    f0 = m.peek(sym["FRAME_COUNT"])
+    x0 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
+    peak = 0
+    for t in range(frames):
+        m.joystick(pattern(t))
+        if top is not None:
+            m.poke(sym["BUL_TOP"], top)
+        m.run_frames(1)
+        # SAMPLED EVERY FRAME, not read at the end: UPDATE_BULLETS puts
+        # the mark back to 0 the moment the pool empties, so the last
+        # frame of a burst reports a pool that never existed.
+        peak = max(peak, m.peek(sym["BUL_TOP"]))
+    loops = (m.peek(sym["FRAME_COUNT"]) - f0) % 256
+    x1 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
+    m.joystick(0)
+    return loops, x1 - x0, peak
+
+
+def firing_costs_her_nothing(sym):
+    """Walking and firing must cost her no ground against walking.
+
+    THE TEST THAT MISSED THIS HELD THE TRIGGER. tools/test_enemies.py's
+    "walking right + firing" holds FIRE down, and FIRE held is AIM
+    (CLAUDE.md 8.4) - the gun is draw-hold-RELEASE, so a held trigger
+    never puts a round in the air and the pool stays idle. Every check
+    of "firing" was measuring a frame with an empty pool.
+    """
+    print("\n  firing while she walks:")
+    for n in ("BUL_TOP", "BUL_DREW_TOP"):
+        if n not in sym:
+            check(f"the engine has {n}", False, "rebuild first")
+            return
+
+    plain, plain_x, _ = walk(sym, lambda t: JOY_RIGHT)
+    held, held_x, held_top = walk(sym, lambda t: JOY_RIGHT | JOY_FIRE)
+    tap = (lambda t: JOY_RIGHT | (JOY_FIRE if (t % 12) < 4 else 0))
+    fired, fired_x, peak = walk(sym, tap)
+
+    print(f"    walking            {plain} loops, {plain_x} bytes")
+    print(f"    walking + AIM      {held} loops, {held_x} bytes "
+          f"(BUL_TOP {held_top} - a HELD trigger never fires)")
+    print(f"    walking + firing   {fired} loops, {fired_x} bytes "
+          f"(BUL_TOP peaked at {peak})")
+
+    check("a held trigger really is only AIM, and fires nothing",
+          held_top == 0, "BUL_TOP stayed 0, so the pool never had a round in it")
+    check("tapping it really does put rounds in the air",
+          peak > 0, f"BUL_TOP reached {peak}")
+    check("she keeps her ground while firing",
+          fired_x >= plain_x - 4,
+          f"{fired_x} bytes against {plain_x} walking - at most 4 behind")
+    check("and the loop still holds 50 Hz",
+          fired >= 197, f"{fired} loop iterations in {FRAMES} hardware frames")
+
+    # THE NEGATIVE CONTROL: put the walk back to its old depth.
+    #
+    # BUL_TOP is what stops all four pool walks at the deepest slot ever
+    # taken instead of at BUL_MAX. Holding it at BUL_MAX re-creates the
+    # fault from outside the engine: 6,228 T a frame of dead slots, the
+    # loop drops frames, and because her screen column is fixed in the
+    # camera's push zone what the player sees is a character who has
+    # stopped walking.
+    stuck, stuck_x, _ = walk(sym, tap, top=14)
+    print(f"    ... with BUL_TOP forced to BUL_MAX: {stuck} loops, {stuck_x} bytes")
+    check("without the high-water mark she loses ground, which is the bug",
+          stuck_x < plain_x - 20 and stuck < 190,
+          f"{stuck_x} bytes and {stuck} loops - the dead slots are what cost her")
 
 
 if __name__ == "__main__":

@@ -254,15 +254,23 @@ def main():
     # other one. Both are transients and both are named here rather than
     # hidden behind a loose threshold.
     print("\n  the loop, with a drone on screen:")
-    for label, joy, floor, why in (
-            ("standing still", 0, 200, ""),
+    for label, joy, floor, why, tap in (
+            ("standing still", 0, 200, "", False),
             ("walking right, scrolling", JOY_RIGHT, 198,
-             "two frames an encounter pay for the enemy coming and going"),
+             "two frames an encounter pay for the enemy coming and going",
+             False),
             ("walking left, into it", JOY_LEFT, 195,
-             "... and turning round pans the camera for 26 frames"),
-            ("walking right + firing", JOY_RIGHT | JOY_FIRE, 198, ""),
+             "... and turning round pans the camera for 20 frames", False),
+            # HELD IS AIM, NOT FIRE. The gun is draw-hold-RELEASE
+            # (CLAUDE.md 8.4), so a trigger held down for 200 frames
+            # never puts a round in the air and these two used to
+            # measure a frame with an idle pool - which is how a pool
+            # walk that cost 6,228 T a firing frame went unseen. `tap`
+            # says fire the way a player does; what it costs her is
+            # tools/test_module5.py's business.
+            ("walking right + firing", JOY_RIGHT, 198, "", True),
             ("jumping + firing, scrolling",
-             JOY_RIGHT | JOY_FIRE | JOY_UP, 198, "")):
+             JOY_RIGHT | JOY_UP, 198, "", True)):
         mm = boot(sym, scroll=True)
         mm.joystick(JOY_RIGHT)
         for _ in range(90):
@@ -270,7 +278,9 @@ def main():
         mm.joystick(joy)
         mm.run_frames(5)
         f0 = mm.peek(sym["FRAME_COUNT"])
-        for _ in range(200):
+        for t in range(200):
+            if tap:
+                mm.joystick(joy | (JOY_FIRE if (t % 12) < 4 else 0))
             mm.run_frames(1)
         got = (mm.peek(sym["FRAME_COUNT"]) - f0) % 256
         mm.joystick(0)

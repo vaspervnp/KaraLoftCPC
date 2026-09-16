@@ -149,7 +149,9 @@ INTRO_SCREEN:   di
                 ld   (KARA_FRAME),a
                 ld   (RELOAD_TIMER),a
                 ld   (BUL_LIVE),a           ; the pool's save-under belongs to
-                ld   (BUL_DREW),a           ; a screen that is about to go
+                ld   (BUL_DREW),a           ; a screen that is about to go,
+                ld   (BUL_TOP),a            ; and so does how deep it went
+                ld   (BUL_DREW_TOP),a
                 ld   hl,BULLETS
                 ld   de,BULLETS + 1
                 ld   bc,BUL_MAX * BUL_STRIDE - 1

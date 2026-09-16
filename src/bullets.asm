@@ -72,7 +72,7 @@ BUL_SPAWN:      ld   hl,BULLETS
                 ld   b,BUL_MAX
 .scan:          ld   a,(hl)
                 or   a
-                jr   z,.found
+                jr   z,.take
                 repeat BUL_STRIDE
                 inc  hl
                 rend
@@ -86,6 +86,20 @@ BUL_SPAWN:      ld   hl,BULLETS
                 ; fudge. X is in PIXELS inside her box; a left-facing
                 ; sprite mirrors it to (width - 1 - x), which is the one
                 ; subtraction tools/spawns.py's header describes.
+                ; HOW DEEP THE POOL HAS EVER BEEN SINCE IT LAST
+                ; EMPTIED. B counted down from BUL_MAX, so the slot just
+                ; taken is BUL_MAX - B and this is one past it. Every
+                ; walk of the pool stops there instead of at BUL_MAX -
+                ; see the note on UPDATE_BULLETS.
+.take:          ld   a,BUL_MAX + 1
+                sub  b
+                ld   de,BUL_TOP
+                ex   de,hl
+                cp   (hl)
+                jr   c,.deep
+                ld   (hl),a
+.deep:          ex   de,hl
+
 .found:         ld   (hl),1
                 ld   a,(BUL_LIVE)
                 inc  a
@@ -127,15 +141,39 @@ BUL_SPAWN:      ld   hl,BULLETS
 ; ---------------------------------------------------------------------
 UPDATE_BULLETS: ld   a,(BUL_LIVE)
                 or   a
-                ret  z                  ; AN IDLE POOL IS FOURTEEN SLOTS OF
+                jr   nz,.busy           ; AN IDLE POOL IS FOURTEEN SLOTS OF
                                         ; NOTHING. Walking them cost 1,500 T
                                         ; here, 1,848 in the draw, 1,164 in
                                         ; the erase and 1,476 in
                                         ; ENEMY_SHOT_CHECK - 6,000 T a frame
                                         ; out of the 420 a scrolling frame
                                         ; has, for rounds that are not there
+                ld   (BUL_TOP),a        ; ... and the pool is empty, so the
+                ret                     ; high-water mark goes back down
+
+                ; AND A BUSY POOL IS FOURTEEN SLOTS FOR THREE ROUNDS,
+                ; which is the same fault one step along and it is the
+                ; bigger one. Measured over all four walks: one live
+                ; round costs 7,452 T and each extra one 1,224, so
+                ; 6,228 T of every firing frame was the THIRTEEN DEAD
+                ; SLOTS behind it. The frame has 160 T spare (CLAUDE.md
+                ; 9), so tap-firing while the screen scrolled dropped
+                ; 43 frames in 200 and she stopped advancing - which is
+                ; what a player sees, because in the camera's push zone
+                ; her screen column is fixed and the walk IS the scroll.
+                ;
+                ; BUL_SPAWN always takes the lowest free slot, so the
+                ; live rounds are a prefix with holes in it and the
+                ; high-water mark bounds them exactly. It costs nothing
+                ; per slot, which an exact live-count test would not.
+.busy:          ld   a,(BUL_TOP)
+                or   a
+                ret  z                  ; B = 0 is 256 turns of DJNZ and 1,280
+                                        ; bytes of pool: a live count without a
+                                        ; depth is a table written by hand, and
+                                        ; it must not scribble
+                ld   b,a
                 ld   hl,BULLETS
-                ld   b,BUL_MAX
 .next:          push hl
                 ld   a,(hl)
                 or   a
@@ -225,7 +263,11 @@ BUL_DRAW:       ld   a,(BUL_LIVE)
                                         ; runs in between and can kill a
                                         ; round that still has to be lifted
                                         ; off the screen
-                ld   b,BUL_MAX
+                ld   a,(BUL_TOP)        ; ... and on the same DEPTH, for the
+                ld   (BUL_DREW_TOP),a   ; same reason: ACT_MUZZLE can fire in
+                or   a                  ; between and raise the mark, and the
+                ret  z                  ; erase must not walk past what the
+                ld   b,a                ; draw wrote save entries for
                 ld   hl,BULLETS
                 ld   de,BUL_SAVE
 .next:          ld   a,(hl)
@@ -283,7 +325,10 @@ BUL_DRAW:       ld   a,(BUL_LIVE)
 BUL_ERASE:      ld   a,(BUL_DREW)
                 or   a
                 ret  z
-                ld   b,BUL_MAX
+                ld   a,(BUL_DREW_TOP)
+                or   a
+                ret  z
+                ld   b,a
                 ld   hl,BUL_SAVE
 .next:          ld   e,(hl)
                 inc  hl
@@ -357,6 +402,8 @@ ACTIVE_GUN:     db 0
 RELOAD_TIMER:   db 0
 BUL_LIVE:       db 0            ; rounds in the air
 BUL_DREW:       db 0            ; ... as BUL_DRAW found it
+BUL_TOP:        db 0            ; slots used, one past the deepest ever taken
+BUL_DREW_TOP:   db 0            ; ... as BUL_DRAW found THAT
 AMMO_RESERVE:   db 28
 HUD_DIRTY:      db 1
 
