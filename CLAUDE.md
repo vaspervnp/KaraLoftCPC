@@ -97,7 +97,9 @@ tools/run_tests.sh         all of them, in order
 assets/sprites/            the art package: the heroine, the projectiles,
                            common/ for the HUD, level<n>_<name>/ for each
                            level's tiles, characters and machines, each
-                           with the artist's manifest.json
+                           with the artist's manifest.json and, for the
+                           tiles, tile_table.json - which tiles are
+                           overlays and which are a plain copy (7.3)
 assets/title/              the title render
 docs/                      hardware reference tables
 ```
@@ -650,6 +652,125 @@ thing the MCP server would have produced. `png2sprite.py` reads the
 JSON for the frame boxes and the tags rather than assuming a grid, so
 re-exporting with different frame counts needs no code change.
 
+### 7.3 Tiles — the transparency contract
+
+**The tile sheets carry explicit transparency now, and it is a TABLE,
+not a property of the pixels.**
+
+```
+pen 0 = transparent        pen 1 = opaque black
+```
+
+Both come out black on the screen, so **nothing about a tile's pixels
+says whether it is an overlay** — only the table does. Counted over all
+six levels' shipped tables:
+
+| | tiles |
+|---|---:|
+| in the six levels' sheets | 275 |
+| carrying any pen 0 | 69 |
+| ... of which OVERLAY | 34 |
+| ... of which OPAQUE, and copied anyway | **35** |
+
+**More than half the tiles with transparent-looking pixels are opaque
+ones**, and the two populations overlap rather than sit either side of a
+threshold: the emptiest opaque tile that is not wholly empty is
+`sky_stars` at **126 of 128**, while the fullest overlay, the cave's
+`beam_top`, is **14**. There is no pixel count that separates them and
+guessing gets the common cases backwards.
+
+#### The second half of the convention is NOT true of this project's pens
+
+**`pen 1` here is Pastel Cyan, not black** (§7.1 gave it to the art).
+58 pixels of the city sheet use it and every one is a bright highlight —
+the roof cap `roof_l/m/r` stands on, the kerb at the top of `sidewalk`,
+the lid of `ac_unit`. So "pen 1 = opaque black" states the authoring
+*intent*; what the shipped sheets and the table actually carry is the
+**pen 0 half**. Never quantise tile art onto pen 1 expecting black: on
+this palette it comes out as the colour Kara's boots rest on.
+
+#### The two sources, per level, in `assets/sprites/<level>/`
+
+| file | what it is |
+|---|---|
+| `manifest.json` | each `"kind":"tiles"` sheet may carry `"overlay": [...]` of tags and/or tile names. **Anything not listed is opaque.** |
+| `tile_table.json` | the derived per-tile table — the manifest's list resolved against the real pixels |
+
+```json
+{ "level": "level1_city", "about": "...",
+  "sheets": [ { "sheet": "city_tiles",
+                "file": "city_tiles_cpc_mode0_sheet.png",
+                "tile": [8, 16],          // Mode 0 pixels (8 wide = 16 square units)
+                "count": 41, "names_from": "...",
+                "tiles": [ { "index": 16,           // frame order in the sheet
+                             "name": "ac_unit", "tag": "deco_roof",
+                             "draw": "overlay",     // "opaque" | "overlay"
+                             "pen0": 48,            // transparent pixels of 8*16 = 128
+                             "bbox": [0, 5, 8, 11], // [x,y,w,h] of the non-transparent area
+                             "mask_bytes": 64,      // Mode 0 mask size, 0 if opaque
+                             "empty": false } ] } ] }
+```
+
+#### What a renderer does with it
+
+* **`draw == "opaque"`: a plain copy.** This is the fast path. **Do not
+  give it a mask even when `pen0 > 0`** — the tile was drawn over black
+  and its pen 0 *must* come out black. `void` is the extreme case:
+  `pen0` 128, `empty` true, and still a copy, because painting black
+  over what was there is the whole job.
+* **`draw == "overlay"`: a masked blit** — `AND mask / OR data`, 2 pixels
+  a byte, over the tile already in place. About 2-3x a copy, plus
+  `mask_bytes` of storage a tile.
+* **`bbox`** lets the blit skip wholly empty rows and columns.
+* **`empty == true`** on an *overlay*: draw nothing at all.
+
+#### Coverage today — counted out of the shipped tables
+
+| level | sheet | tiles | overlays | mask |
+|---|---|---:|---:|---:|
+| 1 city | `city_tiles` | 41 | **11** — roof props, the water tank, the lamp post | 704 B |
+| 2 forest | `forest_tiles` | 42 | 0 | — |
+| 3 cave | `cave_tiles` | 47 | **9** — crystals, beams, lamps, the ladder, the open gate | 576 B |
+| 3 cave | `cave_quake` | 13 | **8** — the waterfall and the flood's surface | 512 B |
+| 4 undersea | `sea_tiles` | 42 | 0 | — |
+| 5 desert | `desert_tiles` / `desert_quicksand` | 41 / 4 | 0 | — |
+| 6 station | `station_tiles` | 39 | 0 | — |
+| 6 station | `station_laser` | 6 | **6** — the laser beams | 384 B |
+| | | **275** | **34** | **2,176 B** |
+
+**Forest, undersea and desert are at zero because their sheets have no
+pen 0 in them at all** — not an oversight and not a decision, just art
+that has not needed it yet. `station_tiles` is the other case and the
+one to be careful about: 9 of its tiles carry pen 0, every one of them
+`opaque`, and `bg_far_1` is at 126 of 128.
+
+#### THIS ENGINE HAS NO MASKED TILE PATH, AND IT ALREADY SHOWS
+
+`DRAW_COLUMN`, `DRAW_ROW` and `DRAW_CELL` are plain copies, and
+`tools/make_city_map.py` places all eleven of level 1's overlay tiles as
+ordinary map cells. So their pen 0 is painted black, and what that
+looks like depends entirely on what it lands on:
+
+* the roof props — `ac_unit`, `chimney`, `antenna` — sit on
+  `far_fill`, which is black, so they come out right **by accident**;
+* the water tank's top row lands on the skyline row and punches a black
+  hole in `far_tower`/`far_block`;
+* `lamp_top` and `lamp_pole` are on brick, and their 78 and 84
+  transparent pixels paint **an 8x32 black rectangle out of the wall** —
+  rendered from the shipped tiles and the generated map, not predicted.
+
+**And the cost argument in the table does not transfer unchanged.**
+"Once a room, not every frame" assumes a room-at-a-time renderer; this
+one scrolls, and repaints a 384-byte column every character step (§9).
+An overlay tile in that column is 32 of those bytes at 2-3x, every step
+— which is affordable for the eleven decorations level 1 has and is a
+number to check before a level puts overlays down a whole wall.
+
+The masked path belongs to Module 6's tilemap rewrite (§11), with the
+map format saying which layer a cell is on. Until then the rule for
+`make_city_map.py` is the one the picture already enforces: **an overlay
+tile may only be placed over black.**
+
 ### 7.4 Compression — ZX0, and it is not close
 
 Every blob that goes on the disc is ZX0-packed by `tools/pack.py`
@@ -976,6 +1097,11 @@ and 4 will not be so kind; Module 6 needs a real clip.
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
+**Every tile blitter here is a plain copy**, which is correct for the 30
+opaque tiles of level 1 and wrong for its 11 overlays — see §7.3 for
+what that already costs the picture, and §11's Module 6 for where the
+masked path goes.
+
 ### 8.3 The level format, and the editor that writes it
 
 [docs/editor.md](docs/editor.md) specifies a web editor (C# / ASP.NET
@@ -999,6 +1125,14 @@ the contract between the two, and the engine reads it:
 Tile flags travel separately in `tileflags_<level>.bin`, one byte a
 tile: `Solid 1, Platform 2, Hazard 4, Ladder 8, Water 16, Quicksand 32,
 Deadly 64`.
+
+**Those are what a tile DOES; `tile_table.json` says how it is DRAWN**
+(§7.3), and the two are independent — `ladder` is an overlay in level 3
+and an opaque tile in level 1, with the same `Ladder` flag in both. The
+format has nowhere to put "this cell is an overlay over that one" yet,
+which is the same gap: a cell is one byte and an overlay needs the tile
+under it as well. Settle it here before the editor is written, with the
+tile flag byte and the `param0`/`param1` meanings (§11 step 7).
 
 #### Two corrections to editor.md, both forced by the CRTC
 
@@ -2063,7 +2197,10 @@ the next one starts.
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
    `collide.asm`'s probes, then a reader for `level_<n>.lvl` and
    `tileflags_<level>.bin`, then one hand-built level played end to
-   end. `tools/make_level.py` writes the same bytes the editor will, so
+   end. **The masked tile path of §7.3 belongs here too**, with whatever
+   the map format grows to say which cell is an overlay over which — the
+   art has 34 overlay tiles across three levels and the engine has no
+   way to draw one. `tools/make_level.py` writes the same bytes the editor will, so
    the format gets a reference implementation and a golden file before
    anything else is built against it.
 7. **The level editor** — [docs/editor.md](docs/editor.md), a C# /
