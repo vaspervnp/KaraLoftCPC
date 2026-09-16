@@ -24,7 +24,12 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 STUB = 0xA000
 
 IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT = 1, 2, 4, 8
-IN_FIRE, IN_ROLL, IN_PAUSE, IN_RUN = 16, 32, 64, 128
+IN_FIRE, IN_SPARE, IN_PAUSE, IN_RUN = 16, 32, 64, 128
+# THE ROLL IS DOWN AND A DIRECTION, not Z. It is a PRESS of either half
+# while the other is held (src/action.asm), which is what stops a
+# committed 8-cel roll re-triggering on the frame it ends.
+ROLL_NOW = IN_DOWN | IN_RIGHT
+ROLL_PRESS = IN_RIGHT
 KARA_W = 12          # her box, in screen bytes
 
 fails = []
@@ -139,8 +144,8 @@ def main():
         ("off the ground",                   "JUMP", dict(ground=0)),
         ("off the ground, still holding right", "JUMP",
          dict(now=IN_RIGHT, ground=0)),
-        ("Z pressed on the ground",          "ROLL", dict(pressed=IN_ROLL,
-                                                          now=IN_ROLL)),
+        ("DOWN held, a direction pressed",   "ROLL", dict(pressed=ROLL_PRESS,
+                                                          now=ROLL_NOW)),
         ("SPACE held",                       "AIM",  dict(now=IN_FIRE)),
         ("SPACE held while walking",         "AIM",  dict(now=IN_FIRE | IN_RIGHT)),
     ]
@@ -162,7 +167,7 @@ def main():
     print("\n  the first frame of a state is its FIRST cel:")
     entry = dict(IDLE=dict(), WALK=dict(now=IN_RIGHT),
                  RUN=dict(now=IN_RIGHT | IN_RUN), JUMP=dict(ground=0),
-                 ROLL=dict(now=IN_ROLL, pressed=IN_ROLL),
+                 ROLL=dict(now=ROLL_NOW, pressed=ROLL_PRESS),
                  AIM=dict(now=IN_FIRE))
     wrong = 0
     for name, kw in entry.items():
@@ -186,9 +191,9 @@ def main():
     check("no state opens a cel late", wrong == 0,
           f"{wrong} of 7 skipped their first cel")
 
-    # Z in the air must NOT roll
+    # a roll in the air must NOT start
     sim.force(ST["IDLE"])
-    got = sim.step(pressed=IN_ROLL, now=IN_ROLL, ground=0)
+    got = sim.step(pressed=ROLL_PRESS, now=ROLL_NOW, ground=0)
     check("a roll cannot start in the air", got["st"] == ST["JUMP"],
           "it is a dodge, not a glide")
 
@@ -215,10 +220,10 @@ def main():
         seen, frames, n = [], [], 0
         while n < 400:
             # every input EXCEPT a fresh roll press: INPUT_PRESSED is
-            # edge-detected, so re-asserting IN_ROLL every frame is a
+            # edge-detected, so re-asserting the roll every frame is a
             # key being pressed again, which is allowed to start a
             # second roll and would be testing nothing.
-            g = sim.step(now=IN_LEFT | IN_RIGHT | IN_FIRE | IN_RUN | IN_ROLL,
+            g = sim.step(now=IN_LEFT | IN_RIGHT | IN_FIRE | IN_RUN,
                          pressed=IN_UP)
             n += 1
             seen.append(g["st"])
@@ -433,8 +438,8 @@ def main():
         return v
 
     got_z = held("z")
-    check("Z reads as IN_ROLL and nothing else", got_z == IN_ROLL,
-          f"INPUT_NOW = &{got_z:02X}, want &{IN_ROLL:02X}")
+    check("Z is not bound to anything any more", got_z == 0,
+          f"INPUT_NOW = &{got_z:02X} - the roll is DOWN + a direction")
     got_sp = held(" ")
     check("SPACE reads as IN_FIRE", got_sp == IN_FIRE,
           f"INPUT_NOW = &{got_sp:02X}")

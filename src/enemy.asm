@@ -773,9 +773,40 @@ EBUL_UPDATE:    ld   a,(EBUL_LIVE)
 .left:          sub  EBUL_SPEED
                 jr   c,.kill
 .store:         inc  hl
-                ld   (hl),a
+                ld   (hl),a                 ; its new x
+                inc  hl
+                ; ---- and the tile it has just flown into -------
+                ; THE POOL IS IN SCREEN COORDINATES AND THE MAP IS IN
+                ; WORLD ONES, so the round's byte column and its
+                ; scanline are lifted into the world before the probe:
+                ; + WORLD_X * 2 across and + WORLD_CR * 8 down. The row
+                ; wraps in a byte, which IS the map's own height.
+                ;
+                ; TA_SOLID ONLY. A platform is a floor you jump up
+                ; through; a round crossing its edge should not stop
+                ; dead in mid-air.
+                ld   c,(hl)                 ; its scanline
                 dec  hl
-                call EBUL_HITS_HER
+                dec  hl                     ; back to the slot
+                push hl
+                ld   l,a
+                ld   h,0
+                ld   a,(WORLD_X)
+                ld   e,a
+                ld   d,0
+                add  hl,de
+                add  hl,de                  ; HL = world byte column
+                ld   a,(WORLD_CR)
+                add  a,a
+                add  a,a
+                add  a,a
+                add  a,c                    ; ... and world pixel row
+                call MAP_ATTR
+                pop  hl
+                and  TA_SOLID
+                jr   nz,.kill
+                jr   .hit_her
+.hit_her:       call EBUL_HITS_HER
                 jr   nc,.skip
 .kill:          ld   (hl),0
                 ld   a,(EBUL_LIVE)
@@ -953,36 +984,67 @@ ENEMY_WOUND:    ld   a,(ix + ES_HP)
 ;      (ENEMY_DREW)     non-zero while its pixels are on the screen
 ;      destroys AF,BC,DE,HL,IX,B',C'
 ; ---------------------------------------------------------------------
-ENEMY_REFRESH:  ; ---- can this frame afford it? ---------------------
+ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
+                ; The budget gate below may postpone the sprite's
+                ; ANIMATION and its patrol. Whether it is on the screen
+                ; at all is not negotiable, and getting that wrong
+                ; showed up twice on real hardware:
+                ;
+                ;   * a drone she WALKED past was never drawn, because a
+                ;     walk keeps VIEW_STEP up for as long as it lasts;
+                ;   * one that had been drawn was never lifted off, so
+                ;     the scroll carried its pixels out of the picture
+                ;     and the 1024-word ring brought them back at the
+                ;     opposite edge a character row up - copies of
+                ;     itself, trailing behind it.
+                ;
+                ; So two frames an encounter pay whatever it costs: the
+                ; one it comes into view on and the one it leaves on.
+                ld   a,(ENEMY_DREW)
+                or   a
+                jr   z,.absent
+
+                ; ---- its pixels are up there. Do they still belong? --
+                ; NOT "is the enemy visible" - where its PIXELS are. The
+                ; two drift apart because it keeps patrolling while the
+                ; refresh is postponed, by up to its whole beat, and it
+                ; is the pixels the incoming column is about to recycle.
+                call ENEMY_PIX_SAFE
+                jr   nc,.afford
+                ld   hl,(ENEMY_CUR)
+                ld   a,h
+                or   l
+                jr   z,.afford              ; it died, or left the level's
+                ld   a,(ENEMY_VIS)          ; near zone
+                or   a
+                jr   z,.afford
+                jr   .optional
+
+.absent:        ld   hl,(ENEMY_CUR)         ; nothing on the screen: should
+                ld   a,h                    ; there be?
+                or   l
+                ret  z
+                ld   a,(ENEMY_VIS)
+                or   a
+                ret  z
+                jr   .afford
+
+                ; ---- the screen is already right, so only the cel and
+                ; the patrol are waiting - and those can wait.
+                ;
                 ; WHILE THE PICTURE IS MOVING IT DOES NOT HAVE TO BE
-                ; REDRAWN AT ALL, and that is not a compromise - it is
-                ; the CRTC doing the work. An enemy that is standing
-                ; still in the WORLD has to move left on the screen when
-                ; the camera pans right, and every pixel on the screen
-                ; moves left when R12/R13 step. Its bytes are already
-                ; where they belong.
+                ; REDRAWN, and that is not a compromise, it is the CRTC
+                ; doing the work: a world-fixed sprite has to move left
+                ; when the camera pans right, and every pixel on the
+                ; screen does exactly that when R12/R13 step.
                 ;
-                ; So the frame that is paying 9,650-16,536 T for the
-                ; incoming column keeps its script and touches nothing,
-                ; and the frame that is not redraws it. What is lost is
-                ; a couple of frames of its animation while she walks,
-                ; which is 25 Hz on a 4-frame cel; what is bought is the
-                ; 17,900 T that made the loop drop 86 frames in 200.
-                ;
-                ; Its whole box has to be a character clear of BOTH edges
-                ; for this to hold - see ENEMY_PICK - because the only
-                ; other thing that writes the screen between one redraw
-                ; and the next is the incoming column, and that lands in
-                ; the two bytes at one end or the other.
                 ; AND NOT ON THE FRAME ENT_UPDATE SWEEPS THE PICKUPS.
                 ; Measured, the frame that pays for both is 80,248 T of
                 ; 79,872 - over by 376 - so they take alternate frames.
-                ; Neither loses anything by it: the enemy's pixels stay
-                ; on the screen between redraws (see below) and she
-                ; cannot cross a 4-byte pickup in the 2 bytes a frame
-                ; she can travel. ENT_UPDATE's INTERACT pass still runs
-                ; every frame, because a keypress lasts one.
-                ld   a,(FRAME_COUNT)
+                ; She cannot cross a 4-byte pickup in the 2 bytes a
+                ; frame she can travel, and ENT_UPDATE's INTERACT pass
+                ; still runs every frame because a keypress lasts one.
+.optional:      ld   a,(FRAME_COUNT)
                 rra
                 jr   nc,.hold
                 ld   hl,VIEW_STEP
@@ -990,18 +1052,27 @@ ENEMY_REFRESH:  ; ---- can this frame afford it? ---------------------
                 or   a
                 jr   z,.afford
                 dec  (hl)
-.hold:
-                ld   a,(ENEMY_LAST_CNT)     ; ... and it stays drawn, so the
-                ret                         ; erase must stay off too
-.afford:        xor  a
+.hold:          ld   a,(ENEMY_LAST_CNT)
+                ret
+
+.afford:        ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
+                ; A persistent sprite is erased by the refresh that
+                ; replaces it and by nothing else, so this is the ONLY
+                ; place its pixels ever come off the screen. Without it
+                ; every refresh left the last image where it was and
+                ; drew another one beside it - the enemy trailing copies
+                ; of itself across the roof.
+                ld   a,(ENEMY_DREW)
+                or   a
+                jr   z,.gone
+                ld   hl,ENEMY_SCRIPT
+                call SPAN_ERASE_AT
+.gone:          xor  a
+                ld   (ENEMY_DREW),a
                 ld   (ENEMY_LAST_CNT),a
                 ld   (ENEMY_LAST_BOT),a
-                ; AN EMPTY SCRIPT BEFORE ANYTHING CAN RETURN. The erase
-                ; replays whatever is in the buffer, and the frame after
-                ; one walks out of view would otherwise put its old
-                ; background back over a screen that has moved on.
-                ld   hl,ENEMY_SCRIPT
-                ld   (hl),&FF
+                ld   hl,ENEMY_SCRIPT        ; an empty script, so nothing can
+                ld   (hl),&FF               ; restore the same bytes twice
                 ld   hl,(ENEMY_CUR)
                 ld   a,h
                 or   l
@@ -1016,6 +1087,13 @@ ENEMY_REFRESH:  ; ---- can this frame afford it? ---------------------
                 ret  z                      ; near, but its box does not fit
                 inc  a
                 ld   (ENEMY_DREW),a         ; its pixels are on the screen now
+                ld   a,(ENEMY_W)
+                ld   (ENEMY_DREW_W),a       ; ... this wide, and at THIS world
+                ld   l,(ix + ES_X)          ; byte, which is what
+                ld   h,(ix + ES_X + 1)      ; ENEMY_PIX_SAFE watches - not
+                srl  h                      ; where it has patrolled to since
+                rr   l
+                ld   (ENEMY_DREW_WX),hl
 
                 ld   hl,(ENEMY_TYP)
                 ld   a,(ix + ES_FACE)
@@ -1068,6 +1146,36 @@ ENEMY_REFRESH:  ; ---- can this frame afford it? ---------------------
                 ld   bc,ENEMY_SCRIPT
                 call SPAN_DRAW              ; called even at 0 lines: a stale
                 jp   BANK_RESTORE           ; script would put back old bytes
+
+; ---------------------------------------------------------------------
+; ENEMY_PIX_SAFE - are the pixels that ARE on the screen still a
+; character clear of both edges, under the view showing now?
+;
+; OUT: carry set if they are.        destroys AF,DE,HL
+; ---------------------------------------------------------------------
+ENEMY_PIX_SAFE: ld   hl,(ENEMY_DREW_WX)     ; the world byte they were put at
+                ld   a,(WORLD_X)
+                add  a,a
+                ld   e,a
+                ld   d,0
+                or   a
+                sbc  hl,de                  ; -> their screen byte column
+                ld   a,h
+                or   a
+                jr   nz,.unsafe             ; off the left edge entirely
+                ld   a,l
+                cp   2
+                jr   c,.unsafe              ; inside the left incoming column
+                ld   a,(ENEMY_DREW_W)
+                add  a,2
+                neg
+                add  a,SCR_CHARS * 2        ; the last column it fits clear at
+                cp   l
+                jr   c,.unsafe
+                scf
+                ret
+.unsafe:        or   a
+                ret
 
 ; ---------------------------------------------------------------------
 ; EBUL_DRAW / EBUL_ERASE - one byte wide, two lines tall, exactly like
@@ -1168,5 +1276,7 @@ ENEMY_VIS:      db 0            ; can the one in ENEMY_CUR be drawn?
 ENEMY_LAST_CNT: db 0
 ENEMY_LAST_BOT: db 0
 ENEMY_DREW:     db 0            ; its pixels are on the screen
+ENEMY_DREW_WX:  dw 0            ; ... at this world byte, this wide
+ENEMY_DREW_W:   db 0
 ENEMIES:        ds ENEMY_MAX * ES_STRIDE
 EBULLETS:       ds EBUL_MAX * EBUL_STRIDE

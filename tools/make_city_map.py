@@ -35,9 +35,12 @@ ROW_SKY_TOP  = 0
 ROW_SKY_MID  = 1
 ROW_SKY_LOW  = 2
 ROW_FAR_TOP  = 3
-ROW_ROOFLINE = 4                # props stand here, on top of the roof
-ROW_ROOF     = 5                # <- the walkable surface, world y = 80
-ROW_WALL_TOP = 6
+ROW_DRONE    = 4                # a drone hovers here: its box is 44..64 and
+                                # her muzzle is at world y 53, so she can hit
+                                # it and it can hit her
+ROW_ROOFLINE = 5                # props stand here, on top of the roof
+ROW_ROOF     = 6                # <- the walkable surface, world y = 96
+ROW_WALL_TOP = 7
 ROW_PAVEMENT = 12
 ROW_CURB     = 13
 ROW_STREET   = 14
@@ -101,15 +104,13 @@ def build_entities(path):
         # vanishing. The assert below is what keeps that honest as the
         # map is edited.
         #
-        # ROW_FAR_TOP AND NOT ROW_ROOFLINE, because a drone a row higher
-        # hovers above her gun: her muzzle is at world y 37 (KARA_WY 20
-        # plus the firing cel's own spawn point) and a drone based on
-        # row 4 spans 44-64, so every round she fired went under it.
-        # Based on row 3 it spans 28-48, which is her head height - she
-        # can hit it and it can hit her.
-        entity(EK_ENEMY, 36, ROW_FAR_TOP, EF_ACTIVE, EN_DRONE, 4),
-        entity(EK_ENEMY, 76, ROW_FAR_TOP, EF_ACTIVE, EN_DRONE, 4),
-        entity(EK_ENEMY, 116, ROW_FAR_TOP, EF_ACTIVE, EN_DRONE, 6),
+        # THE ROW IS HER MUZZLE'S, not a guess: she stands with her
+        # feet on row 6, so KARA_WY is 36 and the firing cel's own
+        # spawn point puts the shot on world y 53. A drone has to be
+        # drawn across that line or every round goes under it.
+        entity(EK_ENEMY, 36, ROW_DRONE, EF_ACTIVE, EN_DRONE, 4),
+        entity(EK_ENEMY, 76, ROW_DRONE, EF_ACTIVE, EN_DRONE, 4),
+        entity(EK_ENEMY, 116, ROW_DRONE, EF_ACTIVE, EN_DRONE, 6),
     ]
     # No two enemies, at either end of their beats, can share a screen.
     beats = []

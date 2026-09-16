@@ -18,7 +18,17 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-**`RUN"DISC` now plays the real art.** The scrolling demo loads level
+**`RUN"DISC` starts on the rooftop.** There is no longer an
+introduction: the core boots, self-tests its banks and goes straight to
+the city. The Module 1-3 acceptance screen — colour bars, the bank
+verdict, the stripes and the 16x48 placeholder blitter — is kept as a
+DEVELOPMENT screen at `INTRO_SCREEN`, which `tools/test_module3.py` and
+`tools/test_module1.py` jump into; nothing else reaches it. It puts the
+CRTC, the start address, her position, the bullet pool and the map back
+the way it needs them, because the level it is entered from has moved
+all five.
+
+The scrolling demo loads level
 1 off the disc at start-up, scrolls the drawn 8x16 city tiles, draws
 the 24x64 drawn heroine out of her span blobs through the action state
 machine of §8.4, and carries the level's entity table: her key, her
@@ -27,7 +37,7 @@ inventory when she walks into them (§8.6). Drones patrol the skyline,
 shoot at her when she is in front of them, take damage from her
 pistols and die (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all fourteen
+`./tools/run_tests.sh` runs every acceptance suite and **all fifteen
 pass**, including the frame budget: a scrolling frame on Kara's
 heaviest animation frame is 75,140 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
@@ -72,7 +82,7 @@ tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
 tools/bench.py             T-states by calling a routine from a DI stub
-tools/test_*.py            acceptance suites
+tools/test_*.py            acceptance suites, fourteen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -871,6 +881,24 @@ Splitting the column across two frames is what buys the whole top border for
 beam overtook her; painting her first left the column's top rows under the
 beam. Either way `DRAW_COLUMN` must run **top to bottom**.
 
+**The camera keeps her BEHIND the middle of where she is going.** One
+fixed column cannot do that in both directions, so the mark moves with
+her facing: walking right she rides at `CAM_TRAIL` = 24 and the 50
+bytes of level in front of her are the ones on screen; walking left she
+rides at `CAM_LEAD` = 50, its mirror. It was a static zone of 16..56,
+which meant walking right she sat at column 56 with 18 bytes of
+warning.
+
+**Turning round therefore PANS.** She is 26 bytes from the new mark, so
+the camera scrolls a whole character every frame while she walks her
+own byte and she drifts across the picture at 1 byte a frame, arriving
+in 26. A pan is exactly a run's frame cost — a column every frame — and
+it is the one thing that makes the loop drop a frame or two (§9).
+`CAM_BAND` is what tells "the camera is following her" from "the camera
+is panning to catch up": only the first gets the lock-step below, and
+without it she would freeze at whatever column she turned round on
+while the camera panned for ever.
+
 **The walk speed and the scroll step are the same number or the picture
 doubles.** The CRTC scrolls a whole character — 2 bytes — and Kara walks 1 byte
 a frame, so inside the camera's push zone the camera can only fire every other
@@ -993,7 +1021,7 @@ the frame counts in §7.1 rather than inferred at each call site.
 | `WALK` | `walk` 8 | left/right on the ground | the key goes, or SHIFT is added |
 | `RUN` | `run` 8 | **SHIFT + left/right** | SHIFT or the direction goes |
 | `JUMP` | `jump` 6 | UP pressed while grounded | she lands |
-| `ROLL` | `roll` 8 | **Z**, on the ground | the 8 frames are done |
+| `ROLL` | `roll` 8 | **DOWN + left or right**, on the ground | the 8 frames are done |
 | `AIM` | `shoot_draw` 2 then hold | **SPACE held** | SPACE released |
 | `FIRE` | `shoot` 4 | **SPACE released** from `AIM` | the 4 frames are done |
 | `SWIM` | `swim` 8 | level 4, in water | out of the water |
@@ -1058,13 +1086,20 @@ spare bits. Bits 0-3 have to stay in the joystick's own order — that is
 what lets row 9 fold in with no shifting (`input.asm`) — so:
 
 ```
-0 UP  1 DOWN  2 LEFT  3 RIGHT  4 FIRE(SPACE)  5 ROLL(Z)  6 PAUSE(ESC)  7 RUN(SHIFT)
+0 UP  1 DOWN  2 LEFT  3 RIGHT  4 FIRE(SPACE)  5 spare  6 PAUSE(ESC)  7 RUN(SHIFT)
 ```
 
-Z was `IN_ACTION`, a second interact key alongside RETURN; it is the
-roll now, and RETURN goes with it. Interact is `UP` alone, which is what
-plan.md §5.2 asked for in the first place ("αν πατηθεί UP"). A ninth
-control needs a second byte, not a re-shuffle.
+**The roll is DOWN and a direction, and bit 5 is free again.** It was Z;
+it is now the two keys a player's hands are already on, which is what a
+dodge wants. It triggers on a PRESS of either half while the other is
+held, not on the state of both — a committed 8-cel roll that
+re-triggered on the frame it ended would never let go while the player
+kept crouching and walking. `DOWN` + `FIRE` is still the manual reload
+(§8.5), so nothing collides.
+
+Z was `IN_ACTION`, a second interact key alongside RETURN, then the
+roll, and is now bound to nothing. Interact is `UP` alone, which is what
+plan.md §5.2 asked for in the first place ("αν πατηθεί UP").
 
 `RUN` moves her 2 bytes a frame, which is exactly the CRTC's scroll
 step, so inside the camera's push zone a run scrolls every frame and a
@@ -1081,8 +1116,24 @@ AMMO_RESERVE bytes    clips add 14
 ```
 
 14 bullets in flight max, one pool entry per round: `{active, x, y, direction, life}`.
-Bullets move 4 pixels/frame and die on a solid tile. Reload is manual (Down+Fire) or
+Bullets move 4 pixels/frame. Reload is manual (Down+Fire) or
 automatic when both magazines hit 0; during reload the player is slowed or frozen.
+
+**A round dies on a solid tile, and the probe is a coordinate
+conversion.** The pool holds SCREEN coordinates and the map is in WORLD
+ones, so the round's byte column and its scanline are lifted into the
+world — `+ WORLD_X * 2` across and `+ WORLD_CR * 8` down, the row
+wrapping in a byte because that IS the map's height — and handed to
+`MAP_ATTR`. `TA_SOLID` only: a platform is a floor you jump up through
+and a round crossing its edge should not stop dead in mid-air. Their
+rounds use the same code.
+
+**An idle pool is fourteen slots of nothing**, so `BUL_LIVE` counts the
+rounds in the air and every routine that walks the pool returns at once
+when it is zero (§9). The draw and the erase have to make that decision
+on the SAME count, because `UPDATE_BULLETS` runs between them and can
+kill a round that still has to be lifted off the screen; `BUL_DREW` is
+the count as the draw found it.
 
 ### 8.6 The entity table, and game state — implemented
 
@@ -1323,12 +1374,22 @@ with 18,568 µs and invites a fix for a bug that is not there. Count **loop
 iterations against interrupt ticks** instead — the gate array delivers exactly
 6 per 50 Hz frame, so 200 iterations per 1,200 ticks is a hard lock:
 
-| Loop | iterations | hardware frames | |
-|---|---:|---:|---|
-| standing still | 200 | 200.00 | **locked** |
-| walking right, scrolling | 200 | 200.00 | **locked** |
-| walking left, scrolling | 200 | 200.17 | **locked** |
-| jumping while scrolling | 200 | 200.00 | **locked** |
+| Loop | iterations per 200 hardware frames | |
+|---|---:|---|
+| standing still | 201 | **locked** |
+| walking right, scrolling, no enemy | 200 | **locked** |
+| walking right with a drone in view | 199 | one frame an encounter |
+| turning round, with a drone in view | 196 | four, through the camera's pan |
+
+**The two transients are named rather than hidden behind a loose
+threshold.** A drone costs 17,968 T and a scrolling frame cannot carry
+it, so it is a persistent sprite (§8.7) — but the frame it comes into
+view on and the frame it leaves on pay whatever it costs, because what
+the screen shows is not negotiable. And turning round makes the camera
+pan (§8.2): a whole column every frame for about 26 frames instead of
+every other one, which is a run's cost applied to a walk.
+`tools/test_enemies.py` carries those two numbers as its floors and
+prints the reason beside them.
 
 A scrolling frame on her heaviest cel is **75,140 T of the 79,872
 available — 4,732 to spare**, measured by summing every call the loop
@@ -1621,6 +1682,12 @@ frame, so this only helps a standing player on a still screen.
   across memory. See `BUFFERS_CLEAR`.
 * Sprite frames must be **16-byte aligned**: the blitter's inner loop steps the
   sprite pointer with `INC L` and cannot carry into `H`.
+* **The enemy's pixels are lifted off by the refresh that replaces them
+and by nothing else.** A persistent sprite has no erase at the end of
+its frame, so the one place it ever comes off the screen is the top of
+the next refresh — and a refresh that drew without erasing first left
+the last image where it was and put another one beside it, the enemy
+trailing copies of itself across the roof.
 * **A table indexed with `ADD A,TABLE AND 255` must fit ENTIRELY in one
   page, not merely be aligned.** The carry is discarded, so a table that
   straddles a page boundary silently reads the wrong row — `align 32`
@@ -1731,9 +1798,14 @@ the next one starts.
       small they are. **The level machines are not done** and are a
       separate problem: they are set pieces, loaded for one fixed
       moment, and nothing else is on screen while they are;
-   9. bullet-against-tile collision (`src/bullets.asm:130`) and the game
-      state of §8.5;
-   10. `tools/test_module5.py`.
+   9. ~~bullet-against-tile collision and the game state of §8.5~~ —
+      done: both pools lift the round's screen position into the world
+      and probe `TA_SOLID` through `MAP_ATTR`, and `tools/test_module5.py`
+      drives it from both sides — a brick under the round kills it, sky
+      does not — with a negative control that puts the brick at the
+      UNCONVERTED cell and checks the round survives;
+   10. `tools/test_module5.py` — started, with the bullet/tile checks in
+      it. It still owes the rest of the module.
 6. **The level format, engine side** — 8×16 tiles and a 20×11 play
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
    `collide.asm`'s probes, then a reader for `level_<n>.lvl` and

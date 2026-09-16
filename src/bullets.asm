@@ -163,11 +163,39 @@ UPDATE_BULLETS: ld   a,(BUL_LIVE)
                 jr   .store
 .left:          sub  BUL_SPEED
                 jr   c,.kill            ; off the left edge
-.store:
-                ; TODO (Module 4): test the tile at (A, y) and kill the
-                ; round here if it is solid.
+.store:         inc  hl
+                ld   (hl),a                 ; its new x
                 inc  hl
-                ld   (hl),a
+                ; ---- and the tile it has just flown into -------
+                ; THE POOL IS IN SCREEN COORDINATES AND THE MAP IS IN
+                ; WORLD ONES, so the round's byte column and its
+                ; scanline are lifted into the world before the probe:
+                ; + WORLD_X * 2 across and + WORLD_CR * 8 down. The row
+                ; wraps in a byte, which IS the map's own height.
+                ;
+                ; TA_SOLID ONLY. A platform is a floor you jump up
+                ; through; a round crossing its edge should not stop
+                ; dead in mid-air.
+                ld   c,(hl)                 ; its scanline
+                dec  hl
+                dec  hl                     ; back to the slot
+                push hl
+                ld   l,a
+                ld   h,0
+                ld   a,(WORLD_X)
+                ld   e,a
+                ld   d,0
+                add  hl,de
+                add  hl,de                  ; HL = world byte column
+                ld   a,(WORLD_CR)
+                add  a,a
+                add  a,a
+                add  a,a
+                add  a,c                    ; ... and world pixel row
+                call MAP_ATTR
+                pop  hl
+                and  TA_SOLID
+                jr   nz,.kill
                 jr   .skip
 
 .kill:          ld   (hl),0

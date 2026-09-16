@@ -87,11 +87,21 @@ def main():
     machine.type_text('RUN"DISC\n')
     machine.run_frames(400)
 
-    # Module 4 hands the demo over to the scrolling screen once
-    # DEMO_TIMER runs out. Pin it open so this suite always sees the
-    # Module 1-3 acceptance screen no matter how many frames it runs.
+    # THE GAME NO LONGER PASSES THROUGH THIS SCREEN. It boots straight
+    # onto the rooftop, and the Module 1-3 acceptance screen is a
+    # development screen the core keeps an entry point to - so this
+    # suite jumps into it, after waiting out the level load the boot
+    # now does first. DEMO_TIMER is pinned open so it stays there.
+    for _ in range(200):
+        machine.run_frames(2)
+        if machine.peek(sym["LEVEL_OK"]):
+            break
+    machine.run_frames(6)
     machine.poke(sym["DEMO_TIMER"], 0xFF)
     machine.poke(sym["DEMO_TIMER"] + 1, 0xFF)
+    machine.set_pc(sym["INTRO_SCREEN"])
+    machine.run_frames(30)      # let it settle: the screen is redrawn, the
+                                # pool refilled and her walk restarted
 
     check("game is running in Mode 0", machine.mode == 0, f"mode={machine.mode}")
     # ---------------------------------------------------------------

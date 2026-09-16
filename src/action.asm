@@ -90,11 +90,27 @@ ACT_UPDATE:     ; ---- is the current state still owed its frames? -----
                 ld   a,KST_JUMP
                 jr   z,.want
 
-                ; ---- a roll is a PRESS, and only from the ground ----
+                ; ---- a roll is DOWN AND A DIRECTION, from the ground -
+                ; It was Z. It is the two keys a player's hands are
+                ; already on, which is what a dodge wants, and it frees
+                ; bit 5 of the input byte that 8.4 called full.
+                ;
+                ; A PRESS OF EITHER HALF WHILE THE OTHER IS HELD, not
+                ; the state of both: a committed 8-cel roll that
+                ; re-triggered on the frame it ended would never let go
+                ; while the player kept crouching and walking.
+                ld   a,(INPUT_NOW)
+                ld   c,a
+                and  IN_DOWN
+                jr   z,.no_roll
+                ld   a,c
+                and  IN_LEFT + IN_RIGHT
+                jr   z,.no_roll
                 ld   a,(INPUT_PRESSED)
-                and  IN_ROLL
+                and  IN_DOWN + IN_LEFT + IN_RIGHT
                 ld   a,KST_ROLL
                 jr   nz,.want
+.no_roll:
 
                 ; ---- the gun is draw-hold-RELEASE ------------------
                 ; SPACE going down plays shoot_draw and holds its last

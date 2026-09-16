@@ -95,10 +95,11 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   (KARA_FACING),a        ; 0 = right
                 call PLAYER_SCREEN_X
                 inc  a                      ; her screen column after 1 byte
-                cp   CAM_RIGHT_EDGE
-                ld   a,(PLAYER_SPEED)
-                ld   e,a
-                jr   c,.step_r              ; still in the free zone
+                sub  CAM_TRAIL              ; how far past the mark - and it
+                cp   CAM_BAND               ; underflows to 255 short of it,
+                ld   a,(PLAYER_SPEED)       ; which reads as "not at the mark"
+                ld   e,a                    ; exactly as it should
+                jr   nc,.step_r             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
                 jr   nc,.step_r             ; camera at the map's end: walk on
@@ -141,10 +142,13 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   (KARA_FACING),a        ; 1 = left
                 call PLAYER_SCREEN_X
                 dec  a                      ; her screen column after 1 byte
-                cp   CAM_LEFT_EDGE
+                ld   c,a
+                ld   a,CAM_LEAD
+                sub  c                      ; how far short of the mark
+                cp   CAM_BAND
                 ld   a,(PLAYER_SPEED)
                 ld   e,a
-                jr   nc,.step_l             ; still in the free zone
+                jr   nc,.step_l             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 or   a
                 jr   z,.step_l              ; camera at the map's start
@@ -304,22 +308,54 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
 ; frame of delay in a case the game never reaches.
 ;                                destroys AF,HL
 ; ---------------------------------------------------------------------
-CAM_LEFT_EDGE   equ 16          ; screen byte columns
-CAM_RIGHT_EDGE  equ 56
+; ---------------------------------------------------------------------
+; THE CAMERA KEEPS HER BEHIND THE MIDDLE OF WHERE SHE IS GOING.
+;
+; One fixed column cannot do that in both directions, so the mark moves
+; with her facing: walking right she rides at CAM_TRAIL and the 50
+; bytes of level in front of her are the ones on screen; walking left
+; she rides at CAM_LEAD, its mirror, and the 50 bytes are behind her.
+; It used to be a static zone of 16..56, which meant walking right she
+; sat at column 56 with 18 bytes of warning.
+;
+; TURNING ROUND THEREFORE PANS. She is 26 bytes from the new mark, the
+; camera scrolls a whole character every frame until she reaches it and
+; she keeps walking her own byte, so she drifts across the screen at 1
+; byte a frame and arrives in 26. A pan is exactly a run's frame cost -
+; a column every frame - which CLAUDE.md 9 already measures as locked.
+;
+; CAM_BAND is what tells "the camera is following her" from "the camera
+; is panning to catch up", and only the first gets the lock-step of
+; P_PUSH below. Without it she would freeze at whatever column she
+; turned round on and the camera would pan for ever.
+; ---------------------------------------------------------------------
+CAM_TRAIL       equ 24          ; her column while she walks RIGHT
+CAM_LEAD        equ SCR_CHARS * 2 - CAM_TRAIL - KARA_BOX_W   ; 50, its mirror
+CAM_BAND        equ 4           ; within this of the mark, she is pushing it
+                                ; and not drifting toward it
 
 CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
                 or   a                      ; SCROLL_SERVICE in tilemap.asm
                 ret  nz
+                ; WHICH WAY SHE FACES DECIDES WHICH WAY THE CAMERA CAN
+                ; GO. A single pair of thresholds would have to overlap
+                ; to put her behind the middle in both directions, and
+                ; then standing still between them would scroll both
+                ; ways on alternate frames.
+                ld   a,(KARA_FACING)
+                or   a
+                jr   nz,.facing_left
                 call PLAYER_SCREEN_X        ; A = screen byte column
-                cp   CAM_RIGHT_EDGE
-                jr   c,.check_left
+                cp   CAM_TRAIL
+                ret  c                      ; behind the mark: let her walk up
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
                 ret  nc                     ; at the right edge of the map
                 jp   H_REQUEST_RIGHT
 
-.check_left:    cp   CAM_LEFT_EDGE
-                ret  nc
+.facing_left:   call PLAYER_SCREEN_X
+                cp   CAM_LEAD
+                ret  nc                     ; ahead of the mark: let her walk
                 ld   a,(WORLD_X)
                 or   a
                 ret  z                      ; at the left edge of the map

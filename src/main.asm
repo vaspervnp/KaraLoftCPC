@@ -111,6 +111,66 @@ CORE_ENTRY:     ; Install our own IM 1 handler. The firmware's lives in the
                 call SCREEN_CLS
 
                 call BANK_TEST              ; must run before anything else
+                jp   SCROLL_DEMO            ; ... and straight to the roof
+
+; ---------------------------------------------------------------------
+; INTRO_SCREEN - the Module 1-3 acceptance screen: colour bars, the
+; bank self-test's verdict, the stripe background, and Kara walking and
+; firing over it out of the 16x48 placeholder blitter.
+;
+; IT IS NO LONGER ON THE WAY IN. The game starts on the rooftop; this
+; is a development screen, kept because the whole of module 3 -
+; sprite.asm, the HUD, the bullet pool's drawing - is still tested
+; against it by tools/test_module3.py, which enters here directly. It
+; puts the CRTC and the start address back the way it needs them,
+; because the scrolling demo will have moved both.
+; ---------------------------------------------------------------------
+INTRO_SCREEN:   di
+                ; Her position is the scrolling demo's by now - the boot
+                ; goes there first - so put it back where this screen's
+                ; own checks expect her.
+                xor  a
+                ld   (KARA_X),a
+                ld   (KARA_FRAME),a
+                ld   (RELOAD_TIMER),a
+                ld   (BUL_LIVE),a           ; the pool's save-under belongs to
+                ld   (BUL_DREW),a           ; a screen that is about to go
+                ld   hl,BULLETS
+                ld   de,BULLETS + 1
+                ld   bc,BUL_MAX * BUL_STRIDE - 1
+                ld   (hl),0
+                ldir
+                ld   (KARA_FACING),a        ; A is still 0: she walks right
+                ld   (KARA_STEP),a          ; here, and the demo's firing
+                ld   (FIRE_TIMER),a         ; timer starts from the top
+                ld   a,MAG_SIZE
+                ld   (MAG_LEFT),a
+                ld   (MAG_RIGHT),a
+                ld   a,BUL_MAX * 2
+                ld   (AMMO_RESERVE),a
+                ; AND NO MAP, because this screen is not a level. The
+                ; city's map is still installed from the boot's level
+                ; load, and a round's tile probe (bullets.asm) would
+                ; read it through a WORLD_X that means nothing here -
+                ; every shot died on a "wall" the moment it left the
+                ; muzzle. Tile 0 is sky, and SCROLL_DEMO installs the
+                ; real map again on the way back.
+                ld   hl,MAP_ADDR
+                ld   de,MAP_ADDR + 1
+                ld   bc,MAP_W * MAP_H - 1
+                ld   (hl),0
+                ldir
+                call BUFFERS_CLEAR
+                ld   a,KARA_HOME_Y
+                ld   (KARA_Y),a
+                ld   hl,0
+                ld   (SCROLL),hl
+                call SCROLL_APPLY
+                ld   b,CRTC_R6
+                ld   c,25                   ; the firmware's own height
+                call CRTC_SET
+                xor  a
+                call SCREEN_CLS
                 call DRAW_COLOUR_BARS       ; uses the banked window
                 call DRAW_BANK_RESULTS
                 call DRAW_STRIPES
@@ -148,9 +208,8 @@ MAIN_LOOP:      call WAIT_VSYNC
                 call BORDER_SET
                 call LAMPS                  ; not game work, so not measured
 
-                ; The Module 1-3 acceptance screen runs for a while, then
-                ; hands over to the scrolling demo for good. Tests that
-                ; want one or the other poke DEMO_TIMER.
+                ; The dev screen hands back to the scrolling demo when
+                ; DEMO_TIMER runs out; tools/test_module3.py pins it open.
                 ld   hl,(DEMO_TIMER)
                 dec  hl
                 ld   (DEMO_TIMER),hl
@@ -974,7 +1033,9 @@ CLIP_SPR:       dw 0
 CLIP_SAVE:      dw 0
 CLIP_STEP:      dw 0
 FIRE_TIMER:     db 0
-DEMO_TIMER:     dw 600                  ; frames of Module 1-3 screen
+DEMO_TIMER:     dw 600                  ; frames of the Module 1-3 dev screen,
+                                        ; which nothing reaches any more unless
+                                        ; it jumps to INTRO_SCREEN
 DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up
 DEMO_PHASE_T:   db 0
 FRAME_TICK0:    db 0

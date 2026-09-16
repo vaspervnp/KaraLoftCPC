@@ -14,6 +14,10 @@ src/main.asm; they move when that layout does.
 import sys, os
 sys.path.insert(0, "/home/vasilhs/cpcemu")
 from cpc import CPC
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench import symbols                                      # noqa: E402
+
+sym = symbols()
 
 DSK = os.path.join(os.path.dirname(__file__), "..", "build", "kara.dsk")
 SHOTS = sys.argv[1] if len(sys.argv) > 1 else "build"
@@ -29,6 +33,28 @@ c.run_frames(200)
 c.insert_disc(os.path.abspath(DSK))
 c.type_text('RUN"DISC\n')
 c.run_frames(400)
+
+# THE GAME BOOTS STRAIGHT ONTO THE ROOFTOP NOW. The colour bars, the bank
+# self-test's verdict and the stripes belong to the Module 1-3 acceptance
+# screen, which the core keeps an entry point to - so wait out the level
+# load the boot does first, then jump into it.
+for _ in range(200):
+    c.run_frames(2)
+    if c.peek(sym["LEVEL_OK"]):
+        break
+c.run_frames(6)
+c.poke(sym["DEMO_TIMER"], 0xFF)
+c.poke(sym["DEMO_TIMER"] + 1, 0xFF)
+c.set_pc(sym["INTRO_SCREEN"])
+c.run_frames(30)
+# ... and stop between frames before sampling. The screen below is
+# painted once, on the way in, and reading it while that is still
+# happening loses whichever blocks had not been drawn yet.
+lo, hi = sym["WAIT_VSYNC"], sym["WAIT_VSYNC.WAIT"] + 6
+for _ in range(40000):
+    c.run_us(4)
+    if lo <= c.pc <= hi:
+        break
 
 print("boot:")
 check("screen mode is 0", c.mode == 0, f"mode={c.mode}")
@@ -50,8 +76,16 @@ for i, nm in enumerate(names):
           f"pen={pen} ({'green' if pen == PEN_GREEN else 'red' if pen == PEN_RED else '?'})")
 
 # --- interrupt liveness lamp: line 60, byte 16..23 ---
-pen = c.decode_screen_ram()[60][16 * 2 + 4]
-check("IM 1 handler is firing", pen == PEN_GREEN, f"pen={pen}")
+# IT FLASHES, so a single sample tests the phase the machine happens to
+# be in and not whether the handler runs. Watch it for a while instead:
+# the boot no longer passes through this screen, so which frame the test
+# arrives on is not something it can count on.
+pens = set()
+for _ in range(40):
+    pens.add(c.decode_screen_ram()[60][16 * 2 + 4])
+    c.run_frames(1)
+check("IM 1 handler is firing", PEN_GREEN in pens,
+      f"pens seen over 40 frames: {sorted(pens)}")
 
 # --- heartbeat toggles across 25 frames ---
 def beat():

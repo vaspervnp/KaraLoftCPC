@@ -50,7 +50,8 @@ IN_DOWN         equ %00000010   ; crouch, and with FIRE, reload
 IN_LEFT         equ %00000100
 IN_RIGHT        equ %00001000
 IN_FIRE         equ %00010000   ; SPACE - draw, hold, release (CLAUDE.md 8.4)
-IN_ROLL         equ %00100000   ; Z
+IN_SPARE        equ %00100000   ; free: the roll is DOWN + a direction now
+                                ; (8.4), and Z with it
 IN_PAUSE        equ %01000000   ; ESC
 IN_RUN          equ %10000000   ; SHIFT
 IN_INTERACT     equ IN_UP       ; Z WAS a second interact alongside RETURN.
@@ -133,7 +134,6 @@ INPUT_SCAN:     ld   bc,PPI_CONTROL * 256 + PPI_CTL_PA_OUT
                 KEYBIT 7,4              ; SPACE        -> IN_FIRE
                 KEYROW 8,0
                 KEYBIT 2,6              ; ESC          -> IN_PAUSE
-                KEYBIT 7,5              ; Z            -> IN_ROLL
 
                 ld   bc,PPI_CONTROL * 256 + PPI_CTL_PA_OUT
                 out  (c),c              ; hand the AY back to the sound driver

@@ -679,18 +679,33 @@ def main():
             log.append(state(machine, sym))
         machine.joystick(0)
         moved = [i for i in range(1, len(log)) if log[i][0] != log[i - 1][0]]
+        # ... AND ONLY WHILE THE CAMERA IS FOLLOWING HER. Turning round
+        # makes it PAN to the other mark (CAM_TRAIL / CAM_LEAD in
+        # player.asm) - a whole character a frame while she walks her
+        # own byte - and her screen column is SUPPOSED to move across
+        # the picture through that. The lock-step only applies once she
+        # has arrived, which is what CAM_BAND names in the engine.
+        # THE PROPERTY IS ABOUT THE STEADY STATE. Turning round makes
+        # the camera PAN to the other mark (CAM_TRAIL / CAM_LEAD in
+        # player.asm) and her screen column is supposed to move across
+        # the picture through that; a byte of correction as she settles
+        # into the push zone is not "two Karas a character apart for as
+        # long as the screen moves" either. What that is, is her column
+        # OSCILLATING once she has arrived - so the check is that the
+        # last ten camera steps all drew her at one single column.
+        at_mark = moved[-10:]
         # On a frame where the view moved, the column the blitter drew her
         # at must not have moved. Checked per step, not over the whole
         # span: at the map's edge the camera stops and she walks on
         # normally, one byte a frame, which is correct and would otherwise
         # read as a failure.
-        jumped = [(log[i - 1][3], log[i][3]) for i in moved
-                  if log[i][3] != log[i - 1][3]]
-        print(f"    {name:<6} camera stepped {len(moved)} times; "
-              f"KARA_X changed on {len(jumped)} of them {jumped[:4]}")
+        settled = {log[i][3] for i in at_mark} | {log[i - 1][3] for i in at_mark}
+        print(f"    {name:<6} camera stepped {len(moved)} times; over the last "
+              f"{len(at_mark)} she was drawn at columns {sorted(settled)}")
         check(f"camera follows her {name} without moving her on screen",
-              len(moved) >= 4 and not jumped,
-              f"{len(moved)} camera steps, {len(jumped)} moved her")
+              len(moved) >= 10 and len(settled) == 1,
+              f"{len(settled)} distinct columns over the last "
+              f"{len(at_mark)} camera steps")
 
     # ---------------------------------------------------------------
     # 1. video RAM vs the map, across all three scroll phases
