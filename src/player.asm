@@ -140,6 +140,8 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ; ---- right: leading edge is the box's right side ----
                 xor  a
                 ld   (KARA_FACING),a        ; 0 = right
+                call AIM_ROOTS_HER
+                ret  nz
                 call PLAYER_SCREEN_X
                 inc  a                      ; her screen column after 1 byte
                 sub  CAM_TRAIL              ; how far past the mark - and it
@@ -189,6 +191,8 @@ PLAYER_X:       ld   a,(INPUT_NOW)
 
 .left:          ld   a,1
                 ld   (KARA_FACING),a        ; 1 = left
+                call AIM_ROOTS_HER
+                ret  nz
                 call PLAYER_SCREEN_X
                 dec  a                      ; her screen column after 1 byte
                 ld   c,a
@@ -234,6 +238,21 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 pop  hl
                 ret  nz
                 ld   (KARA_WX),hl
+                ret
+
+; ---------------------------------------------------------------------
+; AIM_ROOTS_HER - NZ while SPACE is down, which is when she plants.
+;
+; THE FACING IS SET BEFORE THIS AND THE STEP AFTER IT, deliberately: she
+; can turn round while she aims and she cannot walk. Aiming is a stance,
+; not a pause - so gravity, the ladder and the jump are all untouched,
+; and the moment SPACE comes up the four cels of the recoil play while
+; she is free to move again.
+;
+; IN : C = (INPUT_NOW), as PLAYER_X left it.       destroys AF
+; ---------------------------------------------------------------------
+AIM_ROOTS_HER:  ld   a,c
+                and  IN_FIRE
                 ret
 
 ; ---------------------------------------------------------------------

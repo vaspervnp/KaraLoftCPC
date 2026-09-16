@@ -45,6 +45,25 @@ cannot scroll, which makes every scrolling test vacuous WITHOUT failing
 it. The variety is in the skyline above, the windows below and the props
 on the roof, none of which is in her way.
 
+EXCEPT FOR ONE GAP, AND IT IS PUT WHERE THE WALKING TESTS CANNOT REACH
+IT. She has a `drop` animation - a fall she did not choose, as against
+the `jump` arc she asked for (CLAUDE.md 8.4) - and nothing in a level
+with an unbroken roof can ever play it. So two buildings stand apart:
+ROOF_GAP is three tiles of open air from the roof's row down to the
+pavement, and walking off its edge is a 128-pixel fall to the street.
+
+Three tiles, because BOX_SOLID_V ORs the attributes of every tile under
+her box and her box is 6 bytes against a 4-byte tile - it spans two of
+them, three when it is not aligned - so a two-tile gap has positions she
+would stand across. Three has seven byte positions where every tile
+under her is open, and she walks into one of them whether she is moving
+1 byte a frame or 2.
+
+And it is at tile 95 because the longest walk any suite makes along this
+roof reaches tile 83 - measured, not estimated, and asserted below. A
+gap in front of those walks would turn every one of them from a test of
+the scroll into a test of the fall, silently.
+
 AND NOW THERE IS A WAY DOWN. The ladders run from the roof's own row to
 the last wall row, so their top tile is one she can stand on (it is
 TA_CLIMB + TA_PLATFORM in collide.asm) and pressing DOWN on it takes
@@ -176,6 +195,16 @@ def build_entities(path):
 # last row of wall above the pavement.
 LADDER_X = list(range(11, MAP_W, 23))
 
+# The gap between two buildings, and the ONE place `drop` can be played.
+# See the header for why it is three tiles and why it is this far along.
+ROOF_GAP = list(range(95, 98))
+# The furthest along this roof any suite walks her, measured by holding
+# the joystick right for the 290 frames tools/test_enemies.py holds it
+# and reading KARA_WX back: byte 332, which is tile 83. The margin below
+# is what stops a gap being put in front of a test that is measuring
+# something else.
+ROOF_WALK_REACH = 83
+
 
 def main():
     T, names = tile_names()
@@ -233,12 +262,25 @@ def main():
         for y in range(ROW_ROOF, ROW_PAVEMENT):
             g[y][x] = T["ladder"]
 
+    # ---- the gap between two buildings ------------------------------
+    # Open air from the roof's own row to the row above the pavement, so
+    # what you see through it is the black the skyline stands in and what
+    # is under it is the street. far_fill has no attributes, which is the
+    # whole point: BOX_SOLID_V finds nothing to stand on and she falls.
+    # The buildings either side get their proper end tiles, because the
+    # x % 16 run above knows nothing about the hole.
+    for y in range(ROW_ROOF, ROW_PAVEMENT):
+        for x in ROOF_GAP:
+            g[y][x] = T["far_fill"]
+    g[ROW_ROOF][ROOF_GAP[0] - 1] = T["roof_r"]
+    g[ROW_ROOF][ROOF_GAP[-1] + 1] = T["roof_l"]
+
     # ---- props on the roof, standing on ROW_ROOFLINE ----------------
     # Decoration only: TILE_ATTR gives them no attributes, so she walks
     # straight through them. A solid prop on the runway is the step that
     # stops the camera.
     def free(x):
-        return x < MAP_W and x not in LADDER_X
+        return x < MAP_W and x not in LADDER_X and x not in ROOF_GAP
 
     for x in range(5, MAP_W, 16):
         if free(x):
@@ -287,6 +329,24 @@ def main():
         if free(x) and g[ROW_PAVEMENT - 1][x] == T["brick"]:
             g[ROW_PAVEMENT - 1][x] = T["crate"]
 
+    # ---- the gap is a level decision and these are its terms ---------
+    assert len(ROOF_GAP) >= 3, (
+        "a gap of two tiles has positions where her 6-byte box still "
+        "straddles solid roof - see BOX_SOLID_V in src/collide.asm")
+    assert ROOF_GAP[0] > ROOF_WALK_REACH + 8, (
+        f"the gap starts at tile {ROOF_GAP[0]} and the longest walk along "
+        f"this roof reaches tile {ROOF_WALK_REACH}: a hole in front of "
+        f"those walks turns a scroll test into a fall test without failing")
+    assert not set(ROOF_GAP) & set(LADDER_X), "a ladder runs into the gap"
+    assert all(g[ROW_ROOFLINE][x] == T["far_fill"] for x in ROOF_GAP), \
+        "a roof prop is standing over the gap"   # far_fill is the bare row
+    assert all(g[ROW_PAVEMENT][x] == T["sidewalk"] for x in ROOF_GAP), \
+        "there is no pavement under the gap to land on"
+    for x in ROOF_GAP:
+        for y in range(ROW_ROOF, ROW_PAVEMENT):
+            assert g[y][x] == T["far_fill"], (
+                f"tile ({x},{y}) is in the gap and is not open air")
+
     blob = bytes(b for row in g for b in row)
     assert len(blob) == MAP_W * MAP_H
     assert max(blob) < len(names), "a tile index ran past the sheet"
@@ -297,11 +357,13 @@ def main():
           f"{ENT_MAX * 8} bytes")
     print(f"-> city_map.bin    {MAP_W}x{MAP_H} = {len(blob)} bytes, "
           f"{len(set(blob))} distinct tiles of {len(names)}")
-    print(f"   roof at map row {ROW_ROOF} = world y {ROOF_Y}, "
-          f"continuous across all {MAP_W} columns")
+    print(f"   roof at map row {ROW_ROOF} = world y {ROOF_Y}, one height "
+          f"across all {MAP_W} columns and open at {len(ROOF_GAP)} of them")
     print(f"   street at map row {ROW_PAVEMENT} = world y {STREET_Y}, "
           f"{STREET_Y - ROOF_Y} pixels below it")
     print(f"   ladders at tiles {LADDER_X}, rows {ROW_ROOF}-{ROW_PAVEMENT - 1}")
+    print(f"   a {len(ROOF_GAP)}-tile gap in the roof at tiles {ROOF_GAP} - "
+          f"{ROOF_GAP[0] - ROOF_WALK_REACH} tiles past the longest walk")
     # THE WHOLE POINT OF PUTTING THE STREET DOWN THERE. The view is 192
     # lines of a 256-line world, so its top can only sit in 0..64. With
     # it at 0 the roof is framed - she stands on screen line 96, inside

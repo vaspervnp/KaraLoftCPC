@@ -287,6 +287,20 @@ ENEMY_TYPE_AT:  add  a,a
 ; into view. It is live within a screen either side of the view and
 ; drawable only when its whole box fits, which is what nothing here
 ; clipping in X costs (CLAUDE.md 8.2).
+;
+; IT TAKES THE FIRST ONE NEAR, DRAWABLE OR NOT, and that is a level
+; constraint and not an engine one. The near zone is EN_NEAR either side
+; of an 80-byte view - 52 tiles - so two enemies can be near at once
+; with only one of them drawable, and this would then keep the wrong
+; one. Scanning strict first and falling back was written and measured:
+; it is a second pass over the table on every frame with nothing
+; drawable, and it takes this routine from 764 T to 2,656. Over a walk
+; the length of level 1's roof it never once changed the answer, because
+; the drones are 40 tiles apart
+; and a 20-tile screen cannot have one just off its left and another
+; drawable at the same time. tools/make_city_map.py asserts the spacing;
+; a level built to the minimum that assert allows would need the second
+; pass back.
 ;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
 EN_NEAR         equ 64          ; bytes outside the view it stays awake for
@@ -305,25 +319,24 @@ ENEMY_PICK:     xor  a
                 or   a
                 jp   z,.skip                ; dead
 
-                ld   a,(ix + ES_TYPE)
-                call ENEMY_TYPE_AT
-                ld   (ENEMY_TYP),hl
-                ld   de,EN_T_W
-                add  hl,de
-                ld   a,(hl)
-                ld   (ENEMY_W),a
-                inc  hl
-                ld   a,(hl)
-                ld   (ENEMY_H),a
-
                 ld   c,(ix + ES_X)
                 ld   b,(ix + ES_X + 1)
                 srl  b
                 rr   c                      ; its world byte
+                ; THE VIEW'S LEFT EDGE IS A 16-BIT NUMBER AND ADD A,A
+                ; IS NOT. WORLD_X is in characters and reaches 216, so
+                ; doubling it in the accumulator alone throws the carry
+                ; away from character 128 on - the left edge came back as
+                ; 0 instead of 256, every enemy's screen column was wrong
+                ; by 256, and the drone she was looking at read as 112
+                ; bytes off the left of the picture. What that looks like
+                ; is a drone drawn and then erased, halfway along the
+                ; level, and it is what was reported.
                 ld   a,(WORLD_X)
-                add  a,a                    ; the view's left edge, in bytes
-                ld   l,a
                 ld   h,0
+                add  a,a                    ; the view's left edge, in bytes
+                rl   h                      ; ... and its ninth bit
+                ld   l,a
                 ld   d,b
                 ld   e,c
                 ex   de,hl
@@ -341,8 +354,28 @@ ENEMY_PICK:     xor  a
 .plus:          ld   a,l
                 cp   SCR_CHARS * 2 + EN_NEAR
                 jp   nc,.skip               ; too far to the right
+                ; ITS TYPE IS LOOKED UP ONLY ONCE IT IS NEAR. The row,
+                ; the box and both facings' banks are 150 T to fetch and
+                ; the near test needs none of them - it is ES_X against
+                ; the view and nothing else. With three enemies in the
+                ; level and one of them usually in range, that is 330 T
+                ; a frame spent describing enemies that are twenty tiles
+                ; away. The same reject ENT_OVERLAP got in CLAUDE.md 9,
+                ; for the same reason.
 .near:          ld   a,l
                 ld   (ENEMY_SX),a
+                push hl
+                ld   a,(ix + ES_TYPE)
+                call ENEMY_TYPE_AT
+                ld   (ENEMY_TYP),hl
+                ld   de,EN_T_W
+                add  hl,de
+                ld   a,(hl)
+                ld   (ENEMY_W),a
+                inc  hl
+                ld   a,(hl)
+                ld   (ENEMY_H),a
+                pop  hl
 
                 ld   a,(WORLD_CR)
                 add  a,a
@@ -1176,10 +1209,11 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
 ; OUT: carry set if they are.        destroys AF,DE,HL
 ; ---------------------------------------------------------------------
 ENEMY_PIX_SAFE: ld   hl,(ENEMY_DREW_WX)     ; the world byte they were put at
-                ld   a,(WORLD_X)
-                add  a,a
+                ld   a,(WORLD_X)            ; 16 bits, and for the reason in
+                ld   d,0                    ; ENEMY_PICK: ADD A,A alone loses
+                add  a,a                    ; the carry from character 128 on
+                rl   d
                 ld   e,a
-                ld   d,0
                 or   a
                 sbc  hl,de                  ; -> their screen byte column
                 ld   a,h

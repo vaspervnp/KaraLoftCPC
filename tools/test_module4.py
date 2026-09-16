@@ -641,16 +641,14 @@ def main():
     pal = machine.read_ram(sym["PALETTE_DATA"], 16)
     pen_to_hw = [b & 0x1F for b in pal]
 
-    # ---------------------------------------------------------------
-    # frame cost, measured before any run_us stepping skews the bands
-    # ---------------------------------------------------------------
-    machine.run_frames(2)
-    fb = machine.framebuffer()
-    work = sum(1 for y in range(272) if fb[y * FB_W + 5] == 12)
-    print(f"\n  horizontal step: {work} scanlines = {work * T_PER_LINE} T "
-          f"= {100 * work * T_PER_LINE / FRAME_T:.1f}% of a frame")
-    check("a scroll step fits in a frame", 0 < work * T_PER_LINE < FRAME_T,
-          f"{work * T_PER_LINE} of {FRAME_T} T")
+    # NO BAND PROFILE HERE ANY MORE. It counted the scanlines the border
+    # spent in MARK_SPRITE, and the game's border is black now - the
+    # coloured bands are the Module 1-3 screen's and tools/test_module3.py
+    # still reads them there. It was never a measurement worth keeping
+    # down here anyway: CLAUDE.md 9 records that the bands under-report
+    # by the 40 scanlines the emulator paints as colour 0 in vblank, and
+    # the frame is measured by tools/bench.py from a DI stub and by the
+    # loop-iteration counts in test_enemies and test_climb.
 
     check("test can sync to the top of a frame", sync_to_frame_top(machine, sym))
     # The tiles come off the DISC into C4 now, and the map is installed
@@ -919,10 +917,23 @@ def main():
     check("she is drawn intact from KARA_RASTER_SAFE down",
           all(worst[ln] == 0 for ln in lines if ln >= KARA_RASTER_SAFE),
           f"torn at {[ln for ln in dirty if ln >= KARA_RASTER_SAFE] or 'no line'}")
-    check("above it she tears, so the threshold is real and not a guess",
-          any(worst[ln] for ln in lines if ln < KARA_RASTER_SAFE),
-          f"lines below {KARA_RASTER_SAFE} sampled: "
-          f"{[ln for ln in lines if ln < KARA_RASTER_SAFE]}")
+    # THE ANTI-VACUITY GUARD IS THE REACH, NOT A TEAR. The check above
+    # would pass on a build that never drew her near the top at all, so
+    # the sweep has to be shown to have gone ABOVE the threshold - and
+    # that is a deterministic fact about the driver.
+    #
+    # It used to demand a torn line up there instead, and the highest
+    # line this driver can reach is 5: measured TORN on one run of the
+    # suite and CLEAN on the next, a few hundred T either side of the
+    # beam. That is what a threshold looks like from close up, and it is
+    # why the safe line is recorded as 10 and not as 5 - but it makes a
+    # terrible assertion.
+    check("and the sweep went above the threshold, so that is not vacuous",
+          lines[0] < KARA_RASTER_SAFE,
+          f"highest line she was drawn at is {lines[0]}, against "
+          f"KARA_RASTER_SAFE = {KARA_RASTER_SAFE}; line {lines[0]} came out "
+          f"{'TORN' if worst[lines[0]] else 'clean'} this run, which is the "
+          f"margin itself")
 
     # ---------------------------------------------------------------
     # 3b. Kara does not move on screen while the world scrolls under her

@@ -30,6 +30,9 @@ What it checks, in order:
   8. THE NEGATIVE CONTROL: take TA_CLIMB off the ladder tile and none of
      it happens. Without this the suite would pass on a build where
      DOWN simply dropped her through a hole in the roof.
+  9. and the other way off the roof: the gap between two buildings, the
+     `drop` cels it exists to play, and the landing. Its own negative
+     control fills the gap in with roof and walks her across it.
 """
 import os
 import sys
@@ -387,6 +390,81 @@ def main():
           f"KARA_CLIMB {ctl['climb']}, world y {ctl['wy']}, WORLD_CR {ctl['cr']}"
           f" - she stays on the roof, so the climb really is driven by the "
           f"tile's attribute and not by where she is standing")
+
+    # ---- 9. the gap in the roof, and the fall -----------------------
+    # A DROP IS NOT A JUMP. She has an animation for the ground going
+    # away under her and nothing in a level with an unbroken roof can
+    # ever play it, so the City has one gap - three tiles of open air
+    # between two buildings, put where no other suite's walk reaches it
+    # (tools/make_city_map.py). Walking off its edge is a 128-pixel fall
+    # to the street, and it is the only thing in the level that drives
+    # the vertical camera faster than it can follow.
+    print("\n  walking off the roof:")
+    T, _ = city.tile_names()
+    MAP_ADDR = sym["MAP_ADDR"] if "MAP_ADDR" in sym else 0xA000
+
+    def to_the_gap(mm, frames=700):
+        """Hold right until the ground goes away, and keep her alive.
+
+        The drones shoot at her on the way past and what is being
+        measured here is the fall, not her hit points; a death would
+        take the state machine (KST_DIE beats everything) and the run
+        would be measuring that instead.
+        """
+        mm.joystick(JOY_RIGHT)
+        first = None
+        for i in range(frames):
+            mm.run_frames(1)
+            mm.poke(sym["PLAYER_HP"], 100)
+            s = st(mm, sym)
+            if first is None and not s["ground"]:
+                first = (i, s)
+            if first and s["ground"] and s["wy"] + KARA_BOX_H >= STREET_Y:
+                mm.joystick(0)
+                return first, i, st(mm, sym)
+        mm.joystick(0)
+        return first, None, st(mm, sym)
+
+    mm = boot(sym, scroll=True)
+    off, landed_at, down = to_the_gap(mm)
+    check("she walks off the roof's edge and the ground goes away",
+          off is not None and off[1]["wy"] + KARA_BOX_H == ROOF_Y,
+          f"airborne on frame {off[0] if off else '-'} with her feet still on "
+          f"the roof line {ROOF_Y}" if off else "she never left the ground")
+    if off:
+        check("... and it is a DROP, not a jump: she did not ask for it",
+              off[1]["state"] == sym["KST_DROP"]
+              and off[1]["kset"] == sym["KSET_ACT"]
+              and off[1]["frame"] >= sym["KACT_DROP_FIRST"],
+              f"KARA_STATE {off[1]['state']} (DROP is {sym['KST_DROP']}, "
+              f"JUMP is {sym['KST_JUMP']}), cel {off[1]['frame']}")
+    check("she lands on the pavement, exactly on its surface",
+          landed_at is not None and down["wy"] + KARA_BOX_H == STREET_Y,
+          f"feet at world y {down['wy'] + KARA_BOX_H}, pavement at {STREET_Y}"
+          + (f", {landed_at - off[0]} frames in the air" if landed_at and off
+             else ""))
+    mm.run_frames(60)
+    settled = st(mm, sym)
+    check("and the camera catches up with her on the street",
+          settled["cr"] == cr_max and 0 <= settled["ky"] <= SCREEN_LINES - 1,
+          f"WORLD_CR {settled['cr']} of {cr_max}, KARA_Y {settled['ky']} - the "
+          f"fall outruns the camera, which then has to follow her down")
+
+    # THE NEGATIVE CONTROL: fill the hole in and she walks across it.
+    # Without it this section would pass on a build where she fell
+    # through the roof anywhere, which is the failure it is there to
+    # tell the gap apart from.
+    print("\n  the negative control - it is the HOLE, not the walk:")
+    mm = boot(sym, scroll=True)
+    for x in city.ROOF_GAP:
+        mm.poke(MAP_ADDR + city.ROW_ROOF * city.MAP_W + x, T["roof_m"])
+    off2, landed2, ctl = to_the_gap(mm, frames=700)
+    check("with the gap filled in she walks straight over it",
+          off2 is None and ctl["ground"] == 1
+          and ctl["wy"] + KARA_BOX_H == ROOF_Y
+          and ctl["wx"] // 4 > city.ROOF_GAP[-1],
+          f"she is at tile {ctl['wx'] // 4}, past the gap at "
+          f"{city.ROOF_GAP}, still on the roof at {ctl['wy'] + KARA_BOX_H}")
 
     print()
     if fails:

@@ -316,6 +316,17 @@ SCROLL_DEMO:    di
                 call z,DISC_DIAG
                 call INPUT_INIT
                 call PLAYER_TO_SCREEN
+                ; THE BORDER STAYS BLACK IN THE GAME. The coloured bands
+                ; are a DEVELOPMENT instrument - they belong to the
+                ; Module 1-3 screen, which tools/test_module3.py profiles
+                ; from them - and down here they are eight colour changes
+                ; a frame flickering down the left edge of a night-time
+                ; city. They also cost about 560 T a frame that the frame
+                ; would rather have, and CLAUDE.md 9 says not to profile
+                ; from them anyway: they under-report by the 40 scanlines
+                ; the emulator paints as colour 0 in vblank.
+                ld   a,MARK_IDLE            ; black
+                call BORDER_SET
                 ei
 
                 ; THE FRAME IS A BEAM CHASE, and this is its schedule. The
@@ -362,21 +373,13 @@ SCROLL_DEMO:    di
                 call ENEMY_PICK             ; which one is in view UNDER THE
                                             ; view just latched - see the note
                                             ; on ENEMY_UPDATE
-                ld   a,MARK_SPRITE
-                call BORDER_SET
                 ld   a,(LEVEL_OK)
                 or   a
                 call nz,KARA_SPAN_DRAW      ; ahead of the beam, in the border
-                ld   a,MARK_BULLETS
-                call BORDER_SET
                 call BUL_DRAW               ; over her: she fires past herself
                 call EBUL_DRAW              ; ... and so do they
-                ld   a,MARK_TAIL
-                call BORDER_SET
                 call H_TAIL                 ; rows 18-23 of the committed column
 
-                ld   a,MARK_LOGIC
-                call BORDER_SET
                 di
                 call INPUT_SCAN             ; the AY address latch is shared
                 ei                          ; with the sound chip
@@ -391,16 +394,10 @@ SCROLL_DEMO:    di
                 call SCROLL_SERVICE         ; a vertical step in flight
                 call PLAYER_TO_SCREEN       ; where she goes, in that view
 
-                ld   a,MARK_IDLE
-                call BORDER_SET
                 ld   c,4
                 call TICK_WAIT
-                ld   a,MARK_COLUMN
-                call BORDER_SET
                 call H_HEAD                 ; rows 0-17, behind the beam
 
-                ld   a,MARK_IDLE
-                call BORDER_SET
                 ld   a,(LEVEL_OK)
                 or   a
                 jr   z,.erased              ; she was never drawn
@@ -415,8 +412,6 @@ SCROLL_DEMO:    di
                 jr   z,.bullets_only
                 ld   a,(KARA_LAST_BOT)
                 call RASTER_WAIT
-                ld   a,MARK_ERASE
-                call BORDER_SET
                 call EBUL_ERASE             ; reverse draw order: the rounds
                 call BUL_ERASE              ; went down over her
                 call KARA_SPAN_ERASE

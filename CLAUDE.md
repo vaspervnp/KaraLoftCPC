@@ -54,9 +54,19 @@ Nothing puts her back on her feet yet: there is no respawn and no game
 over, and `ACT_UPDATE` chooses `die` from `PLAYER_HP == 0` and will
 stop the moment something restores it. See §8.4.
 
+**The roof is open at three tiles**, `ROOF_GAP`, so the fall is
+something a player can walk into rather than a state only a test can
+reach — and it is put where no other suite's walk goes, because a hole
+in front of a scrolling test turns it into a falling test without
+failing it (§8.8).
+
+**Aiming plants her**: SPACE down and she turns but does not walk
+(§8.4). **And the border is black** — the coloured profiling bands
+belong to the development screen (§9).
+
 `./tools/run_tests.sh` runs every acceptance suite and **all sixteen
 pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 79,712 T of 79,872, with the span blitter
+heaviest animation frame is 75,932 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 incoming ROW is painted in four pieces rather than two, because the
 action sheet's cels are heavier than the gun's and a half row no longer
@@ -104,7 +114,7 @@ tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
-tools/test_*.py            acceptance suites, fourteen of them
+tools/test_*.py            acceptance suites, sixteen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -1370,6 +1380,21 @@ game over yet** — that is §11 step 8's, and this is the hook it needs.
 muzzle's X inside the box — the bullet spawns there, not at the edge of
 the sprite.
 
+**AND AIMING PLANTS HER.** SPACE down is a stance: `PLAYER_X` sets her
+facing and then refuses the step, so she can turn round while she aims
+and she cannot walk. Only the horizontal step goes — gravity, the
+ladder and the jump are untouched, and she is free again the instant
+SPACE comes up, with the four cels of the recoil playing while she
+moves. `AIM_ROOTS_HER` is the whole of it.
+
+**That makes "she covers the same ground firing as not" false by
+design**, and `tools/test_module5.py` asserts the sharper thing
+instead: **she loses exactly the frames the trigger was down and not
+one more.** The aiming frames are counted off the test's own tap
+pattern, so re-timing the tap re-derives the expectation rather than
+invalidating it — and a dropped frame still shows, because a dropped
+frame is ground lost on a frame she was NOT aiming.
+
 **Three states are committed**: a roll runs its 8 frames whatever the
 input does, which is what makes it a dodge and not a nudge; the shot
 runs its 4, which is what stops a tapped trigger playing one frame of a
@@ -1477,9 +1502,10 @@ the count as the draw found it.
 **And a BUSY pool is fourteen slots for three rounds, which is the same
 fault one step along and the bigger one.** Measured over all four walks
 — `UPDATE_BULLETS`, `BUL_DRAW`, `BUL_ERASE`, `ENEMY_SHOT_CHECK` — one
-live round costs 7,452 T and each extra one 1,224, so **6,228 T of every
-firing frame was the thirteen DEAD slots behind the first**. The frame
-has 160 T spare (§9), so tap-firing while the screen scrolled dropped
+round in the air costs **2,160 T with the walk bounded at the deepest
+slot taken and 7,568 bounded at `BUL_MAX`**: 5,408 T of every firing
+frame was the thirteen DEAD slots behind the first. The frame
+had 160 T spare (§9), so tap-firing while the screen scrolled dropped
 **43 frames in 200**.
 
 **What that looks like is a character who has stopped walking**, which
@@ -1502,9 +1528,20 @@ covers her full 199 bytes.
 | walking right, scrolling | loops / 200 | bytes travelled |
 |---|---:|---:|
 | not firing | 199 | 199 |
-| trigger HELD | 198 | 199 |
-| tapping the trigger | 198 | 199 |
-| ... with `BUL_TOP` forced to `BUL_MAX` | 174 | 175 |
+| trigger HELD — she is planted, and aiming fires nothing | 200 | 0 |
+| tapping the trigger, 68 frames of it aiming | 200 | 135 |
+| ... with `BUL_TOP` forced to `BUL_MAX` | 191 | 129 |
+
+**THE IN-PLAY NUMBERS ARE NOT THE NEGATIVE CONTROL ANY MORE, AND THAT
+IS THE INTERESTING PART.** With 160 T of headroom the dead slots dropped
+43 frames in 200; with the 3,940 T §9 now has they drop 9, because
+5,408 T of overrun mostly fits. A control written as a frame count with
+a threshold under it was a hostage to the budget: the day `ENEMY_PICK`
+gave 2,200 T back, the same fault measured a third as large and the
+threshold failed. **What the mark does is take work off the frame, so
+`tools/test_module5.py` times the work** — the two `BUL_TOP` depths
+benched from a DI stub — and keeps the in-play comparison only as
+"still fewer loops and less ground".
 
 **THE TEST THAT MISSED THIS HELD THE TRIGGER.** The gun is
 draw-hold-RELEASE (§8.4), so `JOY_FIRE` held down for 200 frames is
@@ -1642,6 +1679,53 @@ longer fitted, was culled, and — because the same test decided whether
 to *update* it — stopped moving, so it could never walk back in. It is
 live within a screen either side of the view and drawable only when its
 whole box fits with a character to spare at both ends.
+
+**IT TAKES THE FIRST ONE NEAR, DRAWABLE OR NOT, and that is a LEVEL
+constraint.** The near zone is `EN_NEAR` = 64 bytes either side of an
+80-byte view — 52 tiles — so two enemies can be near at once with only
+one drawable, and `ENEMY_PICK` would then keep the wrong one.
+
+Scanning strict first and falling back was written and measured, and
+**thrown away**: a second pass over the table on every frame with
+nothing drawable takes `ENEMY_PICK` from **764 T to 2,656**, and over a
+walk the length of level 1's roof it never once changed the answer.
+It cannot: the drones are 40 tiles apart and a 20-tile screen cannot
+have one just off its left edge and another drawable at the same time.
+`make_city_map.py` asserts the spacing; a level built to the minimum
+that assert allows would need the second pass back, and now knows what
+it costs.
+
+**And the type row is looked up only once an enemy is NEAR.** The row,
+the box and both facings' banks are ~150 T to fetch and the near test
+wants none of them — it is `ES_X` against the view and nothing else.
+That is 330 T a frame that was spent describing enemies twenty tiles
+away, and it is the same cheap reject `ENT_OVERLAP` got (§9).
+
+#### The drone that was drawn and then erased — and it was ADD A,A
+
+A play-test on real hardware reported the drone appearing and then
+being lifted off the screen, halfway along the level, rather than
+staying until it was killed. **`ENEMY_PICK` was doubling `WORLD_X` in
+the accumulator.** `WORLD_X` is in CHARACTERS and reaches 216, so from
+character 128 on `ADD A,A` threw the carry away: the view's left edge
+came back as 0 instead of 256, every enemy's screen column was out by
+256, and the drone she was looking at read as 112 bytes off the left of
+the picture — near, not drawable, so the refresh erased it and drew
+nothing. Measured: the second drone was on screen for 8 frames instead
+of 47, and the fault began on the exact frame `WORLD_X` reached 128.
+
+`ENEMY_PIX_SAFE` had the same line and the same bug. Both now double in
+16 bits (`ADD A,A` then `RL H`, 8 T).
+
+**`PLAYER_SCREEN_X` does the same doubling and is CORRECT**, which is
+why this was not obvious by inspection: it computes
+`KARA_WX - WORLD_X * 2` and both ends are truncated to 8 bits, so
+modular arithmetic gives the right small difference. The enemy code
+wants a SIGNED 16-bit column — "112 to the left" has to be told from
+"144 to the right" — and there the truncation is fatal. **The test to
+apply to any `ADD A,A` on a world coordinate is whether the RESULT is
+used modulo 256**; `bullets.asm` and `enemy.asm`'s round-vs-tile probes
+add `WORLD_X` twice into `HL` and were never affected.
 
 #### What an enemy costs, and how it is paid for
 
@@ -1793,6 +1877,39 @@ after which DOWN does nothing at all, and `KARA_SETS` told the action
 set has two facings all the way up, after which the left-hand draw
 indexes past the end of `kact_l`'s frame table.
 
+#### And the other way off: the gap between two buildings
+
+A ladder is the way down you choose. **`drop` is the one you do not**,
+and nothing in a level with an unbroken roof can ever play it — so the
+City's roof is open at three tiles, `ROOF_GAP`, from the roof's own row
+down to the pavement. Walking off its edge is a 128-pixel fall to the
+street and the only thing in the level that drives the vertical camera
+faster than it can follow.
+
+**Three tiles, and the number is `BOX_SOLID_V`'s.** It ORs the
+attributes of every tile under her box, and her box is 6 bytes against
+a 4-byte tile — two of them, three when it is not aligned — so a
+two-tile gap has positions where she is still standing across solid
+roof. Three gives seven byte positions where every tile under her is
+open, which she reaches whether she is moving 1 byte a frame or 2.
+
+**And it is at tile 95 because the longest walk any suite makes along
+this roof reaches tile 83** — measured by holding the joystick right
+for the 290 frames `tools/test_enemies.py` holds it and reading
+`KARA_WX` back. `make_city_map.py` asserts the margin. A hole in front
+of those walks would turn every one of them from a test of the scroll
+into a test of the fall, silently, which is the same failure its header
+warns about for a step UP in the roof line.
+
+**The fall outruns the camera and that is not a fault.** She reaches
+`P_VY_MAX` in a few frames and covers the 128 pixels in 25; `CAMERA_V`
+asks for one character row at a time and a row takes `V_PARTS` frames,
+so it arrives about 35 frames later. She stays on the display the whole
+way — `SPAN_CLIP_V` clips the bottom, which is what stops the fold over
+the top of the picture — and the street is framed by the time she has
+landed. `tools/test_climb.py` checks all of it and fills the hole in
+for its negative control.
+
 ### 8.9 The art package's mockups are the reference for composition
 
 `assets/sprites/level<n>_<name>/mockup_*.png` are screens of the level
@@ -1832,8 +1949,8 @@ PLAYER_TO_SCREEN:   KARA_X = KARA_WX - view * 2 - KARA_ART_X
 
 That is the ONLY place the offset is paid. Every probe — `BOX_SOLID_H`,
 `BOX_SOLID_V`, `CLIMB_AT`, `ENT_OVERLAP`, `ENEMY_SEES` — reads her
-body's own edges for nothing, which matters because the frame has 160 T
-spare (§9): adding the offset at each of the six probe sites instead
+body's own edges for nothing, which matters because the frame had 160 T
+spare when it was written (§9): adding the offset at each of the six probe sites instead
 cost more than that.
 
 **It was the other way round and it was wrong.** `KARA_WX` was the
@@ -1884,8 +2001,15 @@ of them is standing, so none of them measures the box.
 
 A frame is **79,872 T-states**.
 
-**Do not use border bands to profile.** The demo still paints them, and they
-are useful for *seeing* where time goes, but they under-report: the emulator
+**THE GAME'S BORDER IS BLACK.** The coloured bands are a DEVELOPMENT
+instrument and they belong to the Module 1-3 screen, which
+`tools/test_module3.py` profiles from; down in the city they were eight
+colour changes a frame flickering down the left edge of a night-time
+skyline, and they cost about 560 T a frame. `SCROLL_DEMO` sets the
+border once and never touches it again.
+
+**Do not use border bands to profile.** The dev screen still paints them, and
+they are useful for *seeing* where time goes, but they under-report: the emulator
 renders 40 of its 312 framebuffer rows as colour index 0 during vertical
 blanking regardless of the border register, so those 40 scanlines (10,240 T)
 are invisible to a counter — and they land on whichever phase runs first after
@@ -1951,17 +2075,29 @@ every other one, which is a run's cost applied to a walk.
 `tools/test_enemies.py` carries those two numbers as its floors and
 prints the reason beside them.
 
-A scrolling frame on her heaviest cel is **79,712 T of the 79,872
-available — 160 to spare**, measured by summing every call the loop
-makes. The three biggest pieces are the span blitter's draw 41,388, the
-column 16,536 across its two halves, and the erase 13,524.
+A scrolling frame on her heaviest cel is **75,932 T of the 79,872
+available — 3,940 to spare**, measured by summing every call the loop
+makes. The three biggest pieces are the span blitter's draw 40,196, the
+column 16,536 across its two halves, and the erase 13,380.
+
+**It was 160 to spare and the 3,780 came out of three places, none of
+them the drawing:** `ENEMY_PICK` no longer looks a type row up for an
+enemy twenty tiles away (330 T) and no longer runs a second pass
+(1,892 T, and it never changed an answer — §8.7); and the game's border
+is black, which is eight `BORDER_SET` calls a frame gone (~560 T).
 
 **That model is the pessimistic one and the in-situ count is the
 authority.** It adds the worst placement of the heaviest cel to the
 worst of everything else, and those do not co-occur; the loop counted
 against interrupt ticks holds 50 Hz on every path in the table above,
-climbing and street included. But 160 T is not headroom, and the next
-thing added has to come out of the logic the way the enemies' did.
+climbing and street included. 3,940 T is the first real headroom this
+module has had, and §11's Module 6 has a masked tile path and a real X
+clip to spend it on.
+
+**The logic is 5,416 T now, not the 7,080 this section used to
+record**, and that is `ENEMY_PICK`'s reject and its type lookup moving
+behind the near test (§8.7) against everything the action sheet added.
+`ENT_UPDATE` at 3,288 is the biggest single piece of it.
 
 The ladder, the street and the vertical camera cost **672 T** of it
 between them — `CLIMB_ENTER` on every grounded frame, `CAMERA_V` on
@@ -2006,7 +2142,7 @@ It was 79,452 with 420 to spare before the enemies went in, and the
   between them and can kill a round that still has to be lifted off the
   screen; `BUL_DREW` is that count as the draw found it.
 * **And a busy pool was fourteen slots for three rounds**, which cost
-  **6,228 T** of every frame she fired on and dropped 43 frames in 200
+  **5,408 T** of every frame she fired on and dropped 43 frames in 200
   — measured, and visible in play as a character who stops walking
   while she shoots (§8.5). `BUL_TOP` bounds the walk at the deepest slot
   ever taken, which in play is 3.
@@ -2017,9 +2153,10 @@ It was 79,452 with 420 to spare before the enemies went in, and the
   everything: `ENT_UPDATE` 3,200 -> 2,636 with nine entities in the
   level.
 
-The next thing added has to pay for itself out of 160 T on a
+The next thing added has to pay for itself out of 3,940 T on a
 scrolling frame, or be scheduled onto a frame that is not scrolling —
-which is what §8.7 does with the enemies.
+which is what §8.7 does with the enemies. A `citydrone` is 17,968 and
+still does not fit; the agent at 40,760 is not close.
 
 ### Raster constraints, all of them load-bearing
 
@@ -2199,9 +2336,19 @@ raster's 256 the top border is her whole lead, and she is drawn intact
 from screen line 10 down; above it the beam catches her last lines.
 That is the same limit §9 recorded for the 16x48 sprite (13), because
 the 24x64 one is taller but no dearer per line.
-`tools/test_module4.py` now measures the threshold and asserts both
-halves of it - clean below, torn above - so a slower blitter cannot
-push it down the picture unnoticed.
+`tools/test_module4.py` measures it, asserts she is clean from line 10
+down, and asserts that its sweep went ABOVE the threshold so that check
+cannot pass vacuously.
+
+**It used to demand a TORN line up there as well, and that assertion
+had to go.** The highest line the vertical driver can put her at is 5,
+and line 5 came out torn on one run of the suite and clean on the next
+- a few hundred T either side of the beam, with nothing changed between
+them that could account for it. That is what a threshold looks like
+from close up and it is exactly why the safe line is recorded as 10 and
+not as 5; it also makes a terrible assertion, because it fails half the
+time for the right reason. The suite prints which way line 5 fell on
+each run instead.
 
 ### What did not work, with the numbers
 
@@ -2434,8 +2581,17 @@ the next one starts.
       cels are heavier than the gun's (§8.2, §9). What that cost the
       memory map is §6.2: a level with no ladder carries no `climb`, and
       the two characters who never move carry one facing;
-   12. `tools/test_module5.py` — started, with the bullet/tile checks in
-      it. It still owes the rest of the module.
+   12. ~~what the play-tests found~~ — done, and all four came off
+      real hardware rather than out of a suite: **the drone drawn and
+      then erased** was `ENEMY_PICK` doubling `WORLD_X` in the
+      accumulator and losing the carry from character 128 on (§8.7);
+      **aiming now plants her** (§8.4); **the border is black**, the
+      coloured bands being the development screen's (§9); and **the
+      roof has a gap** so `drop` is something a player can walk into
+      (§8.8). The frame came out 3,780 T lighter for it;
+   13. `tools/test_module5.py` — started, with the bullet/tile checks
+      and what firing costs her in it. It still owes the rest of the
+      module.
 
    **What the action sheet needs that does not exist yet**: there is no
    `hurt` state, no respawn and no game over. `die` is chosen from
@@ -2443,7 +2599,9 @@ the next one starts.
    the level FSM (step 8) plugs into; `use` and `hurt` are exported and
    nothing plays them. **And a deadly fall is not a thing the engine
    knows**: `drop` ends in `idle` however far she fell, because there is
-   no fall damage to turn it into a `die`.
+   no fall damage to turn it into a `die`. The 128-pixel fall through
+   the roof's gap is therefore survivable, which is what makes it a
+   thing a play-test can do twice.
 6. **The level format, engine side** — 8×16 tiles and a 20×11 play
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
    `collide.asm`'s probes, then a reader for `level_<n>.lvl` and

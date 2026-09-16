@@ -20,11 +20,12 @@ import sys
 
 sys.path.insert(0, "/home/vasilhs/cpcemu")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench import boot, symbols                                # noqa: E402
+from bench import boot, symbols, Bench                         # noqa: E402
 
 STUB = 0x9400
 MAP_ADDR, MAP_W = 0xA000, 128
 BUL_STRIDE, EBUL_STRIDE = 5, 5
+BUL_MAX = 14
 # Attributes 0 and TA_SOLID. NOT `brick` (8) for the solid one any more:
 # the building's facade is scenery now and only the roof and the pavement
 # hold anything up (src/collide.asm), so a brick poked into a cell stops
@@ -170,13 +171,22 @@ def walk(sym, pattern, frames=FRAMES, top=None):
 
 
 def firing_costs_her_nothing(sym):
-    """Walking and firing must cost her no ground against walking.
+    """Firing must cost her no ground BEYOND the frames she spent aiming.
 
     THE TEST THAT MISSED THIS HELD THE TRIGGER. tools/test_enemies.py's
     "walking right + firing" holds FIRE down, and FIRE held is AIM
     (CLAUDE.md 8.4) - the gun is draw-hold-RELEASE, so a held trigger
     never puts a round in the air and the pool stays idle. Every check
     of "firing" was measuring a frame with an empty pool.
+
+    AND "THE SAME GROUND AS A WALK" IS NO LONGER THE PROPERTY, because
+    AIMING PLANTS HER NOW (CLAUDE.md 8.4): SPACE held is a stance and she
+    does not walk out of it. So a tapped trigger costs her exactly the
+    frames the trigger was down and not one more, which is a sharper
+    statement than the old one and catches the same fault - dropped
+    frames are ground lost on frames she was NOT aiming. The aiming
+    frames are counted off the pattern itself, so re-timing the tap
+    re-derives the expectation instead of invalidating it.
     """
     print("\n  firing while she walks:")
     for n in ("BUL_TOP", "BUL_DREW_TOP"):
@@ -189,19 +199,27 @@ def firing_costs_her_nothing(sym):
     tap = (lambda t: JOY_RIGHT | (JOY_FIRE if (t % 12) < 4 else 0))
     fired, fired_x, peak = walk(sym, tap)
 
+    aiming = sum(1 for t in range(FRAMES) if tap(t) & JOY_FIRE)
+
     print(f"    walking            {plain} loops, {plain_x} bytes")
     print(f"    walking + AIM      {held} loops, {held_x} bytes "
           f"(BUL_TOP {held_top} - a HELD trigger never fires)")
     print(f"    walking + firing   {fired} loops, {fired_x} bytes "
-          f"(BUL_TOP peaked at {peak})")
+          f"(BUL_TOP peaked at {peak}, {aiming} of {FRAMES} frames aiming)")
 
     check("a held trigger really is only AIM, and fires nothing",
           held_top == 0, "BUL_TOP stayed 0, so the pool never had a round in it")
     check("tapping it really does put rounds in the air",
           peak > 0, f"BUL_TOP reached {peak}")
-    check("she keeps her ground while firing",
-          fired_x >= plain_x - 4,
-          f"{fired_x} bytes against {plain_x} walking - at most 4 behind")
+    # AIMING IS A STANCE: SPACE down and she plants. Held for the whole
+    # run she must not travel at all, and tapped she must lose exactly
+    # the frames she held it for.
+    check("holding SPACE plants her: she does not walk while she aims",
+          held_x == 0, f"{held_x} bytes travelled with the trigger held down")
+    check("and tapping costs her the aiming frames and nothing else",
+          abs(fired_x - (plain_x - aiming)) <= 4,
+          f"{fired_x} bytes against {plain_x} walking less {aiming} aiming "
+          f"= {plain_x - aiming} expected")
     check("and the loop still holds 50 Hz",
           fired >= 197, f"{fired} loop iterations in {FRAMES} hardware frames")
 
@@ -209,21 +227,48 @@ def firing_costs_her_nothing(sym):
     #
     # BUL_TOP is what stops all four pool walks at the deepest slot ever
     # taken instead of at BUL_MAX. Holding it at BUL_MAX re-creates the
-    # fault from outside the engine: 6,228 T a frame of dead slots, the
-    # loop drops frames, and because her screen column is fixed in the
-    # camera's push zone what the player sees is a character who has
-    # stopped walking.
-    stuck, stuck_x, _ = walk(sym, tap, top=14)
-    print(f"    ... with BUL_TOP forced to BUL_MAX: {stuck} loops, {stuck_x} bytes")
-    # The margin is a TENTH of the walk, not a byte count calibrated
-    # against one measurement: a frame right on the edge of 79,872 T
-    # moves a frame or two between builds, and a threshold set at the
-    # measured 22 bytes failed on 20 without anything being wrong.
-    # What is being asserted is that she loses ground, and 20 bytes of
-    # 199 with 21 dropped frames is not in doubt.
-    check("without the high-water mark she loses ground, which is the bug",
-          stuck_x <= plain_x - plain_x // 20 and stuck < 190,
-          f"{stuck_x} bytes and {stuck} loops - the dead slots are what cost her")
+    # fault from outside the engine.
+    #
+    # AND IT IS MEASURED IN T-STATES, NOT IN DROPPED FRAMES. It used to
+    # be a frame count with a threshold under it, and that made the
+    # control a hostage to the frame's headroom: the day ENEMY_PICK gave
+    # 2,200 T back the same fault dropped 9 frames in 200 instead of 32
+    # and the threshold failed. What the mark actually does is take work
+    # off the frame, so time the work.
+    depth = {}
+    for top in (1, BUL_MAX):
+        mm = boot(sym, scroll=True)
+        mm.run_frames(5)
+        b = Bench(mm, sym)
+
+        def setup(m2, top=top):
+            m2.write_ram(sym["BULLETS"],
+                         bytes([1, 40, 60, 0, 60]) + bytes(13 * BUL_STRIDE))
+            m2.poke(sym["BUL_LIVE"], 1)
+            m2.poke(sym["BUL_TOP"], top)
+            m2.poke(sym["BUL_DREW_TOP"], top)
+        depth[top] = {n: (b.T(n, setup) or 0) for n in
+                      ("UPDATE_BULLETS", "BUL_DRAW", "BUL_ERASE",
+                       "ENEMY_SHOT_CHECK")}
+    print(f"\n  the four pool walks, ONE round in the air:")
+    for n in depth[1]:
+        print(f"    {n:<18} {depth[1][n]:6d} T at BUL_TOP 1, "
+              f"{depth[BUL_MAX][n]:6d} at {BUL_MAX}")
+    lean, fat = sum(depth[1].values()), sum(depth[BUL_MAX].values())
+    print(f"    {'TOTAL':<18} {lean:6d} T          {fat:6d}"
+          f"   -> {fat - lean} T of dead slots")
+    check("the high-water mark is worth thousands of T a firing frame",
+          fat - lean > 4000,
+          f"{fat - lean} T between a walk bounded at the deepest slot taken "
+          f"and one bounded at BUL_MAX")
+
+    stuck, stuck_x, _ = walk(sym, tap, top=BUL_MAX)
+    print(f"    ... and in play, with BUL_TOP forced to BUL_MAX: "
+          f"{stuck} loops, {stuck_x} bytes")
+    check("... and in play it still costs her frames and ground",
+          stuck < fired and stuck_x < fired_x,
+          f"{stuck} loops and {stuck_x} bytes against {fired} and {fired_x} "
+          f"on the SAME tap pattern")
 
 
 if __name__ == "__main__":
