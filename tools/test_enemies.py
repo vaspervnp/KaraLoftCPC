@@ -67,13 +67,28 @@ def word(m, addr):
     return m.peek(addr) | (m.peek(addr + 1) << 8)
 
 
+# The cull window is 2 .. 80 - w - 2 byte columns (ENEMY_PICK), so these
+# stop her with the drone a good margin inside it rather than balanced on
+# its edge.
+DRONE_IN_LO, DRONE_IN_HI = 12, 56
+
+
 def to_drone(sym, frames=400):
-    """Walk her right until the first drone is drawable."""
+    """Walk her right until the first drone is drawable AND WELL INSIDE
+    the window.
+
+    Stopping the instant ENEMY_VIS goes up stops her with the drone one
+    byte inside the right-hand edge of the cull window, and half of its
+    patrol then takes it straight back out. Every check after this one
+    would depend on which way it happened to be flying when she arrived,
+    which is a phase accident of how many frames the level took to load.
+    Walk until it is a margin in, and it stays in."""
     m = boot(sym, scroll=True)
     m.joystick(JOY_RIGHT)
     for _ in range(frames):
         m.run_frames(1)
-        if m.peek(sym["ENEMY_VIS"]):
+        if m.peek(sym["ENEMY_VIS"]) and \
+                DRONE_IN_LO <= m.peek(sym["ENEMY_SX"]) <= DRONE_IN_HI:
             break
     m.joystick(0)
     return m

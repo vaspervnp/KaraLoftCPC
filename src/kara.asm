@@ -34,6 +34,7 @@ KARA_H          equ KCORE_BOX_H             ; 64 lines
 ; ---------------------------------------------------------------------
 KSET_CORE       equ 0                       ; idle, walk, jump, shoot
 KSET_EXTRA      equ 1                       ; run, roll
+KSET_ACT        equ 2                       ; climb, hang, use, hurt
 KSET_BYTES      equ 6
 
 KARA_SETS:      db KCORE_PIN_BANK           ; facing right
@@ -45,6 +46,18 @@ KARA_SETS:      db KCORE_PIN_BANK           ; facing right
                 dw KEXTRA_PIN_ADDR
                 db KEXTRA_L_PIN_BANK
                 dw KEXTRA_L_PIN_ADDR
+
+                ; `kact` IS NOT PINNED, and this is the one set addressed
+                ; by its LEVEL. tools/level_banks.py pins kcore, kextra
+                ; and kswim because every level needs them in the same
+                ; place; the action blob is allocated per level, and
+                ; level 1 is the only one this demo loads. Module 6's
+                ; level reader turns these two rows into a table the
+                ; transition fills in - see CLAUDE.md 11.
+                db L1_KACT_BANK
+                dw L1_KACT_ADDR
+                db L1_KACT_L_BANK
+                dw L1_KACT_L_ADDR
 
 ; ---------------------------------------------------------------------
 ; KARA_SPAN_DRAW - composite her, clipped to the display.

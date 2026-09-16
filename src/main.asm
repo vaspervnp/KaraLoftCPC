@@ -83,6 +83,18 @@ BOOT:           di
                 ld   bc,CORE_SIZE
                 ldir
 
+                ; ... and the level image after it, which is NOT part of
+                ; the core and must not be: see the note by LEVEL_IMAGE.
+                ; Its source straddles &8000 and its destination is well
+                ; clear of it, so this is the same plain LDIR - but it
+                ; can only run here, while the window is still the
+                ; configuration the line above set and before LEVEL_LOAD
+                ; pages a bank over it.
+                ld   hl,LEVEL_FILE
+                ld   de,LEVEL_IMAGE
+                ld   bc,LEVEL_SIZE
+                ldir
+
                 jp   CORE_ENTRY             ; no way back to BASIC from here
 
 BOOT_END:
@@ -919,6 +931,7 @@ STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
                 include "levels/level1_city/cityagent.inc"
                 include "levels/level1_city/citydrone.inc"
                 include "levels/_shared/kcore.inc"
+                include "levels/_shared/kact.inc"
                 include "kara.asm"
                 include "levels/_shared/kextra.inc"
                 include "action.asm"
@@ -1051,6 +1064,41 @@ KARA_SPRITES:   incbin "kara_sprites.bin"
                 ; relocation lands it in base RAM - which is the only
                 ; reason MAP_INSTALL can LDIR it to MAP_ADDR.
                 ;
+CORE_END:
+CORE_SIZE       equ  CORE_END - CORE_START
+
+; *** EVERYTHING ABOVE HERE IS RELOCATED TO &0040 AND MUST END BEFORE
+; *** &4000, BECAUSE &4000 IS THE BANKED WINDOW (CLAUDE.md 6.1).
+;
+; There was no check on that and it went wrong silently. 2,240 bytes of
+; map and entity table used to ride inside this image; the climb, the
+; camera and the ladder pushed CORE_END to &4070, and the last 112 bytes
+; of the entity table landed in bank C4 on top of the city's tile art.
+; Nothing crashed. ENT_RECOUNT read tile bytes as flags, came back with
+; 24 live entities instead of 10, and ENT_UPDATE swept fourteen slots of
+; noise every other frame - 2,728 T a frame, which is what took the
+; budget over. A corrupt entity table is cheaper to find than that.
+                assert CORE_END <= BOOT_ADDR
+
+; =====================================================================
+; THE LEVEL IMAGE - the map and its entity table, 2,240 bytes.
+;
+; DATA, not code: copied into their working addresses at every level
+; init and never executed, so there is no reason for them to be in an
+; image that has to fit under &4000. The bootstrap drops them in base
+; RAM at LEVEL_IMAGE and MAP_INSTALL takes its working copy from there -
+; a working copy and not the original, because ENT_BAKE stamps each
+; pickup into the map and a re-init needs the map it started with.
+;
+; Module 6 reads both out of level_<n>.lvl instead, which is the same
+; LDIR from a different source (see MAP_INSTALL).
+; =====================================================================
+LEVEL_IMAGE     equ  &B000      ; above the map and its table, below the stack
+LEVEL_FILE      equ  BOOT_END + CORE_SIZE   ; where the loader left the bytes
+
+                org  LEVEL_IMAGE, LEVEL_FILE
+
+LEVEL_START:
                 ; THE TILES DO NOT COME THIS WAY ANY MORE. They are the
                 ; level's own, unpacked into bank C4 by LEVEL_LOAD
                 ; (tools/level_banks.py pins them at &4000 of it), and
@@ -1063,6 +1111,10 @@ CITY_MAP:       incbin "city_map.bin"
                 ; the engine's half of the format is exercised
                 ; before a web application is built against it.
 CITY_ENTITIES:  incbin "city_entities.bin"
+LEVEL_END:
+LEVEL_SIZE      equ  LEVEL_END - LEVEL_START
 
-CORE_END:
-CORE_SIZE       equ  CORE_END - CORE_START
+                assert CITY_MAP == LEVEL_IMAGE
+                assert LEVEL_IMAGE + LEVEL_SIZE < STACK_TOP - 1024
+                ; and it must not land on top of what it is copied INTO
+                assert LEVEL_IMAGE >= ENT_TABLE + ENT_MAX * ENT_STRIDE

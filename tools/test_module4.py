@@ -188,8 +188,33 @@ def pump_h(machine, sym):
 
 
 def vstep(machine, sym):
-    """Ask the engine for a vertical step. No PC hijacking: SCROLL_SERVICE
-    picks the request up on its own, exactly as levels 3 and 4 will."""
+    """Ask the engine for a vertical step, and KEEP asking.
+
+    No PC hijacking: SCROLL_SERVICE picks the request up on its own,
+    exactly as the ladder does.
+
+    THE REQUEST IS HELD UP ON EVERY FRAME, including the two a step is
+    in flight for, and that is not laziness. CAMERA_V drives this axis
+    in game now (player.asm) and it stands down only while a request is
+    already pending - so a driver that pokes V_REQUEST on some frames
+    and not others hands the wheel back on the frames it skips, and the
+    camera's correction for a Kara who has been left behind by the view
+    gets measured here as a step in the wrong direction. Holding it up
+    is also what a climbing player does. SCROLL_SERVICE ignores it until
+    the step in flight has landed."""
+    machine.poke(sym["V_REQUEST"], getattr(drive, "want", 1))
+    return True
+
+
+def vstep_idle(machine, sym):
+    """vstep's older cadence: ask only while the engine is idle.
+
+    Used where the DIRECTION of a step does not matter but its TIMING
+    does - the CRTC-write check below. Asking every frame runs the steps
+    back to back, which moves which frames latch and made the search
+    below miss all of them; here the camera is welcome to put in steps
+    of its own, because the rule being asserted is "R12/R13 only in the
+    border" and it holds for whoever asked."""
     if machine.peek(sym["V_PHASE"]):
         return False
     machine.poke(sym["V_REQUEST"], getattr(drive, "want", 1))
@@ -955,7 +980,7 @@ def main():
         drive(machine, sym, phase)
         latest = None
         for _ in range(12):
-            (vstep if phase else pump_h)(machine, sym)
+            (vstep_idle if phase else pump_h)(machine, sym)
             sync_to_vsync(machine, sym)          # stops just past the VSYNC exit
             us = 0
             for _ in range(4800):                # stay inside ONE frame, or the

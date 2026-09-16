@@ -35,7 +35,7 @@ TA_SOLID        equ %10000000   ; blocks from every direction
 TA_PLATFORM     equ %01000000   ; one-way - blocks a descent only
 TA_HAZARD       equ %00100000   ; damages on contact
 TA_TRIGGER      equ %00010000   ; reserved for Module 5's entities
-TA_CLIMB        equ %00001000   ; RESERVED, level 3 - defined, never read
+TA_CLIMB        equ %00001000   ; a ladder: UP and DOWN move her along it
 TA_WATER        equ %00000100   ; RESERVED, level 4 - defined, never read
 TA_SINK         equ %00000010   ; RESERVED, level 5 - defined, never read
 TA_BLOCK        equ TA_SOLID + TA_PLATFORM
@@ -70,10 +70,21 @@ TILE_ATTR:      db 0                        ;  0 sky_stars
                 db 0                        ;  5 far_block
                 db 0                        ;  6 far_step
                 db 0                        ;  7 far_fill
-                db TA_SOLID                 ;  8 brick
-                db TA_SOLID                 ;  9 brick_win_lit
-                db TA_SOLID                 ; 10 brick_win_dark
-                db TA_SOLID                 ; 11 brick_top
+                ; THE BUILDING'S FACE IS BACKGROUND, NOT A WALL, and
+                ; the artist's own street mockup is what says so: she
+                ; walks the pavement in FRONT of a brick facade that runs
+                ; floor to roof. Made solid, the foot of every ladder is
+                ; a place she arrives inside a wall - her box is three
+                ; tiles wide, the shaft is one, and BOX_SOLID_H then
+                ; refuses every step she tries to take along the street.
+                ; What holds her up is the roof at the top and the
+                ; pavement at the bottom; the 128 rows of brick between
+                ; them are scenery, and a roof edge she walks off is a
+                ; fall to the street, which is what a roof edge is.
+                db 0                        ;  8 brick
+                db 0                        ;  9 brick_win_lit
+                db 0                        ; 10 brick_win_dark
+                db 0                        ; 11 brick_top
                 db TA_SOLID                 ; 12 concrete
                 db TA_SOLID                 ; 13 roof_l         the runway
                 db TA_SOLID                 ; 14 roof_m
@@ -87,7 +98,12 @@ TILE_ATTR:      db 0                        ;  0 sky_stars
                 db 0                        ; 22 tank_11
                 db 0                        ; 23 tank_20
                 db 0                        ; 24 tank_21
-                db TA_CLIMB                 ; 25 ladder         level 3 reads it
+                ; A LADDER IS A FLOOR AS WELL AS A SHAFT. Its top tile
+                ; sits in the roof's own row (tools/make_city_map.py), so
+                ; she has to be able to stand on it before she can step
+                ; onto it - TA_PLATFORM is what a one-way floor is, and
+                ; it is what DOWN then takes her through.
+                db TA_CLIMB + TA_PLATFORM   ; 25 ladder
                 db TA_SOLID                 ; 26 sidewalk
                 db TA_SOLID                 ; 27 curb
                 db TA_SOLID                 ; 28 street
@@ -275,6 +291,33 @@ BOX_SOLID_V:    ld   c,a                    ; C = the scanline for a moment
                 ld   hl,PROBE_MASK
                 and  (hl)
                 ret
+
+; ---------------------------------------------------------------------
+; CLIMB_AT - the attributes of the tile under the MIDDLE of her box, at
+; world pixel row A.
+;
+; A LADDER IS ONE TILE WIDE AND HER BOX IS THREE, so BOX_SOLID_V asks
+; the wrong question on a ladder: it merges the brick either side of the
+; shaft and every probe inside the wall comes back solid. The climb
+; therefore probes ONE column.
+;
+; AND IT IS THE MIDDLE OF HER FIGURE, NOT OF HER COLLISION BOX. Those
+; are not the same byte: KARA_WX is the left edge of her 12-byte sprite
+; and KARA_BOX_W is 6, so the box is her LEFT HALF while the drawn
+; figure sits in bytes 3..9 of it - measured off the blobs. A player
+; lines the ladder up with what they can see, and CLIMB_GRAB then puts
+; what they can see on it.
+;
+; IN : A = world pixel row      OUT: A = attribute byte
+;      destroys AF,DE,HL.  BC preserved - PLAYER_CLIMB keeps the line it
+;      proposed in C and the attribute it read in B.
+; ---------------------------------------------------------------------
+CLIMB_AT:       push af
+                ld   hl,(KARA_WX)
+                ld   de,KARA_W_BYTES / 2    ; the middle of her SPRITE
+                add  hl,de
+                pop  af
+                jp   MAP_ATTR
 
 PROBE_ACC:      db 0
 PROBE_MASK:     db 0

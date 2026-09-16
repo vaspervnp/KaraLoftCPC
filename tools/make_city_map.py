@@ -13,12 +13,44 @@ and build/levels/level1_city/citytiles_frames.json confirms. They are
 read from that sidecar rather than hard-coded, so a re-export with a
 different frame count cannot quietly shift the map by one tile.
 
+THE COLUMN COMES FROM THE ARTIST'S OWN MOCKUPS, not from guesswork.
+assets/sprites/level1_city/mockup_city.png and mockup_city_street.png
+are two screens of this level composed by hand, and reading them back
+tile by tile gives the row order below:
+
+    sky_stars / sky_mid / sky_low          the night
+    far_tower|far_block|far_step           the skyline's tops
+    far_fill ...                           its black mass, and the props
+    roof_l roof_m ... roof_r               THE ROOF - she walks on its top
+    brick / brick_win_lit / brick_win_dark the wall, all the way down
+    sidewalk                               THE STREET - and its top too
+
+Two things fall out of that and both were wrong here before:
+
+  * `brick_top` IS NOT USED. It appears in neither mockup. It draws a
+    black band and then a pale ledge five lines in, and put directly
+    under the roof it reads as a SECOND floor 16 pixels below the one
+    she is standing on - which is exactly the place a play-test report
+    (errors/wrongwalkplace.png) circled as "she walks in the wrong
+    spot". She was always on the roof; the picture had two roofs. The
+    wall under a roof you walk on is plain brick and windows.
+  * The walkable surface is the TOP LINE of its tile, and in this art
+    that line is the bright pen-1 cap - roof_m's and sidewalk's alike.
+    The mockup stands her on it with a one-line gap under her boots.
+
 THE ROOFTOP IS ONE CONTINUOUS RUN AT ONE HEIGHT. A tile is 16 pixels
 tall and she walks 2 a frame, so any step up in the roof line is a wall
 that stops her dead - and a player who cannot walk is a camera that
 cannot scroll, which makes every scrolling test vacuous WITHOUT failing
 it. The variety is in the skyline above, the windows below and the props
 on the roof, none of which is in her way.
+
+AND NOW THERE IS A WAY DOWN. The ladders run from the roof's own row to
+the last wall row, so their top tile is one she can stand on (it is
+TA_CLIMB + TA_PLATFORM in collide.asm) and pressing DOWN on it takes
+her onto the ladder. The street is 128 pixels below the roof and the
+display is 192 lines of a 256-line world, so it cannot be on screen at
+the same time as the roof: reaching it IS a vertical scroll.
 """
 import json
 import os
@@ -34,16 +66,21 @@ MAP_W, MAP_H = 128, 16          # both powers of two: the map wraps with AND
 ROW_SKY_TOP  = 0
 ROW_SKY_MID  = 1
 ROW_SKY_LOW  = 2
-ROW_FAR_TOP  = 3
+ROW_FAR_TOP  = 3                # the far skyline's tops
 ROW_DRONE    = 4                # a drone hovers here: its box is 44..64 and
-                                # her muzzle is at world y 53, so she can hit
+                                # her muzzle is at world y 54, so she can hit
                                 # it and it can hit her
 ROW_ROOFLINE = 5                # props stand here, on top of the roof
 ROW_ROOF     = 6                # <- the walkable surface, world y = 96
-ROW_WALL_TOP = 7
-ROW_PAVEMENT = 12
-ROW_CURB     = 13
-ROW_STREET   = 14
+ROW_WALL_TOP = 7                # the wall: brick and windows, no ledge
+ROW_PAVEMENT = 14               # <- the street surface, world y = 224
+ROW_STREET   = 15               # the road itself, under the kerb
+
+# The drop, in pixels, and what the display can show of it at once.
+ROOF_Y   = ROW_ROOF * 16        # 96
+STREET_Y = ROW_PAVEMENT * 16    # 224
+SCREEN_LINES = 192              # R6 = 24 character rows (CLAUDE.md 8.2)
+WORLD_LINES  = 16 * 16          # the map's own height, and Y wraps in a byte
 
 
 def tile_names():
@@ -82,13 +119,16 @@ def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
 
 
 def build_entities(path):
-    ROOF = ROW_ROOF * 16                # world y of the rooftop surface
     e = [
         # Pickups stand ON the roof, so their base is the roof's top edge.
         entity(EK_PICKUP, 24, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_KEY, 0),
         entity(EK_PICKUP, 44, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_AMMO, 14),
         entity(EK_PICKUP, 64, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_MEDKIT, 0),
-        entity(EK_PICKUP, 84, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_COIN, 5),
+        # ... and two more DOWN ON THE STREET, which is the only reason to
+        # go and look at it: a demo you can reach and need not is a demo
+        # nobody scrolls to.
+        entity(EK_PICKUP, 26, ROW_PAVEMENT, EF_ACTIVE | EF_TOUCH, PU_COIN, 5),
+        entity(EK_PICKUP, 62, ROW_PAVEMENT, EF_ACTIVE | EF_TOUCH, PU_AMMO, 14),
         # The garage, down at street level: 4 tiles wide, 5 tall, and its
         # base is the pavement. Solid until the key opens it.
         entity(EK_DOOR, 30, ROW_PAVEMENT, EF_ACTIVE | EF_SOLID, 0, PU_KEY),
@@ -106,7 +146,7 @@ def build_entities(path):
         #
         # THE ROW IS HER MUZZLE'S, not a guess: she stands with her
         # feet on row 6, so KARA_WY is 36 and the firing cel's own
-        # spawn point puts the shot on world y 53. A drone has to be
+        # spawn point puts the shot on world y 54. A drone has to be
         # drawn across that line or every round goes under it.
         entity(EK_ENEMY, 36, ROW_DRONE, EF_ACTIVE, EN_DRONE, 4),
         entity(EK_ENEMY, 76, ROW_DRONE, EF_ACTIVE, EN_DRONE, 4),
@@ -131,6 +171,12 @@ def build_entities(path):
     return len(e)
 
 
+# Where the ladders are. Each one runs from the ROOF's own row - so its
+# top tile is the one she stands on and DOWN takes her onto it - to the
+# last row of wall above the pavement.
+LADDER_X = list(range(11, MAP_W, 23))
+
+
 def main():
     T, names = tile_names()
     side = os.path.join(ROOT, "build", "levels", "level1_city",
@@ -153,7 +199,8 @@ def main():
         # ---- the far skyline: tops over fill ------------------------
         g[ROW_FAR_TOP][x] = (T["far_tower"], T["far_block"], T["far_step"],
                              T["far_block"])[(x // 3) % 4]
-        g[ROW_ROOFLINE][x] = T["far_fill"]
+        for y in range(ROW_FAR_TOP + 1, ROW_ROOF):
+            g[y][x] = T["far_fill"]
 
         # ---- the roof she walks on, one height, all the way ---------
         # roof_l / roof_m... / roof_r reads as a row of separate
@@ -164,47 +211,61 @@ def main():
                           T["roof_r"] if p == 15 else T["roof_m"])
 
         # ---- the wall below, with lit and dark windows --------------
-        g[ROW_WALL_TOP][x] = T["brick_top"]
-        for y in range(ROW_WALL_TOP + 1, ROW_PAVEMENT):
+        # NO brick_top. See the header: its pale ledge five lines down
+        # is a second roof line, and it is the one the play-test report
+        # pointed at.
+        for y in range(ROW_WALL_TOP, ROW_PAVEMENT):
             lit = ((x // 2 + y) % 3 == 0)
             g[y][x] = (T["brick_win_lit"] if lit and (x + y) % 2 == 0 else
                        T["brick_win_dark"] if lit else T["brick"])
 
         # ---- street level ------------------------------------------
         g[ROW_PAVEMENT][x] = T["sidewalk"]
-        g[ROW_CURB][x] = T["curb"]
-        for y in range(ROW_STREET, MAP_H):
-            g[y][x] = T["street_line"] if (x % 8) < 2 and y == ROW_STREET \
-                else T["street"]
+        g[ROW_STREET][x] = T["street_line"] if (x % 8) < 2 else T["street"]
 
-    # ---- ladders down the face of a building every so often ---------
-    for x in range(11, MAP_W, 23):
-        for y in range(ROW_WALL_TOP, ROW_PAVEMENT):
+    # ---- ladders: roof row down to the last row of wall -------------
+    # THE TOP TILE IS IN THE ROOF'S OWN ROW, which is what makes the
+    # ladder reachable: collide.asm gives it TA_CLIMB + TA_PLATFORM, so
+    # she walks over it like any other roof tile and DOWN steps onto it.
+    # A ladder that started one row lower would be a thing she could
+    # only fall onto.
+    for x in LADDER_X:
+        for y in range(ROW_ROOF, ROW_PAVEMENT):
             g[y][x] = T["ladder"]
 
     # ---- props on the roof, standing on ROW_ROOFLINE ----------------
     # Decoration only: TILE_ATTR gives them no attributes, so she walks
     # straight through them. A solid prop on the runway is the step that
     # stops the camera.
+    def free(x):
+        return x < MAP_W and x not in LADDER_X
+
     for x in range(5, MAP_W, 16):
-        g[ROW_ROOFLINE][x] = T["ac_unit"]
+        if free(x):
+            g[ROW_ROOFLINE][x] = T["ac_unit"]
     for x in range(9, MAP_W, 16):
-        g[ROW_ROOFLINE][x] = T["chimney"]
+        if free(x):
+            g[ROW_ROOFLINE][x] = T["chimney"]
     for x in range(13, MAP_W, 32):
-        g[ROW_ROOFLINE][x] = T["antenna"]
+        if free(x):
+            g[ROW_ROOFLINE][x] = T["antenna"]
 
     # ---- the water tank: a 2 wide x 3 tall group, tank_RC row-major --
     for x0 in range(20, MAP_W, 48):
         for r in range(3):
             for c in range(2):
                 y = ROW_ROOFLINE - 2 + r
-                if x0 + c < MAP_W:
+                if free(x0 + c):
                     g[y][x0 + c] = T[f"tank_{r}{c}"]
 
-    # ---- a lamp on the pavement -------------------------------------
+    # ---- a lamp, hung on the wall above the pavement -----------------
+    # NOT standing IN the pavement row, which is where it used to be:
+    # lamp_pole has no attributes, so a pole in the sidewalk row was a
+    # hole she fell through on her way along the street.
     for x in range(6, MAP_W, 24):
-        g[ROW_PAVEMENT - 1][x] = T["lamp_top"]
-        g[ROW_PAVEMENT][x] = T["lamp_pole"]
+        if free(x):
+            g[ROW_PAVEMENT - 2][x] = T["lamp_top"]
+            g[ROW_PAVEMENT - 1][x] = T["lamp_pole"]
 
     # ---- the garage: 4 wide x 5 tall, closed, down at street level ---
     # manifest: row0 jamb_l sign_p lock_(red|green) jamb_r; rows 1-3 two
@@ -218,10 +279,13 @@ def main():
                                      T["shutter"], T["jamb_r"]]
         g[top + 4][x0:x0 + 4] = [T["jamb_l"], T["shutter_bottom"],
                                  T["shutter_bottom"], T["jamb_r"]]
+        assert not any(x in LADDER_X for x in range(x0, x0 + 4)), \
+            f"a ladder runs through the garage at tile {x0}"
 
     # ---- a crate or two on the pavement ------------------------------
-    for x in range(17, MAP_W, 37):
-        g[ROW_PAVEMENT - 1][x] = T["crate"]
+    for x in range(18, MAP_W, 29):
+        if free(x) and g[ROW_PAVEMENT - 1][x] == T["brick"]:
+            g[ROW_PAVEMENT - 1][x] = T["crate"]
 
     blob = bytes(b for row in g for b in row)
     assert len(blob) == MAP_W * MAP_H
@@ -233,11 +297,24 @@ def main():
           f"{ENT_MAX * 8} bytes")
     print(f"-> city_map.bin    {MAP_W}x{MAP_H} = {len(blob)} bytes, "
           f"{len(set(blob))} distinct tiles of {len(names)}")
-    print(f"   roof at map row {ROW_ROOF} = world y {ROW_ROOF * 16}, "
+    print(f"   roof at map row {ROW_ROOF} = world y {ROOF_Y}, "
           f"continuous across all {MAP_W} columns")
+    print(f"   street at map row {ROW_PAVEMENT} = world y {STREET_Y}, "
+          f"{STREET_Y - ROOF_Y} pixels below it")
+    print(f"   ladders at tiles {LADDER_X}, rows {ROW_ROOF}-{ROW_PAVEMENT - 1}")
+    # THE WHOLE POINT OF PUTTING THE STREET DOWN THERE. The view is 192
+    # lines of a 256-line world, so its top can only sit in 0..64. With
+    # it at 0 the roof is framed - she stands on screen line 96, inside
+    # the camera's band - and the street's surface at 224 is off the
+    # bottom of the display. So the street cannot be seen, never mind
+    # stood on, until the view scrolls, and putting her on it drives the
+    # view the whole 64 pixels it has.
+    assert STREET_Y >= SCREEN_LINES, (
+        f"the street's surface is at world y {STREET_Y}, which the "
+        f"{SCREEN_LINES}-line display shows without scrolling at all")
+    assert STREET_Y + 16 <= WORLD_LINES, "the street falls out of the world"
+    assert ROOF_Y + 96 <= STREET_Y, "the climb is too short to be worth a ladder"
 
 
 if __name__ == "__main__":
     main()
-
-

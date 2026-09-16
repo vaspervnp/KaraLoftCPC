@@ -18,7 +18,11 @@ from bench import boot, symbols                                # noqa: E402
 STUB = 0x9400
 MAP_ADDR, MAP_W = 0xA000, 128
 BUL_STRIDE, EBUL_STRIDE = 5, 5
-TILE_SKY, TILE_BRICK = 0, 8     # attributes 0 and TA_SOLID
+# Attributes 0 and TA_SOLID. NOT `brick` (8) for the solid one any more:
+# the building's facade is scenery now and only the roof and the pavement
+# hold anything up (src/collide.asm), so a brick poked into a cell stops
+# nothing and the check would pass for the wrong reason.
+TILE_SKY, TILE_BRICK = 0, 26    # sky, sidewalk
 
 fails = []
 

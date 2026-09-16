@@ -41,6 +41,11 @@ P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
                                 ; destination-only probe is only exact
                                 ; while a single step cannot skip a tile
 P_JUMP          equ -8          ; rises 8+7+...+1 = 36 px, about 2.2 tiles
+P_CLIMB         equ 1           ; pixels a frame on a ladder. The vertical
+                                ; scroll moves 8 lines every THREE frames,
+                                ; so anything faster than 2 outruns the
+                                ; camera and she walks off the bottom of
+                                ; the display while it catches up.
 WORLD_W         equ MAP_W * TILE_W_BYTES    ; 128 tiles of 4 = 512 bytes,
                                 ; the same world the 64x16 map covered
 
@@ -55,7 +60,20 @@ WORLD_W         equ MAP_W * TILE_W_BYTES    ; 128 tiles of 4 = 512 bytes,
                 ; art filled C4 (tilemap.asm), so the probes read it
                 ; wherever the window happens to be pointing - and the
                 ; 116 T this used to cost goes back to the frame.
-PLAYER_UPDATE:  call PLAYER_X
+PLAYER_UPDATE:  ld   a,(KARA_CLIMB)
+                or   a
+                jp   nz,PLAYER_CLIMB        ; a ladder suspends both of them
+
+                call PLAYER_X
+                ; A LADDER BEATS A JUMP, so the grab is tested before
+                ; PLAYER_Y and not after it. UP is the jump key as well,
+                ; and a grab tested afterwards reads a KARA_GROUND that
+                ; the jump has already cleared: standing at the foot of a
+                ; ladder and holding UP hopped on the spot for ever.
+                call CLIMB_ENTER
+                ld   a,(KARA_CLIMB)
+                or   a
+                ret  nz
                 jp   PLAYER_Y
 
 ; ---------------------------------------------------------------------
@@ -290,6 +308,176 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ld   (KARA_VY),a            ; the climb, gravity takes over
                 ret
 
+; =====================================================================
+; THE LADDER
+;
+; A ladder is a column of TA_CLIMB tiles cut through the wall, and its
+; TOP tile sits in the roof's own row so that she can stand on it: it
+; carries TA_PLATFORM as well, which is a floor from above and nothing
+; from below (collide.asm).
+;
+;   DOWN, standing on a climb tile        -> she steps onto the ladder
+;   UP,   standing with one over her head -> she steps onto the ladder
+;   UP/DOWN on it                         -> P_CLIMB pixels, no gravity
+;   past the last rung, either end        -> she is put on the floor
+;
+; EVERY PROBE HERE IS ONE COLUMN WIDE. Her box is three tiles across and
+; the shaft is one, so the box probes read the brick either side of it
+; and come back solid everywhere: CLIMB_AT asks about the single column
+; she is centred on, and CLIMB_GRAB is what centres her.
+;
+; LEFT and RIGHT do nothing while she is on it. That is not laziness -
+; PLAYER_X's push-zone logic moves her in lock step with the camera, and
+; a step sideways out of the shaft would leave her standing in a wall.
+; =====================================================================
+
+; ---------------------------------------------------------------------
+; CLIMB_ENTER - grab a ladder if she is asking for one.
+;
+; Called with KARA_GROUND as PLAYER_Y left it LAST frame, before this
+; frame's jump has had a chance to clear it.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+CLIMB_ENTER:    ld   a,(KARA_GROUND)
+                or   a
+                ret  z                      ; only from a floor
+                ld   a,(INPUT_NOW)
+                ld   c,a
+                and  IN_DOWN
+                jr   z,.try_up
+
+                ; DOWN: the tile she is STANDING ON. Her feet line is
+                ; that tile's top line, so this is the tile itself and
+                ; not the one below it.
+                ld   a,(KARA_WY)
+                add  a,KARA_BOX_H
+                call CLIMB_AT
+                and  TA_CLIMB
+                jr   nz,CLIMB_GRAB
+                ret
+
+.try_up:        ld   a,c
+                and  IN_UP
+                ret  z
+                ; UP: the tile directly ABOVE the floor she is on - one
+                ; line higher is inside it, whatever her feet are on.
+                ld   a,(KARA_WY)
+                add  a,KARA_BOX_H
+                dec  a
+                call CLIMB_AT
+                and  TA_CLIMB
+                ret  z
+                ; fall through
+
+; ---------------------------------------------------------------------
+; CLIMB_GRAB - put her ON the shaft and hand her to PLAYER_CLIMB.
+;
+; Centred on her FIGURE, for the reason CLIMB_AT gives: her collision
+; box is the left half of her sprite box, so centring the box would draw
+; her climbing the brick three bytes to the right of the ladder. The
+; shaft is TILE_W_BYTES wide and its middle is TILE_W_BYTES / 2 in, so
+; KARA_WX ends up 4 bytes left of the tile - and CLIMB_AT, which probes
+; the same byte, then reads the shaft she is on.
+;                                destroys AF,DE,HL
+; ---------------------------------------------------------------------
+CLIMB_GRAB:     ld   hl,(KARA_WX)
+                ld   de,KARA_W_BYTES / 2
+                add  hl,de                  ; the byte her middle is over
+                ld   a,l
+                and  256 - TILE_W_BYTES     ; ... and its tile's left edge.
+                ld   l,a                    ; H is untouched: TILE_W_BYTES
+                                            ; divides 256, so the mask cannot
+                                            ; borrow out of the low byte
+                ld   de,TILE_W_BYTES / 2 - KARA_W_BYTES / 2   ; -4
+                add  hl,de
+                ld   (KARA_WX),hl
+                xor  a
+                ld   (KARA_VY),a
+                ld   (KARA_GROUND),a
+                inc  a
+                ld   (KARA_CLIMB),a
+                ret
+
+; ---------------------------------------------------------------------
+; PLAYER_CLIMB - one frame on a ladder.
+;
+; C holds the feet line she is proposing and B the attributes of the
+; tile it lands in, which is why CLIMB_AT preserves BC.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+PLAYER_CLIMB:   ld   a,(INPUT_NOW)
+                ld   c,a
+                and  IN_UP
+                jr   nz,.up
+                ld   a,c
+                and  IN_DOWN
+                ret  z                      ; hanging on, going nowhere
+
+                ; ---- down ------------------------------------------
+                ld   a,(KARA_WY)
+                add  a,KARA_BOX_H + P_CLIMB ; her feet, after the step
+                ld   c,a
+                call CLIMB_AT
+                ld   b,a
+                and  TA_CLIMB
+                jr   z,.off_bottom
+                ld   a,(KARA_WY)
+                add  a,P_CLIMB
+                ld   (KARA_WY),a
+                ret
+
+                ; Past the last rung. If there is a floor under it she
+                ; stands on it; if there is not, she lets go and falls -
+                ; a ladder that ends in mid-air must not leave her
+                ; standing on nothing.
+.off_bottom:    ld   a,b
+                and  TA_BLOCK
+                jr   z,.let_go
+                ld   a,c
+                and  &F0                    ; the floor is that tile's top line
+                sub  KARA_BOX_H
+                ld   (KARA_WY),a
+                jr   CLIMB_LAND
+.let_go:        ld   a,c
+                sub  KARA_BOX_H
+                ld   (KARA_WY),a
+                jr   CLIMB_LEAVE
+
+                ; ---- up --------------------------------------------
+.up:            ld   a,(KARA_WY)
+                add  a,KARA_BOX_H - P_CLIMB
+                ld   c,a
+                call CLIMB_AT
+                and  TA_CLIMB
+                jr   z,.off_top
+                ld   a,(KARA_WY)
+                sub  P_CLIMB
+                ld   (KARA_WY),a
+                ret
+
+                ; Off the top: her feet are in the tile ABOVE the shaft,
+                ; so the floor is that tile's BOTTOM - which is the top
+                ; line of the last rung's tile, 16 on from the mask.
+.off_top:       ld   a,c
+                and  &F0
+                add  a,16
+                sub  KARA_BOX_H
+                ld   (KARA_WY),a
+                ; fall through
+
+CLIMB_LAND:     xor  a
+                ld   (KARA_CLIMB),a
+                ld   (KARA_VY),a
+                inc  a
+                ld   (KARA_GROUND),a
+                ret
+
+CLIMB_LEAVE:    xor  a
+                ld   (KARA_CLIMB),a
+                ld   (KARA_VY),a
+                ld   (KARA_GROUND),a
+                ret
+
 ; ---------------------------------------------------------------------
 ; CAMERA_DECIDE - Kara drives the scroll engine, one frame ahead.
 ;
@@ -334,9 +522,16 @@ CAM_LEAD        equ SCR_CHARS * 2 - CAM_TRAIL - KARA_BOX_W   ; 50, its mirror
 CAM_BAND        equ 4           ; within this of the mark, she is pushing it
                                 ; and not drifting toward it
 
+CAM_TOP         equ 64          ; the band her screen line has to stay in
+CAM_BOT         equ 112         ; before the view follows her down or up
+V_CR_MAX        equ (MAP_H * 16 - SCR_CHAR_ROWS * 8) / 8
+
 CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
                 or   a                      ; SCROLL_SERVICE in tilemap.asm
                 ret  nz
+                call CAMERA_V
+                ret  nz                     ; it asked for one: the horizontal
+                                            ; camera stands down this frame
                 ; WHICH WAY SHE FACES DECIDES WHICH WAY THE CAMERA CAN
                 ; GO. A single pair of thresholds would have to overlap
                 ; to put her behind the middle in both directions, and
@@ -360,6 +555,64 @@ CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
                 or   a
                 ret  z                      ; at the left edge of the map
                 jp   H_REQUEST_LEFT
+
+; ---------------------------------------------------------------------
+; CAMERA_V - follow her down the building, and back up it.
+;
+; The display is 192 lines of a 256-line world, so the view's top can
+; only sit in 0..V_CR_MAX character rows - 0 to 64 pixels. That is the
+; whole vertical budget and the level spends it: the roof is framed with
+; the view at 0 and the street needs it at its limit, so climbing down
+; the ladder IS the vertical scroll, not a thing that happens near it.
+;
+; ONE STEP AT A TIME, AND ONLY WHEN THE LAST HAS LANDED. A vertical step
+; takes three frames (tilemap.asm) and a second request inside that
+; window would be worked out from a start address the CRTC has not been
+; given yet. V_REQUEST is the queue, and it is one deep.
+;
+; OUT: NZ if a step was requested, Z if not.  destroys AF,DE,HL
+; ---------------------------------------------------------------------
+CAMERA_V:       ld   a,(V_REQUEST)
+                or   a
+                ret  nz                     ; one is already waiting
+                ld   a,(WORLD_CR)
+                add  a,a
+                add  a,a
+                add  a,a                    ; the view's top, in lines
+                ld   e,a
+                ld   a,(KARA_WY)
+                add  a,KARA_BOX_H / 2       ; HER MIDDLE, not the top of her
+                                            ; box: measured from her head the
+                                            ; band has to sit 30 lines higher
+                                            ; to frame her, and the view then
+                                            ; stops one character row short of
+                                            ; its limit with the road half off
+                                            ; the bottom of the display
+                sub  e                      ; her screen line
+                jr   c,.up                  ; above the view entirely
+                cp   CAM_BOT + 1
+                jr   nc,.down
+                cp   CAM_TOP
+                jr   c,.up
+                xor  a                      ; inside the band: nothing to do
+                ret
+
+.down:          ld   a,(WORLD_CR)
+                cp   V_CR_MAX
+                jr   nc,.none               ; the world's bottom is on screen
+                ld   a,1                    ; 1 = down the map
+                ld   (V_REQUEST),a
+                ret                         ; NZ
+
+.up:            ld   a,(WORLD_CR)
+                or   a
+                jr   z,.none                ; the world's top is on screen
+                ld   a,2                    ; 2 = up the map
+                ld   (V_REQUEST),a
+                ret                         ; NZ
+
+.none:          xor  a
+                ret
 
 ; PLAYER_SCREEN_X - A = her screen byte column (KARA_WX - WORLD_X * 2)
 ; in the view that is on screen NOW. This is what the physics and the
@@ -426,3 +679,4 @@ KARA_WY:        db 16           ; starts in the air and falls onto the roof.
                                 ; she animates on the spot and never moves.
 KARA_VY:        db 0
 KARA_GROUND:    db 0
+KARA_CLIMB:     db 0   ; non-zero while she is on a ladder

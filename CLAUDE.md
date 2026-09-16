@@ -37,9 +37,16 @@ inventory when she walks into them (§8.6). Drones patrol the skyline,
 shoot at her when she is in front of them, take damage from her
 pistols and die (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all fifteen
+**And there is a way down.** Ladders run down the face of the building
+from the roof's own row, and the street is 128 pixels below the roof —
+far enough that the 192-line display cannot show both. So reaching the
+pavement IS the vertical scroll, driven by the player rather than by a
+test poking `V_REQUEST`, and it is what §8.2 built the axis for. See
+§8.8.
+
+`./tools/run_tests.sh` runs every acceptance suite and **all sixteen
 pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 75,140 T of 79,872, with the span blitter
+heaviest animation frame is 79,712 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 numbers are in §9.
 
@@ -58,8 +65,9 @@ src/disc.asm      the uPD765 driver - raw sectors, no firmware.
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
-src/collide.asm   tile attributes, box-against-map probes
-src/player.asm    walking, jumping, gravity, and the camera
+src/collide.asm   tile attributes, box probes, and the ladder's one-column
+                  probe
+src/player.asm    walking, jumping, gravity, the ladder, and both cameras
 src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
 src/action.asm    her action state machine and the cel timer (8.4)
 src/entity.asm    the entity table, the AABB, the five interaction
@@ -82,6 +90,7 @@ tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
 tools/blender_title.py     the title scene and its CPC render settings
 tools/make_placeholder_sprites.py
 tools/bench.py             T-states by calling a routine from a DI stub
+tools/test_climb.py        the ladder, the street and the vertical camera
 tools/test_*.py            acceptance suites, fourteen of them
 tools/run_tests.sh         all of them, in order
 
@@ -206,6 +215,8 @@ mid-scanline skews the bands.
 &0040-&3FFF  Core engine, scrolling engine, sound driver      (never banked out)
 &4000-&7FFF  Level logic, collision data, entity management   (BANKED WINDOW)
 &8000-&BFFF  Sprite buffers, background restore buffers, temp (never banked out)
+             ... &A000 the map, &A800 the entity table, &B000 the
+             pristine LEVEL_IMAGE the bootstrap lands there (10)
 &C000-&FFFF  Primary video RAM
 ```
 
@@ -1324,6 +1335,111 @@ level does not put it back on its feet.
 the nose of its box. A left-facing sprite mirrors the x to
 `frame_width - 1 - x`, one subtraction against storing the table twice.
 
+### 8.8 The ladder, the street, and the vertical camera
+
+The City's map is 128x16 tiles = 1024x256 world pixels and the display
+is 192 lines, so the view's top can sit anywhere in 0..64 pixels — eight
+character rows, and that is the whole vertical budget. The level spends
+it: the roof's surface is world y 96, the pavement's is 224, and no view
+shows both. Climbing down therefore drives the camera the whole way,
+which is the first time anything but a test has driven §8.2's vertical
+axis.
+
+| | world y | map row |
+|---|---:|---:|
+| the roof she walks on | 96 | 6 |
+| the last row of wall | 208 | 13 |
+| the pavement she walks on | 224 | 14 |
+
+**The ladder's top tile is in the ROOF's own row**, and it carries
+`TA_CLIMB + TA_PLATFORM`. That pairing is the whole mechanism: a
+platform is a floor from above and nothing from below, so she walks
+over the top rung like any other roof tile, and DOWN on it steps her
+onto the shaft. A ladder that started one row lower — which is where
+the artist's mockup draws it — would be a thing she could only fall
+onto.
+
+**Every probe on a ladder is ONE COLUMN wide.** Her collision box is
+6 bytes and spans three of the 4-byte tiles; the shaft is one, so
+`BOX_SOLID_V` merges the brick either side of it and comes back solid
+at every rung. `CLIMB_AT` (collide.asm) asks about a single column
+instead.
+
+**And that column is the middle of her FIGURE, not of her box.** They
+are different bytes: `KARA_WX` is the left edge of her 12-byte sprite
+and `KARA_BOX_W` is 6, so the collision box is her LEFT HALF while the
+drawn figure sits in bytes 3..9 of the sprite — measured off the blobs,
+every cel. A player lines a ladder up with what they can see, so the
+probe and `CLIMB_GRAB`'s snap both work from `KARA_W_BYTES / 2`.
+**The box/figure offset is a real mismatch and it is not fixed**: her
+collision box is three bytes left of her boots everywhere, not just on
+a ladder. Nothing in the City shows it because the roof has no edge,
+but a level with one will, and fixing it means moving `KARA_BOX_W`'s
+origin through `BOX_SOLID_H`/`BOX_SOLID_V`, `ENT_OVERLAP`, the hit
+tests and the camera marks together.
+
+**THE BUILDING'S FACE IS BACKGROUND, NOT A WALL.** `brick`,
+`brick_win_lit`, `brick_win_dark` and `brick_top` have no attributes.
+Made solid — which they were — the foot of every ladder is a place she
+arrives *inside* a wall: she is three tiles wide, the shaft is one, and
+`BOX_SOLID_H` then refuses every step she tries to take along the
+street. What holds her up is the roof at the top and the pavement at the
+bottom; the rows between them are scenery, and a roof edge she walks off
+is a fall to the street, which is what a roof edge is. The artist's own
+`mockup_city_street.png` shows exactly that: she walks the pavement in
+front of a facade that runs floor to roof.
+
+**The camera follows her MIDDLE.** `CAMERA_V` keeps `KARA_WY +
+KARA_BOX_H / 2` between `CAM_TOP` and `CAM_BOT` (64..112) and asks for
+one character row at a time. Measured from the top of her box instead,
+the band has to sit 30 lines higher to frame her and the view stops one
+row short of its limit with the road half off the bottom of the
+display. It requests a step only while none is pending, because a
+vertical step takes three frames and a second request inside that window
+would be worked out from a start address the CRTC has not been given
+yet — and it stands down for the frame when it has asked for one, so
+the two axes never fly together (§8.2).
+
+**A test that pokes `V_REQUEST` now has to hold it up EVERY frame.**
+There is a driver on the other end of that byte, and it only stands down
+while a request is pending; a driver that pokes on some frames and not
+others hands the wheel back on the frames it skips and measures the
+camera's correction as a step in the wrong direction.
+`tools/test_module4.py`'s `vstep` says so.
+
+`tools/test_climb.py` drives the whole thing from the joystick — onto
+the ladder, down to the pavement, along it, back up to the roof — and
+checks her feet land on exactly the surface lines above, that the view
+travelled its full range, that the cels come out of `kact` and not
+`kcore`, and that the loop still holds 50 Hz. Its negative control takes
+`TA_CLIMB` off the ladder tile, after which DOWN does nothing at all:
+without it the suite would pass on a build where DOWN simply dropped her
+through a hole in the roof.
+
+### 8.9 The art package's mockups are the reference for composition
+
+`assets/sprites/level<n>_<name>/mockup_*.png` are screens of the level
+composed by the artist, and reading one back tile by tile is the fastest
+way to settle a question the tiles alone cannot answer. Two came out of
+`mockup_city.png` and `mockup_city_street.png`:
+
+* **The walkable surface is the TOP LINE of its tile**, and in this art
+  that line is the bright pen-1 cap — `roof_m`'s and `sidewalk`'s alike.
+  The mockup stands her on it with one line of gap under her boots,
+  which is what the engine does.
+* **`brick_top` is not used.** It draws a black band and then a pale
+  ledge five lines in, and the map used to put it directly under the
+  roof, where it reads as a SECOND floor 16 pixels below the one she is
+  standing on. A play-test report (`errors/wrongwalkplace.png`) circled
+  her boots and pointed an arrow at that ledge. She was never in the
+  wrong place; the picture had two roofs. The wall under a roof she
+  walks on is plain brick and windows.
+
+The lesson generalises: when a report says something is in the wrong
+place, check the composition against the mockup before moving the thing
+that was reported. Moving Kara down to the arrow was tried first and it
+put her knee-deep in the parapet.
+
 ## 9. Performance budget — measured directly, and it closes
 
 A frame is **79,872 T-states**.
@@ -1379,7 +1495,10 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 | standing still | 201 | **locked** |
 | walking right, scrolling, no enemy | 200 | **locked** |
 | walking right with a drone in view | 199 | one frame an encounter |
-| turning round, with a drone in view | 196 | four, through the camera's pan |
+| turning round, with a drone in view | 195 | five, through the camera's pan |
+| climbing down the ladder | 200 | **locked** — and the view scrolling with her |
+| standing on the street | 201 | **locked** |
+| walking the street | 201 | **locked** |
 
 **The two transients are named rather than hidden behind a loose
 threshold.** A drone costs 17,968 T and a scrolling frame cannot carry
@@ -1391,10 +1510,23 @@ every other one, which is a run's cost applied to a walk.
 `tools/test_enemies.py` carries those two numbers as its floors and
 prints the reason beside them.
 
-A scrolling frame on her heaviest cel is **75,140 T of the 79,872
-available — 4,732 to spare**, measured by summing every call the loop
-makes. The three biggest pieces are the span blitter's draw 39,496, the
-column 16,536 across its two halves, and the erase 13,500.
+A scrolling frame on her heaviest cel is **79,712 T of the 79,872
+available — 160 to spare**, measured by summing every call the loop
+makes. The three biggest pieces are the span blitter's draw 41,388, the
+column 16,536 across its two halves, and the erase 13,524.
+
+**That model is the pessimistic one and the in-situ count is the
+authority.** It adds the worst placement of the heaviest cel to the
+worst of everything else, and those do not co-occur; the loop counted
+against interrupt ticks holds 50 Hz on every path in the table above,
+climbing and street included. But 160 T is not headroom, and the next
+thing added has to come out of the logic the way the enemies' did.
+
+The ladder, the street and the vertical camera cost **672 T** of it
+between them — `CLIMB_ENTER` on every grounded frame, `CAMERA_V` on
+every frame, and `ENEMY_PICK`'s new vertical cull. `ENT_UPDATE` is the
+other 2,000: it sweeps the entity table on every other frame and the
+table went from nine records to ten.
 
 It was 79,452 with 420 to spare before the enemies went in, and the
 4,300 came out of the logic, not the drawing:
@@ -1413,7 +1545,7 @@ It was 79,452 with 420 to spare before the enemies went in, and the
   everything: `ENT_UPDATE` 3,200 -> 2,636 with nine entities in the
   level.
 
-The next thing added has to pay for itself out of 4,732 T on a
+The next thing added has to pay for itself out of 160 T on a
 scrolling frame, or be scheduled onto a frame that is not scrolling —
 which is what §8.7 does with the enemies.
 
@@ -1711,6 +1843,19 @@ trailing copies of itself across the roof.
   what lets the stack sit at `&BFFF` and the buffers at `&8000`.
 * Test the overscan and hardware scrolling on **CRTC types 0, 1, 2 and 4**; type
   differences bite hardest on R3/R7 timing and on start-address latching.
+* **The relocated core image must end before `&4000`, and `main.asm`
+  asserts it now.** It did not, and it went wrong silently: 2,240 bytes
+  of map and entity table used to ride inside the image, the ladder and
+  the camera pushed `CORE_END` to `&4070`, and the last 112 bytes of the
+  entity table landed in bank C4 on top of the city's tile art. Nothing
+  crashed and nothing looked wrong. `ENT_RECOUNT` read tile bytes as
+  entity flags, reported 24 live entities instead of 10, and
+  `ENT_UPDATE` swept fourteen slots of noise every other frame — 2,728 T,
+  which is what took the budget over. The map and the entity table are a
+  separate image now (`LEVEL_IMAGE`, `&B000`) that the bootstrap lands
+  in base RAM directly: they are data, they are copied into their
+  working addresses anyway, and there is no reason for them to be in an
+  image with a ceiling.
 * Test data and scratch output go in the scratchpad dir, not in the repo.
 * `plan.md:Zone.Identifier` is a Windows download artefact; add `*:Zone.Identifier` to
   `.gitignore` when the repo gets one.
@@ -1804,7 +1949,13 @@ the next one starts.
       drives it from both sides — a brick under the round kills it, sky
       does not — with a negative control that puts the brick at the
       UNCONVERTED cell and checks the round survives;
-   10. `tools/test_module5.py` — started, with the bullet/tile checks in
+   10. ~~a way off the roof~~ — done: ladders down the building, a
+      street 128 pixels below it, `TA_CLIMB` + `TA_PLATFORM` on the
+      ladder tile, `KST_CLIMB`/`KST_HANG` out of the `kact` blob, and
+      `CAMERA_V` — the first thing but a test to drive §8.2's vertical
+      axis. `tools/test_climb.py` drives all of it from the joystick and
+      carries a negative control. See §8.8;
+   11. `tools/test_module5.py` — started, with the bullet/tile checks in
       it. It still owes the rest of the module.
 6. **The level format, engine side** — 8×16 tiles and a 20×11 play
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of

@@ -12,6 +12,8 @@
 ;   ROLL  Z, on the ground                     roll,       runs out
 ;   AIM   SPACE held                           shoot_draw, holds
 ;   FIRE  SPACE released from AIM              shoot,      runs out
+;   CLIMB UP or DOWN on a ladder               climb,      loops
+;   HANG  on a ladder, nothing held            hang,       loops
 ;
 ; TWO OF THEM ARE COMMITTED. A roll runs its frames whatever the input
 ; does - that is what makes it a dodge rather than a nudge - and so does
@@ -35,7 +37,9 @@ KST_JUMP        equ 3
 KST_ROLL        equ 4
 KST_AIM         equ 5
 KST_FIRE        equ 6
-KST_COUNT       equ 7
+KST_CLIMB       equ 7           ; moving on a ladder
+KST_HANG        equ 8           ; ... and holding still on one
+KST_COUNT       equ 9
 KST_BYTES       equ 4
 
 ; set, first frame in that blob, cels, loops?
@@ -46,10 +50,13 @@ KARA_ANIMS:     db KSET_CORE,  KCORE_IDLE_FIRST,       KCORE_IDLE_COUNT,       1
                 db KSET_EXTRA, KEXTRA_ROLL_FIRST,      KEXTRA_ROLL_COUNT,      0
                 db KSET_CORE,  KCORE_SHOOT_DRAW_FIRST, KCORE_SHOOT_DRAW_COUNT, 0
                 db KSET_CORE,  KCORE_SHOOT_FIRST,      KCORE_SHOOT_COUNT,      0
+                db KSET_ACT,   KACT_CLIMB_FIRST,       KACT_CLIMB_COUNT,       1
+                db KSET_ACT,   KACT_HANG_FIRST,        KACT_HANG_COUNT,        1
 
 ; One duration table per SET, indexed by the frame's number in its blob.
 KARA_DURATIONS: dw KCORE_DURATION
                 dw KEXTRA_DURATION
+                dw KACT_DURATION
 
 ; ---------------------------------------------------------------------
 ; ACT_ROW - HL = the KARA_ANIMS row for state A.    destroys AF,DE,HL
@@ -84,8 +91,24 @@ ACT_UPDATE:     ; ---- is the current state still owed its frames? -----
                 or   a
                 jp   z,ACT_ANIMATE          ; nothing may interrupt it
 
+                ; ---- a ladder beats everything ---------------------
+                ; She is neither on the ground nor falling while she is
+                ; on one, so the jump test below would call it a jump and
+                ; play the whole arc on the spot. CLIMB while a direction
+                ; is held, HANG while none is: the art has both, and two
+                ; cels of hanging is what stops her climbing in place.
+.choose:        ld   a,(KARA_CLIMB)
+                or   a
+                jr   z,.not_climb
+                ld   a,(INPUT_NOW)
+                and  IN_UP + IN_DOWN
+                ld   a,KST_HANG
+                jr   z,.want
+                ld   a,KST_CLIMB
+                jr   .want
+
                 ; ---- off the ground beats everything ----------------
-.choose:        ld   a,(KARA_GROUND)
+.not_climb:     ld   a,(KARA_GROUND)
                 or   a
                 ld   a,KST_JUMP
                 jr   z,.want

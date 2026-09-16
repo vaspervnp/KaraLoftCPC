@@ -303,7 +303,7 @@ ENEMY_PICK:     xor  a
 .next:          push bc
                 ld   a,(ix + ES_HP)
                 or   a
-                jr   z,.skip                ; dead
+                jp   z,.skip                ; dead
 
                 ld   a,(ix + ES_TYPE)
                 call ENEMY_TYPE_AT
@@ -336,11 +336,11 @@ ENEMY_PICK:     xor  a
                 jr   nz,.skip               ; more than 255 to the left
                 ld   a,l
                 cp   256 - EN_NEAR
-                jr   c,.skip                ; ... or more than EN_NEAR
+                jp   c,.skip                ; ... or more than EN_NEAR
                 jr   .near
 .plus:          ld   a,l
                 cp   SCR_CHARS * 2 + EN_NEAR
-                jr   nc,.skip               ; too far to the right
+                jp   nc,.skip               ; too far to the right
 .near:          ld   a,l
                 ld   (ENEMY_SX),a
 
@@ -367,6 +367,22 @@ ENEMY_PICK:     xor  a
                 add  a,SCR_CHARS * 2        ; the last column it fits at
                 cp   l
                 jr   c,.hidden
+
+                ; ... AND VERTICALLY, which did not matter until the city
+                ; had a street under it. ENEMY_SY is unsigned, so a drone
+                ; left up on the roof while she is at the bottom of the
+                ; ladder reads as 236 rather than -20, and drawn there its
+                ; lines run through the off-screen margin and fold back
+                ; over the top of the picture - the same fault KARA_DRAW
+                ; is culled for in CLAUDE.md 8.2.
+                ld   a,(ENEMY_SY)
+                ld   c,a
+                ld   a,(ENEMY_H)
+                add  a,c
+                jr   c,.hidden              ; wrapped: it is above the view
+                cp   SCR_CHAR_ROWS * 8 + 1
+                jr   nc,.hidden             ; ... or past the bottom of it
+
                 ld   a,1
                 ld   (ENEMY_VIS),a
 .hidden:        pop  bc
