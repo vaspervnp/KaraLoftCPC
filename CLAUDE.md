@@ -60,9 +60,19 @@ reach — and it is put where no other suite's walk goes, because a hole
 in front of a scrolling test turns it into a falling test without
 failing it (§8.8).
 
+**And she can jump it.** `P_COYOTE` gives her six frames of edge after
+the ground has gone, which takes the take-off window from 8 frames to
+14 and is the difference between a gap and a wall with a longer
+animation (§8.4). **The street runs past the garage**, which was four
+solid tiles across a pavement she is three tiles wide on (§8.8), and
+**stopping on a ladder holds the climb cel** she stopped on instead of
+playing two side-on `hang` cels in the middle of a back view (§8.4).
+
 **Aiming plants her**: SPACE down and she turns but does not walk
 (§8.4). **And the border is black** — the coloured profiling bands
-belong to the development screen (§9).
+belong to the development screen (§9). **A drone coming into view no
+longer costs her a frame**, which on this loop is not a stutter but a
+frame with no heroine in it (§8.7).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all sixteen
 pass**, including the frame budget: a scrolling frame on Kara's
@@ -501,12 +511,54 @@ shooting lives:
 | tag | frames | sheet row | ms | plays | mirrored |
 |---|---:|---:|---|---|---|
 | `climb` | 4 | y=0 | 120 each | loops | **NO — see below** |
-| `hang` | 2 | y=64 | 240 | loops | yes |
+| `hang` | 2 | y=64 | 240 | loops | yes — **and nothing plays it** |
 | `use` | 2 | y=128 | 140, 220 | once | yes |
 | `hurt` | 2 | y=192 | 90, 130 | once | yes |
 | `climb_turn` | 1 | y=256 | 120 | once | yes |
 | `drop` | 2 | y=320 | 100 each | loops | yes |
 | `die` | 6 | y=384 | 90,120,130,160,110,600 | once, then **holds** | yes |
+
+**`hang` IS A LEDGE, NOT A LADDER, AND NOTHING PLAYS IT YET.** It was
+the state for standing still on a ladder and that was wrong twice over.
+The old cels were SIDE ON in the middle of a back view, so she stopped
+climbing and turned to face the player without moving a pixel — the
+same cut `climb_turn` exists to avoid. And the artist has since redrawn
+them as what the tag is actually for: **the hands grip an edge in FRONT
+of her and above her, in the direction she faces, and the body hangs
+below it alongside the wall** — a roof edge or a ledge, not a rung. The
+two cels are the body swaying while the hands stay put. So stopping on
+a ladder freezes the `climb` cel she stopped on (§8.4) and `hang` waits
+for the mechanic it was drawn for.
+
+**Its anchor is written down here because a ledge-grab will have to line
+up with it**, and because it is now identical in both cels — the half
+pixel frame 5 used to drift is gone, and any compensation for it must
+go with it. Read off the shipped sheet, in Mode 0 pixels from the
+frame's left:
+
+| | |
+|---|---|
+| the near hand's grip, centre | column 11, line 5 — the same in both cels |
+| the ledge's top surface | line 6 |
+| where the building's wall may start | column 12 and right; below line 9 no part of her is in it (checked over both cels: 0 pixels) |
+| the body | columns 1..12, not centred, because the arms reach forward |
+
+Mirrored like every other side-on cel: column c becomes 23 − c, so the
+grip is column 12 and the wall runs left from column 11. Letting go is
+`drop`; climbing over the edge is whatever the climb-up turns out to be.
+
+**`drop` was redrawn in the same box** — a thinner braid, in an arc, and
+the body one Mode 0 pixel further right inside the frame. The artist
+offers a −1 column while it plays to cancel that and **the engine cannot
+spend it**: `KARA_X` is a BYTE column and a Mode 0 pixel is half a byte,
+so the smallest step the blitter can take is two of them. It does not
+need to. Measured on the shipped sheets, the opaque centroid of the two
+`drop` cels moved from 10.66 / 10.97 to **11.79 / 12.09**, against
+`idle` at 11.51 and `walk` at 11.16-11.63: the new cels sit CLOSER to
+the states she leaves the ground from than the old ones did. And
+`jump` → `drop` is not a transition this engine makes — `KARA_FELL` is
+cleared for the whole of a jump arc (§8.4) — so the cut the note is
+about is walk → drop, and it is now within half a pixel.
 
 **`climb` IS DRAWN FROM BEHIND.** She is on a ladder with her back to
 the player, so the cel has no left and no right: mirrored, her holster
@@ -1331,12 +1383,11 @@ the frame counts in §7.1 rather than inferred at each call site.
 | `IDLE` | `idle` 4 | no direction held, on the ground | a direction, a jump, a roll or the gun |
 | `WALK` | `walk` 8 | left/right on the ground | the key goes, or SHIFT is added |
 | `RUN` | `run` 8 | **SHIFT + left/right** | SHIFT or the direction goes |
-| `JUMP` | `jump` 6 | UP pressed while grounded | she lands |
+| `JUMP` | `jump` 6 | UP pressed while grounded, **or within `P_COYOTE` frames of walking off** | she lands |
 | `ROLL` | `roll` 8 | **DOWN + left or right**, on the ground | the 8 frames are done |
 | `AIM` | `shoot_draw` 2 then hold | **SPACE held** | SPACE released |
 | `FIRE` | `shoot` 4 | **SPACE released** from `AIM` | the 4 frames are done |
-| `CLIMB` | `climb` 4 | UP or DOWN on a ladder | she steps off it |
-| `HANG` | `hang` 2 | on a ladder, nothing held | UP or DOWN |
+| `CLIMB` | `climb` 4 | on a ladder — the cycle runs while UP or DOWN is held and **freezes on the cel she stopped on** when neither is | she steps off it |
 | `TURN` | `climb_turn` 1 | grabbing a ladder, or stepping off one onto a floor | the cel's own 120 ms |
 | `DROP` | `drop` 2 | off the ground **without having jumped** | she lands |
 | `DIE` | `die` 6 | `PLAYER_HP` reaches 0 | **never** — it holds its last cel |
@@ -1352,9 +1403,44 @@ without her asking (`PLAYER_Y`'s "walked off an edge" and
 `CLIMB_LEAVE`) and cleared in the three where she chooses to leave it or
 arrives back on it (`.jump`, `.land`, `CLIMB_LAND`).
 
+**SHE CAN STILL JUMP FOR `P_COYOTE` = 6 FRAMES AFTER THE GROUND GOES
+AWAY**, and the roof's gap is the measurement that set the number. Her
+arc is 15 frames and she covers about a byte a frame; the hole is 12
+bytes and she has to be 7 past its far lip for `BOX_SOLID_V` to find
+anything under her, so the only take-off that clears it is one of the
+ten bytes before the edge. A press one frame later did nothing at all
+— and "nothing at all" is a 128-pixel fall for a 20 ms miss, which is
+how it was reported. Measured on the gap, in frames from the lip:
+
+| UP pressed | before | after |
+|---|---|---|
+| 8 or more frames early | falls in | falls in |
+| 7 to 1 frames early | clears | clears |
+| the frame the roof runs out | clears | clears |
+| 1 to 6 frames late | **falls in** | **clears** |
+| 7 frames late or more | falls in | falls in |
+
+so the window went from 8 frames to 14. It is **not** a second jump and
+not a rescue: `.jump` zeroes the counter, so the air holds exactly one;
+the counter runs down whether she uses it or not, so nothing can be
+saved halfway down a fall; and it is armed in the ONE place the ground
+goes away under her feet, so letting go of a ladder (`CLIMB_LEAVE`) does
+not get one. `tools/test_climb.py` has both ends of the window as
+controls — too early lands her in the hole, too late is past the coyote.
+
+**AND STOPPING ON A LADDER FREEZES THE CEL RATHER THAN PLAYING
+ANOTHER.** `ACT_UPDATE` used to choose `hang` when no direction was
+held; `hang` is side on and `climb` is a back view, so she stopped and
+turned to face the player without moving (§7.1). The state stays
+`CLIMB` and the animator is simply not called — `ACT_SHOW` still
+publishes the set and the frame, so she is on exactly the rung and
+exactly the cel she stopped on, and the cel's timer keeps whatever it
+had left for when she starts again. The state is gone from the table,
+not merely unused.
+
 **THE LADDER TURN IS THE ONE STATE NOTHING IN `action.asm` CHOOSES.**
-`climb` is a back view and idle, walk and hang are all side on, so she
-cannot cut from one to the other (§7.1). `player.asm` plays the cel by
+`climb` is a back view and idle and walk are side on, so she cannot cut
+from one to the other (§7.1). `player.asm` plays the cel by
 writing the state itself — `CLIMB_TURN_START` at the grab,
 `CLIMB_TURN_OFF` when she steps off onto a floor, which also faces her
 the way she is leaving. It is COMMITTED, which is what makes it stick
@@ -1727,6 +1813,54 @@ apply to any `ADD A,A` on a world coordinate is whether the RESULT is
 used modulo 256**; `bullets.asm` and `enemy.asm`'s round-vs-tile probes
 add `WORLD_X` twice into `HL` and were never affected.
 
+#### And then the heroine flickered when a drone appeared
+
+The next play-test: "when a drone appears the player has flicker" —
+Kara, not the drone. Two things were happening on the frame it came
+into view and each of them cost her a whole displayed frame.
+
+**A DROPPED FRAME HERE IS NOT A STUTTER, IT IS A HOLE WHERE SHE WAS.**
+She is drawn in the top border and erased at her raster gate; if the
+work overruns the vblank, `WAIT_VSYNC` waits for the NEXT pulse and the
+beam sweeps a whole frame with her already lifted off. One overrun is
+one frame with no Kara in the middle of the picture, and the frame
+before and after it have her — which is exactly what a flicker is.
+
+**First, the drawable window is a hard edge and the drone jitters
+across it.** It patrols a byte at a time against a two-byte camera
+step, so walking up to the first one its screen column read **70, 71,
+69** on three consecutive frames: drawable, not drawable, drawable. The
+refresh drew it, lifted it off and drew it again, and two of those
+three frames overran — measured, 39,941 µs each against a 19,968 µs
+frame. `EN_HYST` = 4 bytes is the fix: **coming in it has to clear the
+edge by four bytes; going out the strict fit is still the bound**,
+because that one is the incoming column's and is not negotiable.
+
+**Second, one draw is 15,520 T and the frame has between 5,300 and
+14,600 left.** Measured over a walk past a drone by stepping to the
+instant `ENEMY_REFRESH` is reached and reading the interrupt tick: it
+is **tick 5 on the roomy frames and tick 6 on the tight ones, with
+nothing in between**, and which one a frame is alternates with the
+incoming column's two halves. So the entry draw waits for a frame it
+fits in and the tick is the clock that says which — `EN_DRAW_TICK` = 5.
+That alone is still 240 T short, so it also takes the frame
+`ENT_UPDATE` does NOT sweep the pickups on: the same alternation the
+deferred path already used, worth 2,800 T. The two together leave about
+2,500 T of margin.
+
+**Only the entry waits, and only for `EN_DEFER_MAX` = 5 frames.**
+Lifting stale pixels off is 1,600 T and cannot wait — the incoming
+column is about to recycle them — and a level whose every frame is
+tight must still show its enemies, so after five deferred frames it is
+drawn wherever the beam is. The drone comes on screen one or two frames
+later than it did, four bytes further in, at the edge of the picture.
+
+Measured end to end over the encounter, the worst frame in it is now
+**74,584 T of 79,872** and nothing overruns, where before there were
+two doubled frames three frames apart. `tools/test_enemies.py` reports
+**200 loop iterations in 200 hardware frames on all five input paths**;
+two of them were 199 and are the transients §9 used to name.
+
 #### What an enemy costs, and how it is paid for
 
 | | draw | erase | both |
@@ -1824,6 +1958,17 @@ drew her climbing the brick three bytes to the right of it. The box is
 centred under her body now and the snap is `KARA_BOX_W / 2` — the
 middle of the box, which is also the middle of the figure.
 
+**AND SO IS THE GARAGE.** It is four tiles wide and five tall, standing
+on the pavement in the same plane as the brick around it, and its five
+tiles were `TA_SOLID`: a wall across the street. Her box is three tiles
+wide, so `BOX_SOLID_H` refused every step into it and the pavement
+beyond one was somewhere she could not walk — the street is cut in two
+at tiles 30 and 90, and the crate at tile 18 is the only other thing on
+it (which she can jump). A shut door is something she opens with the
+key (`EK_DOOR`, §8.6); it is not something the physics stops her at, and
+what stops her walking THROUGH it is that there is nothing behind it to
+walk to. The locks keep `TA_TRIGGER`, which nothing reads yet.
+
 **THE BUILDING'S FACE IS BACKGROUND, NOT A WALL.** `brick`,
 `brick_win_lit`, `brick_win_dark` and `brick_top` have no attributes.
 Made solid — which they were — the foot of every ladder is a place she
@@ -1900,6 +2045,14 @@ for the 290 frames `tools/test_enemies.py` holds it and reading
 of those walks would turn every one of them from a test of the scroll
 into a test of the fall, silently, which is the same failure its header
 warns about for a step UP in the roof line.
+
+**AND SHE CAN JUMP IT.** A gap you can only fall into is a wall with a
+longer animation, and this one was very nearly that: the take-off
+window was the ten bytes before the lip and a press one frame later did
+nothing at all. `P_COYOTE` (§8.4) is what makes it a jump a player can
+make — the window is 14 frames now, measured, with a control at each
+end. Jumping too early still lands her in the hole, which is what makes
+it a gap.
 
 **The fall outruns the camera and that is not a fault.** She reaches
 `P_VY_MAX` in a few frames and covers the 128 pixels in 25; `CAMERA_V`
@@ -2057,23 +2210,26 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 | Loop | iterations per 200 hardware frames | |
 |---|---:|---|
 | standing still | 200 | **locked** |
-| walking right with a drone in view | 199 | one frame an encounter |
-| turning round, with a drone in view | 199 | the camera's pan |
+| walking right with a drone in view | 200 | **locked** — it was 199 |
+| turning round, with a drone in view | 200 | **locked** — it was 199 |
 | walking right and FIRING, with a drone | 198 | the pool costs her nothing now |
 | jumping and firing, scrolling | 198 | |
 | climbing down the ladder | 200 | **locked** — and the view scrolling with her |
 | standing on the street | 201 | **locked** |
 | walking the street | 201 | **locked** |
 
-**The two transients are named rather than hidden behind a loose
-threshold.** A drone costs 17,968 T and a scrolling frame cannot carry
-it, so it is a persistent sprite (§8.7) — but the frame it comes into
-view on and the frame it leaves on pay whatever it costs, because what
-the screen shows is not negotiable. And turning round makes the camera
-pan (§8.2): a whole column every frame for about 20 frames instead of
-every other one, which is a run's cost applied to a walk.
-`tools/test_enemies.py` carries those two numbers as its floors and
-prints the reason beside them.
+**The two transients that used to be named here are gone, and a play-
+test is what found them.** A drone costs 17,968 T and a scrolling frame
+cannot carry it, so it is a persistent sprite (§8.7) — but the frame it
+came into view on paid whatever it cost, "because what the screen shows
+is not negotiable", and that frame is one where Kara has been erased
+and is not redrawn until the vblank after next. **She blinked**, twice,
+because a hard drawable edge had the drone crossing it three times.
+Hysteresis and a tick-gated entry draw (§8.7) put both paths back at
+200 of 200. `tools/test_enemies.py` keeps the old numbers as its floors
+and prints the reason beside them, because the transient is affordable
+and not impossible — a level whose frames are all tight will see it
+again.
 
 A scrolling frame on her heaviest cel is **75,932 T of the 79,872
 available — 3,940 to spare**, measured by summing every call the loop
@@ -2589,7 +2745,23 @@ the next one starts.
       coloured bands being the development screen's (§9); and **the
       roof has a gap** so `drop` is something a player can walk into
       (§8.8). The frame came out 3,780 T lighter for it;
-   13. `tools/test_module5.py` — started, with the bullet/tile checks
+   13. ~~what the SECOND round of play-tests found~~ — done, and the
+      first three are one sentence each because the measurement is in
+      the section named: **she can jump the gap** — the take-off window
+      was ten bytes and a press one frame late did nothing at all, so
+      there are `P_COYOTE` = 6 frames of edge after the ground goes
+      away and the window is 14 frames (§8.4); **the garage is not a
+      wall** — four solid tiles across a pavement she is three tiles
+      wide on, cutting the street in two (§8.8); **stopping on a ladder
+      holds the climb cel** rather than playing two side-on `hang` cels
+      in the middle of a back view, and the state is gone (§8.4, §7.1);
+      and **the heroine flickered when a drone appeared**, which was
+      two frames of hers dropped to a drawable edge the drone crossed
+      three times — hysteresis and a tick-gated entry draw, and all
+      five of `test_enemies.py`'s input paths are 200 of 200 now
+      (§8.7). `tools/test_climb.py` grew the jump window and the street
+      walk, with a control at each end of both;
+   14. `tools/test_module5.py` — started, with the bullet/tile checks
       and what firing costs her in it. It still owes the rest of the
       module.
 

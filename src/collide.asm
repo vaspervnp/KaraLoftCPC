@@ -142,12 +142,22 @@ TILE_ATTR:      db 0                        ;  0 sky_stars
                 db TA_SOLID                 ; 27 curb
                 db TA_SOLID                 ; 28 street
                 db TA_SOLID                 ; 29 street_line
-                db TA_SOLID                 ; 30 jamb_l         the garage
-                db TA_SOLID                 ; 31 sign_p
-                db TA_SOLID                 ; 32 jamb_r
-                db TA_SOLID + TA_TRIGGER    ; 33 lock_red       needs the key
-                db TA_SOLID                 ; 34 shutter
-                db TA_SOLID                 ; 35 shutter_bottom
+                ; AND THE GARAGE IS PART OF THAT FACE. It is four tiles
+                ; wide and five tall, standing on the pavement in the same
+                ; plane as the brick around it, and solid it was a wall
+                ; across the street: her box is three tiles wide, so
+                ; BOX_SOLID_H refused every step into it and the pavement
+                ; beyond one was somewhere she could not walk - the street
+                ; is cut in two at tiles 30 and 90. A shut door is a thing
+                ; she opens with the key (EK_DOOR, entity.asm), not a thing
+                ; the physics stops her at; what stops her going THROUGH it
+                ; is that there is nothing behind it to go to.
+                db 0                        ; 30 jamb_l         the garage
+                db 0                        ; 31 sign_p
+                db 0                        ; 32 jamb_r
+                db TA_TRIGGER               ; 33 lock_red       needs the key
+                db 0                        ; 34 shutter
+                db 0                        ; 35 shutter_bottom
                 db TA_TRIGGER               ; 36 lock_green     unlocked
                 db 0                        ; 37 open_ramp      walk in
                 db 0                        ; 38 lamp_top

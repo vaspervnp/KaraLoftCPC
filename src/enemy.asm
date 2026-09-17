@@ -304,6 +304,19 @@ ENEMY_TYPE_AT:  add  a,a
 ;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
 EN_NEAR         equ 64          ; bytes outside the view it stays awake for
+EN_DRAW_TICK    equ 5           ; the latest interrupt tick the frame can be
+                                ; at and still have room to DRAW one: at 5 it
+                                ; has 14,600 T left and at 6 it has 5,300,
+                                ; against a 4,752 T draw - measured, see
+                                ; ENEMY_REFRESH
+EN_DEFER_MAX    equ 5           ; ... and how many frames it may wait for one
+                                ; before it is drawn anyway
+EN_HYST         equ 4           ; ... and how far inside the drawable window
+                                ; it has to come before it is drawn at all.
+                                ; A drone patrols 1 byte at a time against a
+                                ; 2-byte camera step, so a hard edge is a
+                                ; draw, an erase and a draw in three frames -
+                                ; see the window test below
 
 ENEMY_PICK:     xor  a
                 ld   (ENEMY_CUR),a
@@ -388,14 +401,42 @@ ENEMY_PICK:     xor  a
                 ld   (ENEMY_CUR),ix
 
                 ; ... and can its whole box be put down there?
+                ;
+                ; THE BOUND IS NOT THE SAME COMING IN AS GOING OUT, and
+                ; the reason is that a hard edge here costs FRAMES. A
+                ; drone patrols a byte at a time while the camera steps
+                ; two, so its screen column crosses the threshold and
+                ; comes back: measured walking up to the first drone, it
+                ; read 70, 71, 69 on three consecutive frames and the
+                ; refresh drew it, lifted it off and drew it again. Each
+                ; of those draws is 4,752 T on a frame with 5,300 to
+                ; spare, so two of the three overran - and an overrun
+                ; frame is one where Kara was erased at her raster gate
+                ; and not redrawn until the vblank after next. SHE
+                ; BLINKS, which is how it was reported: "when a drone
+                ; appears the player flickers".
+                ;
+                ; So coming in it has to clear the edge by EN_HYST bytes
+                ; and going out only by the strict fit, which is the
+                ; safety limit the incoming column sets and is not
+                ; relaxed. ENEMY_DREW is which side of that we are on.
+                ld   a,(ENEMY_DREW)
+                or   a
+                ld   a,EN_HYST
+                jr   z,.margin
+                xor  a                      ; already up there: strict
+.margin:        ld   c,a
                 ld   a,h
                 or   a
                 jr   nz,.hidden             ; off the left edge
                 ld   a,l
-                cp   2
+                sub  2
                 jr   c,.hidden              ; the left edge's incoming column
+                cp   c
+                jr   c,.hidden              ; ... and the margin, coming in
                 ld   a,(ENEMY_W)
                 add  a,2                    ; ... and the right edge's
+                add  a,c
                 neg
                 add  a,SCR_CHARS * 2        ; the last column it fits at
                 cp   l
@@ -1075,8 +1116,67 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 jr   z,.afford
                 jr   .optional
 
-.absent:        ld   hl,(ENEMY_CUR)         ; nothing on the screen: should
-                ld   a,h                    ; there be?
+                ; ---- NOTHING ON THE SCREEN: SHOULD THERE BE? -------
+                ; This is the one path that can add 4,752 T to a frame
+                ; that did not have it a frame ago, and the frame has
+                ; between 5,300 and 14,600 T left when the refresh is
+                ; reached - measured, over a walk past a drone, and which
+                ; of the two it is alternates with the incoming column.
+                ; Landing on the wrong one drops the frame, and a dropped
+                ; frame is Kara erased at her raster gate and not redrawn
+                ; until the vblank after next: SHE BLINKS.
+                ;
+                ; THE TICK IS THE CLOCK AND IT IS EXACT ENOUGH. The
+                ; refresh is reached at tick 5 on the roomy frames and
+                ; tick 6 on the tight ones, with nothing in between, so
+                ; "tick 5 or earlier" is 14,600 T of room for a 4,752 T
+                ; draw and "tick 6" is not. Deferring costs the drone one
+                ; or two frames of NOT being on screen, at the very edge
+                ; of the picture, where the alternative was a hole in the
+                ; middle of it where the heroine should be.
+                ;
+                ; IT IS BOUNDED, because a level whose every frame is
+                ; tight must still show its enemies: after EN_DEFER_MAX
+                ; frames it is drawn wherever the beam is. Only THIS path
+                ; waits - lifting stale pixels off is 1,600 T and cannot,
+                ; because the incoming column is about to recycle them.
+.absent:        ld   hl,(ENEMY_CUR)
+                ld   a,h
+                or   l
+                jr   z,.settle
+                ld   a,(ENEMY_VIS)
+                or   a
+                jr   z,.settle
+                ; AND NOT ON THE FRAME ENT_UPDATE SWEEPS THE PICKUPS
+                ; EITHER, which is the same alternation .optional below
+                ; uses and worth 2,800 T of the 15,520 this draw costs.
+                ; The two conditions together are what make it fit: a
+                ; tick-5 frame with no sweep in it has about 18,000 T
+                ; left where the draw needs 15,520, and the best frame
+                ; WITH the sweep has 15,280 - 240 short, which is a
+                ; dropped frame for the sake of a quarter of a
+                ; scanline.
+                ld   a,(FRAME_COUNT)
+                rra
+                jr   nc,.wait               ; the sweep's frame: not this one
+                ld   a,(IRQ_TICKS)
+                ld   hl,FRAME_TICK0
+                sub  (hl)
+                cp   EN_DRAW_TICK + 1
+                jr   c,.settle              ; room for it: draw it now
+.wait:
+                ld   hl,ENEMY_DEFER
+                inc  (hl)
+                ld   a,(hl)
+                cp   EN_DEFER_MAX
+                ret  c                      ; wait for a frame with room in it
+
+                ; either there is room, or there is nothing to draw, or
+                ; it has waited long enough - and the count starts again
+.settle:        xor  a
+                ld   (ENEMY_DEFER),a
+                ld   hl,(ENEMY_CUR)
+                ld   a,h
                 or   l
                 ret  z
                 ld   a,(ENEMY_VIS)
@@ -1334,5 +1434,6 @@ ENEMY_LAST_BOT: db 0
 ENEMY_DREW:     db 0            ; its pixels are on the screen
 ENEMY_DREW_WX:  dw 0            ; ... at this world byte, this wide
 ENEMY_DREW_W:   db 0
+ENEMY_DEFER:    db 0            ; frames the entry draw has waited for room
 ENEMIES:        ds ENEMY_MAX * ES_STRIDE
 EBULLETS:       ds EBUL_MAX * EBUL_STRIDE

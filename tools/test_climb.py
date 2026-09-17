@@ -25,7 +25,10 @@ What it checks, in order:
      grounded and off the ladder, and the view travelled to get there
   5. UP brings her back to exactly the roof's surface, and the view with
      her
-  6. hanging: no direction held holds her still, on the hang cels
+  6. stopping on the ladder: no direction held holds her still AND
+     holds the CLIMB cel she stopped on - there is no `hang` state any
+     more, because two side-on cels in the middle of a back-view climb
+     read as her turning round without moving
   7. the loop still holds 50 Hz on every one of those
   8. THE NEGATIVE CONTROL: take TA_CLIMB off the ladder tile and none of
      it happens. Without this the suite would pass on a build where
@@ -33,6 +36,13 @@ What it checks, in order:
   9. and the other way off the roof: the gap between two buildings, the
      `drop` cels it exists to play, and the landing. Its own negative
      control fills the gap in with roof and walks her across it.
+ 10. AND SHE CAN JUMP IT. The window is counted in frames either side of
+     the lip, including the P_COYOTE frames after it, and it has a
+     control at each end: too early lands her in the hole, too late is
+     past the coyote and she falls.
+ 11. the street runs PAST the garage. It is four tiles wide and it used
+     to be solid, which is a wall across a pavement she is three tiles
+     wide on. The control puts TA_SOLID back and watches her stop dead.
 """
 import os
 import sys
@@ -96,7 +106,8 @@ def climb(m, sym, joy, frames=400, until=None):
 def main():
     sym = symbols()
     for n in ("KARA_CLIMB", "PLAYER_CLIMB", "CLIMB_ENTER", "CLIMB_GRAB",
-              "CLIMB_AT", "CAMERA_V", "KST_CLIMB", "KST_HANG", "KSET_ACT",
+              "CLIMB_AT", "CAMERA_V", "KST_CLIMB", "KACT_CLIMB_COUNT",
+              "KSET_ACT", "KST_JUMP", "KARA_COYOTE", "P_COYOTE",
               "V_CR_MAX", "CAM_TOP", "CAM_BOT", "TILE_ATTR",
               "KST_CLIMB_TURN", "CLIMB_TURN_START", "CLIMB_TURN_OFF",
               "KACT_CLIMB_FIRST", "KACT_CLIMB_TURN_FIRST", "KACT_DURATION",
@@ -323,22 +334,50 @@ def main():
     check("and the view came back to the top of the world",
           top["cr"] == 0, f"WORLD_CR {top['cr']}")
 
-    # ---- 6. hanging -------------------------------------------------
-    print("\n  hanging on:")
+    # ---- 6. stopping on the ladder ----------------------------------
+    # SHE HOLDS THE CEL SHE STOPPED ON, and there is no `hang` state any
+    # more. The art has the tag and this used to play it, which put two
+    # SIDE-ON cels in the middle of a back-view climb: she stopped and
+    # turned to face the player without moving a pixel. Stopping is the
+    # same pose not moving, so the state stays CLIMB and the animator is
+    # simply not called (src/action.asm).
+    print("\n  stopping on it:")
     m.joystick(JOY_DOWN)
     m.run_frames(30)
     m.joystick(0)
     m.run_frames(6)
     hang = st(m, sym)
-    y0 = hang["wy"]
-    m.run_frames(40)
+    y0, cel0 = hang["wy"], hang["frame"]
+    seen = set()
+    for _ in range(40):
+        m.run_frames(1)
+        seen.add(st(m, sym)["frame"])
     still = st(m, sym)
     check("nothing held holds her where she is",
           still["climb"] == 1 and still["wy"] == y0,
           f"world y {y0} -> {still['wy']} over 40 frames")
-    check("... on the hang cels, not the climb ones",
-          still["state"] == sym["KST_HANG"] and still["kset"] == sym["KSET_ACT"],
-          f"KARA_STATE {still['state']} (HANG is {sym['KST_HANG']})")
+    check("... on the CLIMB cel she stopped on, frozen there",
+          still["state"] == sym["KST_CLIMB"] and still["kset"] == sym["KSET_ACT"]
+          and seen == {cel0}
+          and sym["KACT_CLIMB_FIRST"] <= cel0
+          < sym["KACT_CLIMB_FIRST"] + sym["KACT_CLIMB_COUNT"],
+          f"cel {cel0} held for 40 frames (the climb run is "
+          f"{sym['KACT_CLIMB_FIRST']}.."
+          f"{sym['KACT_CLIMB_FIRST'] + sym['KACT_CLIMB_COUNT'] - 1}), cels "
+          f"seen: {sorted(seen)}")
+    # ... and the animator is not merely dead: hold DOWN and it runs.
+    m.joystick(JOY_DOWN)
+    moving = set()
+    for _ in range(40):
+        m.run_frames(1)
+        moving.add(st(m, sym)["frame"])
+    m.joystick(0)
+    m.run_frames(4)
+    check("and it is the INPUT that froze it, not a stopped animator",
+          len(moving) > 1 and moving <= set(range(
+              sym["KACT_CLIMB_FIRST"],
+              sym["KACT_CLIMB_FIRST"] + sym["KACT_CLIMB_COUNT"])),
+          f"climbing again she plays {sorted(moving)}")
     m.joystick(JOY_LEFT)
     m.run_frames(20)
     m.joystick(0)
@@ -465,6 +504,141 @@ def main():
           and ctl["wx"] // 4 > city.ROOF_GAP[-1],
           f"she is at tile {ctl['wx'] // 4}, past the gap at "
           f"{city.ROOF_GAP}, still on the roof at {ctl['wy'] + KARA_BOX_H}")
+
+    # ---- 10. and she can JUMP the gap -------------------------------
+    # A GAP YOU CAN ONLY FALL INTO IS A WALL WITH A LONGER ANIMATION.
+    # Her arc is 15 frames and she covers about a byte a frame; the hole
+    # is 12 bytes and she has to be 7 past its far lip to land, so the
+    # take-off window is the ten bytes before the edge - a fifth of a
+    # second, after which the press did nothing at all and she fell 128
+    # pixels. P_COYOTE frames of edge after the ground goes away is what
+    # makes that a jump a player can actually make, and the two controls
+    # below are what keep it from becoming a jump she cannot miss.
+    print("\n  jumping it:")
+
+    def jump_at(offset, frames=800):
+        """Walk right and tap UP `offset` frames from the lip.
+
+        THE LIP IS THE ONE SECTION 9 MEASURED, not one found in this
+        run: the press has to be scheduled before she gets there, and
+        a walk that starts the same way reaches it on the same frame.
+        A jump changes what happens after it and nothing before it.
+        """
+        mm = boot(sym, scroll=True)
+        mm.joystick(JOY_RIGHT)
+        airborne, took_off = None, None
+        for i in range(frames):
+            if i == where_lip + offset:
+                mm.joystick(JOY_RIGHT | JOY_UP)
+                mm.run_frames(1)
+                mm.joystick(JOY_RIGHT)
+            else:
+                mm.run_frames(1)
+            mm.poke(sym["PLAYER_HP"], 100)
+            s = st(mm, sym)
+            if i == where_lip + offset:
+                took_off = s["state"]       # what the press made of her
+            if airborne is None and not s["ground"]:
+                airborne = i
+            if airborne is not None and s["ground"]:
+                mm.joystick(0)
+                return s, took_off
+        mm.joystick(0)
+        return st(mm, sym), took_off
+
+    where_lip = off[0] if off else 0
+    over, flew = jump_at(0)
+    check("a press on the frame the roof runs out clears the gap",
+          over["wy"] + KARA_BOX_H == ROOF_Y
+          and over["wx"] // 4 > city.ROOF_GAP[-1],
+          f"she lands on tile {over['wx'] // 4} with her feet at "
+          f"{over['wy'] + KARA_BOX_H} (the roof is {ROOF_Y}, the gap "
+          f"{city.ROOF_GAP[0]}..{city.ROOF_GAP[-1]})")
+    late, flew_late = jump_at(sym["P_COYOTE"] - 1)
+    check(f"... and so does one {sym['P_COYOTE'] - 1} frames after it, which is "
+          f"the last of the coyote",
+          late["wy"] + KARA_BOX_H == ROOF_Y
+          and late["wx"] // 4 > city.ROOF_GAP[-1],
+          f"tile {late['wx'] // 4}, feet {late['wy'] + KARA_BOX_H}")
+    check("and a coyote take-off turns the fall she was in into a JUMP",
+          flew == sym["KST_JUMP"] and flew_late == sym["KST_JUMP"],
+          f"KARA_STATE {flew} on the press at the lip and {flew_late} on the "
+          f"one {sym['P_COYOTE'] - 1} frames into the fall (JUMP is "
+          f"{sym['KST_JUMP']}, DROP is {sym['KST_DROP']}) - .jump clears "
+          f"KARA_FELL, which is what the cels are chosen from")
+
+    print("\n  the two controls - the window has both ends:")
+    spent, _ = jump_at(sym["P_COYOTE"] + 2)
+    check("past the coyote the press does nothing and she falls",
+          spent["wy"] + KARA_BOX_H >= STREET_Y,
+          f"she ends on the street at {spent['wy'] + KARA_BOX_H}, not the "
+          f"roof at {ROOF_Y} - the counter runs out whether she uses it or "
+          f"not, so a long fall cannot be rescued halfway down")
+    early, _ = jump_at(-12)
+    check("and a jump twelve frames early lands her in the hole",
+          early["wy"] + KARA_BOX_H >= STREET_Y,
+          f"she ends at {early['wy'] + KARA_BOX_H} on tile "
+          f"{early['wx'] // 4} - the gap is still a gap, and the check "
+          f"above is not passing because everything clears it")
+
+    # ---- 11. the street, past the garage ----------------------------
+    # IT IS PART OF THE BUILDING'S FACE, like the brick around it. Solid,
+    # its four tiles were a wall across the pavement - her box is three
+    # tiles wide, so BOX_SOLID_H refused every step into it and the
+    # street was cut in two at each garage. A shut door is something she
+    # opens with the key; it is not something the physics stops her at.
+    print("\n  the street runs past the garage:")
+    T2, _ = city.tile_names()
+    GARAGE = ("jamb_l", "sign_p", "jamb_r", "shutter", "shutter_bottom")
+    garage_x = 30                       # make_city_map.py puts one here
+    for n in GARAGE:
+        a = m.peek(sym["TILE_ATTR"] + T2[n])
+        if a & TA_SOLID:
+            check(f"the garage tile `{n}` is not a wall", False,
+                  f"TILE_ATTR[{T2[n]}] = &{a:02X}")
+            break
+    else:
+        check("none of the garage's five tiles is solid",
+              True, f"tiles {[T2[n] for n in GARAGE]}")
+
+    def street_from(tile, solid=False, frames=420):
+        """Climb down the ladder at `tile` and walk LEFT along the road."""
+        mm = boot(sym, scroll=True)
+        if solid:
+            for n in GARAGE:
+                mm.poke(sym["TILE_ATTR"] + T2[n], TA_SOLID)
+        onto_ladder(mm, sym, tile)
+        mm.joystick(JOY_DOWN)
+        for _ in range(400):
+            mm.run_frames(1)
+            mm.poke(sym["PLAYER_HP"], 100)
+            s = st(mm, sym)
+            if s["ground"] and s["wy"] + KARA_BOX_H >= STREET_Y:
+                break
+        start = st(mm, sym)["wx"]
+        mm.joystick(JOY_LEFT)
+        least = start
+        for _ in range(frames):
+            mm.run_frames(1)
+            mm.poke(sym["PLAYER_HP"], 100)
+            least = min(least, st(mm, sym)["wx"])
+        mm.joystick(0)
+        return start, least
+
+    down_at = city.LADDER_X[1]          # tile 34, just past the garage
+    start, least = street_from(down_at)
+    check("she walks the pavement straight past it",
+          least // 4 < garage_x,
+          f"from tile {start // 4} she reaches tile {least // 4}, and the "
+          f"garage is tiles {garage_x}..{garage_x + 3}")
+    print("\n  the negative control - it is the TILES, not the walk:")
+    start2, least2 = street_from(down_at, solid=True)
+    check("with TA_SOLID back on them she stops dead at the jamb",
+          garage_x <= least2 // 4 <= garage_x + 3,
+          f"from tile {start2 // 4} she gets no further left than tile "
+          f"{least2 // 4}, which is inside the garage's own four "
+          f"({garage_x}..{garage_x + 3}) - so the walk above is the tiles "
+          f"and not the walk")
 
     print()
     if fails:

@@ -48,6 +48,13 @@ P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
                                 ; destination-only probe is only exact
                                 ; while a single step cannot skip a tile
 P_JUMP          equ -8          ; rises 8+7+...+1 = 36 px, about 2.2 tiles
+P_COYOTE        equ 6           ; frames after the ground goes away in which
+                                ; UP is still a jump. SHE CROSSES THE ROOF'S
+                                ; GAP IN A 15-FRAME ARC AND THE HOLE IS 12
+                                ; BYTES, so the window to take off in is the
+                                ; ten bytes before the lip - a fifth of a
+                                ; second, and a press one frame late is a
+                                ; 128-pixel fall. Measured: see PLAYER_Y.
 P_CLIMB         equ 1           ; pixels a frame on a ladder. The vertical
                                 ; scroll moves 8 lines every THREE frames,
                                 ; so anything faster than 2 outruns the
@@ -277,7 +284,7 @@ PUSH_PHASE:     ld   a,(FRAME_COUNT)
 ; ---------------------------------------------------------------------
 PLAYER_Y:       ld   a,(KARA_GROUND)
                 or   a
-                jr   z,.airborne
+                jr   z,.coyote
 
                 ; ---- standing ----------------------------------------
                 ld   a,(INPUT_PRESSED)      ; edge-triggered, not level: a
@@ -299,13 +306,36 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ld   (KARA_VY),a            ; a DROP and not a jump, and this
                 inc  a                      ; is the one place the two part
                 ld   (KARA_FELL),a          ; company (action.asm)
+                ld   a,P_COYOTE             ; ... and the one place the lip is
+                ld   (KARA_COYOTE),a        ; still under her feet (below)
                 ret
+
+                ; ---- the lip she has just left -----------------------
+                ; SHE CAN STILL JUMP FOR P_COYOTE FRAMES AFTER WALKING OFF
+                ; AN EDGE, and the roof's gap is why. Measured: her arc is
+                ; 15 frames and she covers a byte a frame, the hole is 12
+                ; bytes and she must be 7 past its far lip to land, so the
+                ; only take-off that clears it is one of the ten bytes
+                ; before the edge - and the last of them is the frame the
+                ; ground goes away on. A press one frame later used to do
+                ; nothing at all, which is the whole 128-pixel fall for a
+                ; 20 ms miss. It is NOT a second jump: .jump zeroes the
+                ; counter, so the air holds exactly one.
+.coyote:        ld   hl,KARA_COYOTE
+                ld   a,(hl)
+                or   a
+                jr   z,.airborne
+                dec  (hl)                   ; it runs out whether she uses it
+                ld   a,(INPUT_PRESSED)      ; or not, so a long fall cannot
+                and  IN_UP                  ; be rescued halfway down
+                jr   z,.airborne
 
 .jump:          ld   a,P_JUMP
                 ld   (KARA_VY),a
                 xor  a
                 ld   (KARA_GROUND),a
                 ld   (KARA_FELL),a          ; she chose this one
+                ld   (KARA_COYOTE),a        ; and the air holds one jump
                                             ; fall through, so the jump moves
                                             ; her on the frame it is pressed
 
@@ -349,6 +379,7 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 xor  a
                 ld   (KARA_VY),a
                 ld   (KARA_FELL),a
+                ld   (KARA_COYOTE),a
                 inc  a
                 ld   (KARA_GROUND),a
                 ret
@@ -468,8 +499,8 @@ CLIMB_GRAB:     ld   hl,(KARA_WX)
 ; see distinguishes the frame she grabs a ladder from the frame after.
 ;
 ; KST_CLIMB_TURN is COMMITTED, so ACT_UPDATE will hold it for the cel's
-; own duration and then re-decide - which lands on CLIMB or HANG going
-; up, and on IDLE or WALK coming off.
+; own duration and then re-decide - which lands on CLIMB going up,
+; moving or frozen, and on IDLE or WALK coming off.
 ;                                destroys AF
 ; ---------------------------------------------------------------------
 CLIMB_TURN_START:
@@ -592,6 +623,7 @@ CLIMB_LEAVE:    xor  a
                 ld   (KARA_CLIMB),a
                 ld   (KARA_VY),a
                 ld   (KARA_GROUND),a
+                ld   (KARA_COYOTE),a        ; a ladder is not a lip
                 inc  a
                 ld   (KARA_FELL),a
                 ret
@@ -808,5 +840,6 @@ KARA_WY:        db 16           ; starts in the air and falls onto the roof.
 KARA_VY:        db 0
 KARA_GROUND:    db 0
 KARA_CLIMB:     db 0   ; non-zero while she is on a ladder
+KARA_COYOTE:    db 0   ; frames of edge left to jump from, see PLAYER_Y
 KARA_FELL:      db 0   ; non-zero while she is in the air WITHOUT having
                        ; jumped - which is `drop` and not `jump` (8.4)

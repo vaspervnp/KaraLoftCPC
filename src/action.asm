@@ -13,7 +13,7 @@
 ;   AIM   SPACE held                           shoot_draw, holds
 ;   FIRE  SPACE released from AIM              shoot,      runs out
 ;   CLIMB UP or DOWN on a ladder               climb,      loops
-;   HANG  on a ladder, nothing held            hang,       loops
+;         ... and on one with nothing held      climb,      FROZEN
 ;   TURN  stepping on or off one                climb_turn, once
 ;   DROP  off the ground WITHOUT jumping       drop,       loops
 ;   DIE   hit points at zero                   die,        once, then holds
@@ -49,12 +49,11 @@ KST_JUMP        equ 3
 KST_ROLL        equ 4
 KST_AIM         equ 5
 KST_FIRE        equ 6
-KST_CLIMB       equ 7           ; moving on a ladder
-KST_HANG        equ 8           ; ... and holding still on one
-KST_CLIMB_TURN  equ 9           ; ... and stepping on or off it
-KST_DROP        equ 10          ; falling, having not jumped
-KST_DIE         equ 11          ; ... and the last thing she does
-KST_COUNT       equ 12
+KST_CLIMB       equ 7           ; on a ladder, moving or stopped
+KST_CLIMB_TURN  equ 8           ; ... and stepping on or off it
+KST_DROP        equ 9           ; falling, having not jumped
+KST_DIE         equ 10          ; ... and the last thing she does
+KST_COUNT       equ 11
 KST_BYTES       equ 4
 
 ; set, first frame in that blob, cels, loops?
@@ -66,7 +65,6 @@ KARA_ANIMS:     db KSET_CORE,  KCORE_IDLE_FIRST,       KCORE_IDLE_COUNT,       1
                 db KSET_CORE,  KCORE_SHOOT_DRAW_FIRST, KCORE_SHOOT_DRAW_COUNT, 0
                 db KSET_CORE,  KCORE_SHOOT_FIRST,      KCORE_SHOOT_COUNT,      0
                 db KSET_ACT,   KACT_CLIMB_FIRST,       KACT_CLIMB_COUNT,       1
-                db KSET_ACT,   KACT_HANG_FIRST,        KACT_HANG_COUNT,        1
                 db KSET_ACT,   KACT_CLIMB_TURN_FIRST,  KACT_CLIMB_TURN_COUNT,  0
                 db KSET_ACT,   KACT_DROP_FIRST,        KACT_DROP_COUNT,        1
                 db KSET_ACT,   KACT_DIE_FIRST,         KACT_DIE_COUNT,         0
@@ -127,18 +125,30 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 ; ---- a ladder beats everything ---------------------
                 ; She is neither on the ground nor falling while she is
                 ; on one, so the jump test below would call it a jump and
-                ; play the whole arc on the spot. CLIMB while a direction
-                ; is held, HANG while none is: the art has both, and two
-                ; cels of hanging is what stops her climbing in place.
+                ; play the whole arc on the spot.
+                ;
+                ; AND LETTING GO OF THE KEYS FREEZES THE CEL SHE IS ON.
+                ; The art has a `hang` tag and this used to play it, which
+                ; put a side-on pair of cels in the middle of a back-view
+                ; climb: she was on the ladder facing away, stopped, and
+                ; turned to face the player without moving. Stopping on a
+                ; ladder is not a different pose, it is the same pose not
+                ; moving - so the state stays CLIMB and the animator is
+                ; simply not called. ACT_SHOW still draws her, so she is
+                ; on exactly the rung and exactly the cel she stopped on.
 .choose:        ld   a,(KARA_CLIMB)
                 or   a
                 jr   z,.not_climb
                 ld   a,(INPUT_NOW)
                 and  IN_UP + IN_DOWN
-                ld   a,KST_HANG
-                jr   z,.want
                 ld   a,KST_CLIMB
-                jr   .want
+                jr   nz,.want               ; moving: the cycle runs
+                ld   hl,KARA_STATE
+                cp   (hl)
+                jp   z,ACT_SHOW             ; stopped ON it: hold the cel
+                jr   .want                  ; stopped the frame she got on:
+                                            ; start the cycle, or ACT_SHOW
+                                            ; would draw cel 255
 
                 ; ---- off the ground beats everything ----------------
                 ; A JUMP AND A FALL ARE DIFFERENT ANIMATIONS. `jump` is
