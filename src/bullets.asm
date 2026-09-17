@@ -61,8 +61,6 @@ FIRE_BULLET:    ld   a,(RELOAD_TIMER)
                 ld   a,e
                 xor  1
                 ld   (ACTIVE_GUN),a     ; next shot comes from the other gun
-                ld   a,1
-                ld   (HUD_DIRTY),a
                 jp   BUL_SPAWN          ; E = the gun that actually fired
 
 ; IN: E = gun (0 left, 1 right)   OUT: HL -> its magazine
@@ -400,8 +398,6 @@ UPDATE_RELOAD:  ld   a,(RELOAD_TIMER)
                 ld   (MAG_RIGHT),a
                 xor  a
                 ld   (ACTIVE_GUN),a
-                inc  a
-                ld   (HUD_DIRTY),a
                 ret
 
 ; ---------------------------------------------------------------------
@@ -416,7 +412,6 @@ BUL_DREW:       db 0            ; ... as BUL_DRAW found it
 BUL_TOP:        db 0            ; slots used, one past the deepest ever taken
 BUL_DREW_TOP:   db 0            ; ... as BUL_DRAW found THAT
 AMMO_RESERVE:   db 28
-HUD_DIRTY:      db 1
 
 MUZZLE_X:       db 18           ; where the current firing cel's shot leaves,
 MUZZLE_Y:       db 17           ; in pixels/lines inside her box - ACT_MUZZLE

@@ -70,6 +70,9 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
 # which lays the packed streams out on the disc from their sizes.
 python3 "$ROOT/tools/make_intro.py"
 
+# The HUD's two health cells, as raw Mode 0 bytes for the core image.
+python3 "$ROOT/tools/make_hud.py"
+
 python3 "$ROOT/tools/dskdata.py" --inc
 
 # --- code -------------------------------------------------------------

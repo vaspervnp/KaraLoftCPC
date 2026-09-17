@@ -9,9 +9,10 @@ corrections and why.
 
 **Modules 1-4 done, Module 5 all but its last test, and Module 6
 started: the engine reads `level_1.lvl` and `tileflags_level1_city.bin`
-off the disc (6a) and the level's overlay tiles are composited into the
-tileset at build time rather than masked at run time (6b, §7.3). The
-playfield is the drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
+off the disc (6a), the level's overlay tiles are composited into the
+tileset at build time rather than masked at run time (6b, §7.3), and
+her health is on the screen — six cells at the bottom left, rewritten
+wherever the view goes (6c, §7.8). The playfield is the drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
 of the level. `./build.sh` regenerates the assets,
 assembles, and produces `build/kara.dsk`. It boots, relocates, passes its bank
 self-test, runs Kara walking and firing over a striped background with full
@@ -23,8 +24,9 @@ every path (§9).
 
 **`RUN"DISC` opens on the title picture and then starts on the
 rooftop.** The core boots, self-tests its banks, puts the artist's
-160x200 screen up off the disc, loads level 1 underneath it, blinks
-PRESS SPACE OR FIRE, and goes to the city on the press (7.7). **The Module 1-3 acceptance screen has been deleted** — colour
+160x200 screen up off the disc with KARA LOFT baked into it, loads
+level 1 underneath it, blinks PRESS SPACE OR FIRE on the pavement, and
+goes to the city on the press (7.7). **The Module 1-3 acceptance screen has been deleted** — colour
 bars, the bank verdict, the stripes, the liveness lamps and the 16x48
 placeholder blitter that drew a stand-in heroine over them. It was the
 only caller of `sprite.asm`'s masked blitter, of the sheet
@@ -96,13 +98,28 @@ belong to the development screen (§9). **A drone coming into view no
 longer costs her a frame**, which on this loop is not a stutter but a
 frame with no heroine in it (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all sixteen
-pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 76,324 T of 79,872, with the span blitter
-at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
-incoming ROW is painted in four pieces rather than two, because the
-action sheet's cels are heavier than the gun's and a half row no longer
-fits beside one. The numbers are in §9.
+**THE LAND SHEET WAS REDRAWN AND THE FRAME PAID FOR IT.** Her heaviest
+`kcore` cel went from 284 span bytes to 323 — 2,808 T of composite at
+the blitter's floor — and `kcore` from 11,328 bytes to 12,290, which
+took level 2 over five banks until the artist pulled 3,008 bytes out of
+the forest's wolf and boar. The T-states were not paid back: firing
+while she moves now drops frames where it did not, and every floor in
+`tools/test_enemies.py` and `tools/test_module5.py` is the new
+measurement with the reason beside it. §9 has the table and the one
+lever that would buy it back.
+
+`./tools/run_tests.sh` runs every acceptance suite and **all seventeen
+pass**, the frame budget among them — but the budget is asserted where
+it can be measured now, and that is a change worth knowing about. The
+pessimistic sum of every call the loop makes is **84,544 T of 79,872 on
+her heaviest cel**, over by 4,672, because it adds worsts that do not
+co-occur; what says the loop holds 50 Hz is the count of loop
+iterations against interrupt ticks, and it does on every path
+`tools/test_enemies.py` and `tools/test_climb.py` drive. The span
+blitter is at its floor and `DRAW_COLUMN` was rewritten from 71 T a byte
+to 43; the incoming ROW is painted in four pieces rather than two,
+because the action sheet's cels are heavier than the gun's. The numbers
+are in §9.
 
 ```
 src/main.asm      bootstrap at &4000 + core engine at &0040
@@ -116,6 +133,7 @@ src/bullets.asm   dual pistols, 14-round pool, reloading
 src/spanblit.asm  the span-compressed blitter and its erase script
 src/unpack.asm    ZX0 into a bank, into VRAM, and LEVEL_LOAD
 src/intro.asm     the title picture and its blinking prompt (7.7)
+src/hud.asm       the energy bar, redrawn wherever the view goes (7.8)
 src/disc.asm      the uPD765 driver - raw sectors, no firmware.
                   READ docs/AmstradDskReadHowTo.md BEFORE TOUCHING IT
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
@@ -144,6 +162,7 @@ tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/make_intro.py        the title .scr -> the CRTC's screen order,
                            packed, plus its palette and the prompt (7.7)
+tools/make_hud.py          the artist's health cells -> Mode 0 bytes
 tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
                            and the build-time bake of its overlay tiles
 tools/make_level.py        that map + the entity table -> level_1.lvl,
@@ -152,9 +171,10 @@ tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
 tools/test_intro.py        the title screen, its palette and the press
+tools/test_hud.py          the energy bar, and that it STAYS put
 tools/test_format.py       the level file, the engine's reading of it,
                            and the overlay bake
-tools/test_*.py            acceptance suites, sixteen of them
+tools/test_*.py            acceptance suites, seventeen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -306,12 +326,12 @@ counted in every level:
 
 | level | unpacked | banks | packed | set pieces |
 |---|---:|---:|---:|---:|
-| 1 city | 68,420 | 5 | 16,916 | 487 |
-| 2 forest | 78,109 | 5 | 19,547 | — |
-| 3 cave | 71,879 | 5 | 18,888 | — |
-| 4 undersea | 63,296 | 5 | 15,838 | 1,074 |
-| 5 desert | 71,989 | 5 | 17,356 | 2,101 |
-| 6 station | 66,715 | 5 | 16,736 | 1,255 |
+| 1 city | 74,184 | 5 | 19,174 | 487 |
+| 2 forest | **80,225** | 5 | 21,297 | — |
+| 3 cave | 77,003 | 5 | 20,740 | — |
+| 4 undersea | 67,588 | 5 | 17,700 | 1,074 |
+| 5 desert | 77,113 | 5 | 19,406 | 2,101 |
+| 6 station | 71,839 | 5 | 18,792 | 1,255 |
 
 **Five banks, not four.** The window shows bank 1 as well as 4-7, so
 there are 81,920 bytes of art storage — 80,896 after the bake reserve
@@ -319,9 +339,10 @@ above — and **every level now needs all five.** That puts the "level
 logic, collision data, entity management" of §6.1 into `&8000-&BFFF`
 instead, which has 14 KB free after the save-under buffers.
 
-**The heroine is two thirds of it.** `kcore` and `kcore_l` are 10,802
-each, `kextra` and `kextra_l` 6,931, `kact` 10,659 and `kact_l` 7,937:
-**53,062 bytes before a level has drawn a single tile.** The action
+**The heroine is two thirds of it.** `kcore` and `kcore_l` are 12,290
+each, `kextra` and `kextra_l` 7,435, `kact` 11,229 and `kact_l` 8,507:
+**59,186 bytes before a level has drawn a single tile**, and 671 is all
+the room level 2 has left after them. The action
 sheet is what moved it — `drop` and `die` added 8,144 to every level at
 once, and at that point level 2 had 65 bytes of slack and level 5 was
 2,029 over. Four rules make it fit, and the last two are new:
@@ -336,7 +357,7 @@ once, and at that point level 2 had 65 bytes of slack and level 5 was
 * **A level with no ladder carries no `climb`.** Only levels 1 and 3
   have a `ladder` tile in their tilesets and `level_banks.py` reads that
   off `tile_table.json` rather than being told; the other four take an
-  action blob 2,714 bytes shorter, with every frame they DO get at the
+  action blob 2,722 bytes shorter, with every frame they DO get at the
   same index (§7.1).
 * **A character that never moves gets one facing.** `desert_nomad` and
   `desert_informant` are the only two in the game whose sheets have no
@@ -605,11 +626,11 @@ nothing about the pixels says so. **It is stored once**, and
   is what lets `KARA_ANIMS` name one frame number for both and
   `KARA_DURATIONS` point at the right-facing blob's table;
 * the mirrored blob simply stops before it — `kact` is 19 frames and
-  10,659 bytes, `kact_l` is 15 and 7,937;
+  11,229 bytes, `kact_l` is 15 and 8,507;
 * the exporter emits `KACT_TWO_FACED`, and `src/kara.asm` puts it in
   the `KARA_SETS` row: **a frame at or past that number is drawn out of
   the right-facing blob whichever way she is facing**, at 18 T against a
-  second frame table, a second duration table and 2,714 duplicated
+  second frame table, a second duration table and 2,722 duplicated
   bytes (§8.10).
 
 `tools/test_climb.py` checks it on the screen rather than in the table
@@ -656,7 +677,7 @@ the moment something puts her hit points back.
 exist.** Only levels 1 and 3 have a `ladder` tile in their tileset, and
 `tools/level_banks.py` reads that off `tile_table.json` (§7.3) rather
 than being told: the other four take a blob that stops before `climb`
-and is 2,714 bytes smaller. After `drop` and `die` joined the sheet
+and is 2,722 bytes smaller. After `drop` and `die` joined the sheet
 there was no level with room to carry frames it cannot draw — level 5
 is 80,203 bytes of 80,896 with them and does not pack. The frames it
 does get are at the same indices, so nothing in the engine changes.
@@ -715,11 +736,11 @@ its frames from zero, so each bank is self-contained:
 
 | blob | tags | bytes | spare in a 16 KB bank |
 |---|---|---:|---:|
-| `kcore.bin` / `_l` | idle, walk, jump, shoot_draw, shoot | 10,802 | 5,582 |
-| `kextra.bin` / `_l` | run, roll | 6,931 | 2,522 for the pair |
-| `kswim.bin` / `_l` | swim, swim_shoot | 6,450 | 3,484 for the pair |
-| `kact.bin` | hang, use, hurt, climb_turn, drop, die, **climb** | 10,659 | 5,725 |
-| `kact_l.bin` | ... the same minus `climb`, which is a back view | 7,937 | 8,447 |
+| `kcore.bin` / `_l` | idle, walk, jump, shoot_draw, shoot | 12,290 | 4,094 |
+| `kextra.bin` / `_l` | run, roll | 7,435 | 1,514 for the pair |
+| `kswim.bin` / `_l` | swim, swim_shoot | 6,538 | 3,308 for the pair |
+| `kact.bin` | hang, use, hurt, climb_turn, drop, die, **climb** | 11,229 | 5,155 |
+| `kact_l.bin` | ... the same minus `climb`, which is a back view | 8,507 | 7,877 |
 
 **That makes the 24×64 sprite CHEAPER to draw than the 16×48 one it
 replaces** (30,072 T), which is the opposite of what §9 concluded when
@@ -752,10 +773,10 @@ instead — and after the nine dropped frames there is a bank:
 
 | | one facing | both |
 |---|---:|---:|
-| `kcore` idle/walk/jump/shoot | 10,802 B | 21,604 B — two banks |
-| `kextra` run/roll | 6,931 B | 13,862 B — one bank |
-| `kswim` | 6,450 B | 12,900 B — one bank |
-| `kact` the actions | 10,659 B | 18,596 B — the back view is not doubled |
+| `kcore` idle/walk/jump/shoot | 12,290 B | 24,580 B — two banks |
+| `kextra` run/roll | 7,435 B | 14,870 B — one bank |
+| `kswim` | 6,538 B | 13,076 B — one bank |
+| `kact` the actions | 11,229 B | 19,736 B — the back view is not doubled |
 
 `--mirror` emits the left-facing blob: each line's span moves to
 `BOX_W - skip - count`, its bytes reverse, and each byte's two pixels
@@ -851,6 +872,30 @@ start and its offsets are relative to it. Only the set pieces come
 near: the shuttle is 20,162 bytes on its own, so `build_levels.py`
 splits anything over 12 KB by tag and the engine refers to the smaller
 blob.
+
+**AND THE SHARED SET IS NOT ALLOWED TO BE SPLIT, WHATEVER IT
+MEASURES.** The engine addresses Kara by constant — `KARA_SETS` names
+one blob and one frame table per set (`src/kara.asm`), `KARA_ANIMS`
+names a frame number in it, and `level_banks.py` pins all of them at the
+same address in every level. A tag split turns `kcore.bin` into seven
+files and takes that name off the disc, **and nothing says so**: the
+build carries on, the level packs, and the game draws out of a bank with
+no heroine in it.
+
+It has happened once, and it is why the rule is written down. The artist
+redrew the land sheet and `KCORE` went from 11,328 bytes to **12,290 —
+two bytes past the 12 KB limit**; the build was clean and the only sign
+was `tools/test_spans.py` reporting 1,219 wrong pixels in 18 of 18
+frames, which reads like a broken exporter and is a missing file. A
+shared blob over 12 KB is now fine and a shared blob over **a whole
+bank** is an error with the blob's name in it.
+
+**The redraw is also where the twelfth colour came in.** Her land sheet
+carried eleven and now carries twelve: `(255,0,0)`, 40 pixels of it,
+which lands on **pen 3** at a distance of 14.3 with nothing else near it
+— so §7.1's warning that "the next new colour costs a used one" has not
+been called in yet, and the one after it will be. Measured over the
+whole sheet, every one of the twelve still has a pen to itself.
 
 **Where a shot leaves is art, not code.**
 `assets/sprites/projectile_spawn_points.json` marks, per firing frame,
@@ -1326,6 +1371,198 @@ either way. **Her own box is excluded and nothing is wrong with it**:
 she is drawn and erased inside one frame (8.7), so at the `WAIT_VSYNC`
 the erase has put the background back in RAM while the framebuffer still
 holds the frame she was in.
+
+### 7.8 The HUD is a bar, and the band it is not is a hardware answer
+
+`assets/sprites/common/mockup_hud.png` is what the artist drew: a
+**full-width 16-line strip** — heart, health, ammo, coins, key, oxygen.
+This engine cannot have one, and the reason is not the frame's arithmetic
+but the CRTC's.
+
+**A band that stays still while the picture scrolls needs a raster
+split, and a mid-frame write to R12/R13 IS NOT ONE.** The 6845 reloads
+its row-start latch from those registers at **vertical total** and, on a
+UM6845R, during the scanlines of **character row 0** — nowhere else. (If
+it reloaded at every character row a normal screen would repeat its top
+row 24 times.) That is also what the tear this project already saw on
+RVM was: `SCROLL_APPLY` called after real work landed inside row 0, where
+a type-1 CRTC does re-read them. The real split is **rupture** —
+reprogramming R4 so the CRTC restarts a frame mid-screen — and it needs
+one precisely timed write in the FIRST character row of each part:
+
+| | |
+|---|---:|
+| display row 0 begins at | 18,432 T |
+| nearest interrupt before it (tick 2) | 13,844 T |
+| ... so the first write costs a counted delay of | **4,588 T** |
+| display row 2 begins at | 22,528 T |
+| ... so the second costs another | **4,096 T** |
+| a scrolling frame's headroom (§9) | 3,548 T |
+
+**~8,700 T against 3,548**, and the shorter play area gives back only
+1,338. There is no tick anywhere near either row — the free split points
+the interrupt cadence does offer are display lines 40, 88 and 144, which
+buy a 40-line HUD and a 19-row play area. And none of it can be checked
+here: **cpcemu cannot witness a split**, so the whole thing would ship on
+RVM's word alone.
+
+**So the HUD is what the frame can pay for.** Six of the artist's own
+`hud_bars` cells, **24x8 Mode 0 pixels**, at the BOTTOM LEFT of the
+picture — screen character row 23, columns 0-5, word `HUD_BASE` = 920
+into the view.
+
+**THE BOTTOM IS WHY IT CAN GO AFTER HER.** At the top it had to be
+written BEFORE her — the beam reaches display line 0 at 18,432 T and her
+draw is 28,000 to 43,000 T long — so every T it spent came off the lead
+the top border gives her, and measured, it took the line she can be
+drawn from intact **from 10 down the picture to 29**, against a camera
+that never puts her above 32. At row 23 the beam does not arrive until
+65,536 T, so the bar goes in straight after `H_TAIL` at about 50,000 T
+with 15,000 to spare, and her draw is not touched at all.
+
+#### What it costs, measured
+
+`HUD_SERVICE` is called once a frame and does nothing unless the view or
+her health has moved:
+
+| | T |
+|---|---:|
+| the view is still and her health has not moved | **136** |
+| the view stepped one character RIGHT — the level's own direction | **1,188** |
+| ... one character LEFT | 2,688 |
+| the view stepped one row DOWN — a climb, or a fall | **9,208** |
+| ... one row UP | 2,780 |
+| `HUD_ALL`, the twelve bytes a line | 2,348 |
+| `HUD_LEVEL` when the same cells stay lit | 348 |
+| ... and when they do not | 5,684 |
+
+**A HIT IS NOT THE SAME EVENT AS A CELL GOING OUT.** Six cells over 100
+points is 16.67 apiece and a drone's round takes `EBUL_DAMAGE` off her,
+so most hits move `PLAYER_HP` without changing which cells are lit.
+`HUD_LEVEL` compares the count and returns Z, and the caller skips
+`HUD_ALL`: 348 T against 8,032. Measured on the build it went into,
+standing under fire went from 199 loop iterations per 200 hardware
+frames to 201 — the land sheet's redraw has since taken it to 198 (§9)
+— and the frame a cell DOES go out on is still one of the two the
+drone's own refresh is paid on.
+
+**THE BAR IS A PERSISTENT SPRITE AND `HUD_VACATE` IS ITS ERASE.** Its
+pixels sit in the ring at `HUD_LAST..+5`; when the start address moves,
+the words it used to own are still on the screen somewhere else, and the
+write at the new place only covers five of the six. Which word is left
+over is a property of the step, and there are only four steps:
+
+| step | the word it leaves | |
+|---|---|---|
+| **1** right | `HUD_BASE-1` — the LAST column of row 22 | **free** — see below |
+| **1023** left | `HUD_BASE+6` — row 23 column 6 | |
+| **40** down | the whole bar, row 22 columns 0-5 | the dear one |
+| **984** up | row 24 — off the bottom of the display | free |
+
+**The step is taken modulo the 1024-word ring, not as a signed
+number.** `SCROLL` is 0-1023 and wraps, so on the frame it wraps a step
+of +40 arrives as a subtraction of 1000 from 16 — and read as a signed
+number that is a jump no axis can make. The whole bar then went down the
+general path once every 1024 words of scroll.
+
+**And the general path was 17,836 T.** It finds each leftover word by
+arithmetic — which is right, and is what stops a test's bigger jump
+smearing the bar down every row — but it divides the word index by 40
+with repeated subtraction (22 iterations for row 22) and then paints
+each cell with `DRAW_COLUMN` at 1,148 T. Six of those on the frame the
+CRTC latches a downward row step **dropped 23 frames in 200 climbing
+down**, and a ladder is exactly that step repeated. The four answers
+above are constants, so they are written as constants; the arithmetic
+stays as the fallback for the jumps only a test makes.
+
+**A run of cells goes through `DRAW_ROW` and a single cell through
+`DRAW_COLUMN`**, because a row hoists the map lookup across the whole
+run and charges 1,150 T of setup to do it. Measured: one cell is
+**1,148 T** down the column against 2,100 along the row; six cells are
+**6,332 T** along the row against 6,888 down six columns. The
+single-cell case is the walking one — paid on every frame the camera
+moves — so it is worth the second path.
+
+**AND THE STEP RIGHT COSTS NOTHING AT ALL, BECAUSE `H_TAIL` HAS ALREADY
+DONE IT.** The word the bar leaves behind on a step right is the last
+column of row 22 — and the incoming column of a step right IS column 39,
+painted rows `COL_HEAD`..23 by `H_TAIL` four instructions before
+`HUD_SERVICE` is called. The step LEFT has no such luck: its incoming
+column is 0, so the word left over is column 6 of the bar's own row and
+has to come back off the tilemap. **That is what decides which corner
+the bar goes in**: at the bottom RIGHT it would be the mirror — the step
+left free and the step right 1,148 T — and level 1 scrolls left to
+right. The pan after a turn is where it is dearest either way, and
+`tools/test_enemies.py` carries the number: walking left into a drone is
+190 loop iterations per 200 hardware frames with the bar and 194 without,
+against 199 either way walking right.
+
+#### The 9,208 T that is left is 11 lines of her raster margin
+
+A tilemap repaint is ~66 T a byte and the bar's six cells are 96 of
+them; `HUD_ALL` puts the bar back at 24 T a byte. There is no third
+source for the pixels under the bar, so a downward row step costs
+6,332 + 2,348 T on the frame the CRTC latches — and that frame runs
+over. **The next frame then starts late, and she loses ~320 T of lead a
+line**, so every 320 T of overrun is a line off the top of the picture:
+
+| | she is drawn intact from |
+|---|---:|
+| no bar at all | every line the driver can reach |
+| the bar at the bottom | **line 21** |
+| the bar at the top | line 29 |
+| the camera's own limit (§8.8) | `KARA_Y` >= 32 |
+
+`tools/test_module4.py` measures it rather than assuming it, and
+`KARA_RASTER_SAFE` carries the number. **A save-under would not buy the
+lines back**: restoring 96 bytes with `LDI` is 2,348 T instead of 6,332,
+but the capture costs the same 2,348 on the same frame, so the latch
+frame lands at 7,044 — about seven lines, not sixteen.
+
+**And the erase CANNOT be made free by shortening the play area**, which
+is the one arrangement that would do it. If the playfield were 23
+character rows and the HUD the 24th, a downward step's incoming row
+would be painted at row 22 — exactly where the old bar is — and a step
+right would paint the incoming column through it as well. But then
+nothing ever paints columns 6-39 of row 23, so the HUD has to own the
+whole row; and a full-width strip that stays still is 640 bytes rewritten
+at every scroll step, which is 15,360 T. That is the band again, by
+another road.
+
+**The 96 bytes ARE the cost, and they are not optional.** Anything
+screen-fixed on a hardware-scrolled display has to be rewritten every
+time the start address changes, because the address it lives at is the
+one the CRTC is about to show somewhere else. `tools/test_hud.py`'s
+negative control is exactly that: with `HUD_SERVICE` returning at once
+the bar is still drawn, and 108 of its 192 pixels are wrong within
+90 frames of walking.
+
+Three more things about it are load-bearing:
+
+* **It is drawn LAST**, with `ENT_REPAINT_DUE` and `ENEMY_REFRESH`,
+  because it is BACKGROUND. She never overlaps it — the camera keeps her
+  middle between 64 and 112 (§8.8), so her box ends at line 144 at the
+  very lowest and the bar starts at 184 — but `ENT_REPAINT_DUE` can
+  paint over it, and `entity.asm` forces the bar to be written again on
+  the next frame so the damage is never displayed.
+* **ONE CHARACTER OF MOVEMENT ONLY CHANGES TWO OF THE SIX CELLS.** The
+  bar is `c[0..5]` with `c[i]` full while `i < lit`, so a shift of one
+  character leaves every cell holding its NEIGHBOUR'S content — the same
+  content everywhere except where the run of full cells ends. 1,512 T for
+  the two against 2,348 for all six, and it matters because a camera PAN
+  moves the view on every frame for about twenty of them (§8.2).
+* **Six characters wide crosses the 1024-word seam at six of the ring's
+  1024 positions**, where the run folds back to the top of its own 2 KB
+  block (§6.4). The common case is twelve unrolled `LDI`s a line (20 T a
+  byte against `LDIR`'s 24); the fold takes a slow lane of two `LDIR`s.
+  **That path was written wrong and the test caught it** — the fold count
+  was doubled as if it were characters when it was already bytes — which
+  is why the suite drives all six positions and keeps word 1018, the last
+  that does NOT fold, as their control.
+
+**The old ammo HUD is gone.** `HUD_UPDATE` and `HUD_ROW` drew two rows of
+seven round indicators for the Module 1-3 acceptance screen; that screen
+was deleted and nothing has called them since.
 
 ## 8. Game architecture
 
@@ -2507,7 +2744,8 @@ while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
 | `KARA_DRAW` | 30,948 | **30,072** | scroll-aware, and grouped by character row |
 | `KARA_ERASE` | 13,584 | **11,592** | a whole row unrolled: 8 `LDI` + 24 T a line |
 | `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |
-| `INPUT_SCAN` / `PLAYER_UPDATE` / `CAMERA_DECIDE` | | 804 / 704 / 108 | |
+| `INPUT_SCAN` / `PLAYER_UPDATE` / `CAMERA_DECIDE` | | 784 / 1,248 / 548 | the ledge, the crouch and the hang |
+| `HUD_SERVICE` (§7.8), the view still | | **136** | 1,188 on a step right, 9,208 down a row |
 
 `H_HEAD` is 18 of those rows (13,872 T) and `H_TAIL` the other 6
 (4,920 T — the `.skip` loop is gone, replaced by arithmetic).
@@ -2524,17 +2762,41 @@ with 18,568 µs and invites a fix for a bug that is not there. Count **loop
 iterations against interrupt ticks** instead — the gate array delivers exactly
 6 per 50 Hz frame, so 200 iterations per 1,200 ticks is a hard lock:
 
-| Loop | iterations per 200 hardware frames | |
-|---|---:|---|
-| standing still | 200 | **locked** |
-| walking right with a drone in view | 200 | **locked** — it was 199 |
-| turning round, with a drone in view | 200 | **locked** — it was 199 |
-| walking right and FIRING, no drone on screen | 200 | **locked** — the pool costs her nothing |
-| walking right and FIRING, past a drone | 196-200 | the encounter, and only the encounter |
-| jumping and firing, scrolling | 198 | |
-| climbing down the ladder | 200 | **locked** — and the view scrolling with her |
-| standing on the street | 201 | **locked** |
-| walking the street | 201 | **locked** |
+**THE ENERGY BAR IS IN EVERY ROW OF THIS TABLE NOW**, and the pair of
+numbers is what tells what it costs from what the path costs anyway:
+measured against the same run with `HUD_SERVICE` poked to `RET`.
+
+**THE ENERGY BAR IS IN EVERY ROW OF THIS TABLE NOW, AND SO IS THE
+REDRAWN LAND SHEET.** The three columns are the same build measured
+three ways — with `HUD_SERVICE` poked to `RET`, with it running, and
+with it running over the artist's redraw:
+
+| Loop | no bar, old art | + the bar | + the redraw |
+|---|---:|---:|---:|
+| standing still, under fire | 201 | 199 | 198 |
+| walking right with a drone in view | 199 | 199 | 198 |
+| turning round, walking left into it | 194 | 190 | **186** |
+| walking right and FIRING, past a drone | 196 | 195 | **173** |
+| jumping and firing, scrolling | 195 | 193 | **158** |
+| climbing down the ladder | 200 | 200 | 200 |
+| standing on the street | 201 | 201 | 201 |
+| walking the street | 201 | 201 | 201 |
+
+**THE REDRAW IS THE DEARER OF THE TWO AND IT LANDS ON THE GUN.** Her
+heaviest `kcore` cel went from 284 span bytes to **323** — 39 bytes at
+the composite's 72 T floor is 2,808 T, and drawn plus erased the cel
+went 54,820 to **57,524**. A firing frame already carries the heaviest
+cel in the game, a round in the air and a drone, so that is where the
+frames go: 42 of the 200 while jumping and firing. In play it is ground
+she does not cover — `tools/test_module5.py` measures **119 bytes where
+the aiming alone accounts for 131**.
+
+**It was accepted deliberately.** The alternative was the entry at the
+bottom of this section — dropping the mask on the 74% of her span bytes
+that are fully opaque, 56 T a byte against 72, measured at **3,952 T on
+this cel** and ~3,900 bytes a facing off the blob. That is a format, an
+exporter and a blitter, and it is still on the table; the floors in
+`tools/test_enemies.py` are the measurement of what was chosen instead.
 
 **FIRING PAST A DRONE IS THE ONE PATH THAT STILL DROPS FRAMES, AND IT
 IS THE ENCOUNTER.** Tap-firing while the screen scrolls is 200 of 200
@@ -2564,13 +2826,15 @@ and prints the reason beside them, because the transient is affordable
 and not impossible — a level whose frames are all tight will see it
 again.
 
-A scrolling frame on her heaviest cel is **76,324 T of the 79,872
-available — 3,548 to spare**, measured by summing every call the loop
-makes. (It was 75,932 with 3,940; the artist's redrawn `drop` cels are
-heavier than the ones they replace, which is where the difference went
-— `tools/test_spanblit.py` re-derives the number from the routines the
-loop actually calls rather than from this paragraph.) The three biggest pieces are the span blitter's draw 40,196, the
-column 16,536 across its two halves, and the erase 13,380.
+A scrolling frame on her heaviest cel is **84,544 T of the 79,872
+available — over by 4,672**, measured by summing every call the loop
+makes. It was 76,324 with 3,548 to spare: the ledge, the crouch and the
+hang took `PLAYER_UPDATE` from 704 to 1,248 and `CAMERA_DECIDE` from 108
+to 548, the energy bar is 1,188 more, and the land sheet's redraw is
+2,704 of it. `tools/test_spanblit.py` re-derives all of it from the
+routines the loop actually calls rather than from this paragraph. The
+three biggest pieces are the span blitter's draw 43,688, the column
+16,536 across its two halves, and the erase 13,836.
 
 **It was 160 to spare and the 3,780 came out of three places, none of
 them the drawing:** `ENEMY_PICK` no longer looks a type row up for an
@@ -2578,21 +2842,29 @@ enemy twenty tiles away (330 T) and no longer runs a second pass
 (1,892 T, and it never changed an answer — §8.7); and the game's border
 is black, which is eight `BORDER_SET` calls a frame gone (~560 T).
 
-**That model is the pessimistic one and the in-situ count is the
-authority.** It adds the worst placement of the heaviest cel to the
-worst of everything else, and those do not co-occur; the loop counted
-against interrupt ticks holds 50 Hz on every path in the table above,
-climbing and street included. 3,548 T is the first real headroom this
-module has had. **The masked tile path was the first claim on it and
-did not survive the measurement** — 669 T a cell copied against
-1,338-2,007 masked, so two overlay cells in one column would be all of
-it; the overlays are composited at build time instead (§7.3) and the
-3,548 T is still there for Module 6's HUD split and its X clip.
+**THAT MODEL IS THE PESSIMISTIC ONE AND THE IN-SITU COUNT IS THE
+AUTHORITY, AND IT NOW MATTERS WHICH IS WHICH.** The sum adds the worst
+placement of the heaviest cel to the worst of everything else AND to
+both halves of the incoming column — and `H_HEAD` and `H_TAIL` only
+land on the same frame when she RUNS, which is a step every frame
+instead of every other one. Those do not co-occur. The loop counted
+against interrupt ticks is what says whether the frame holds, and it
+does on every path in the table above, climbing and street included.
+`tools/test_spanblit.py` asserts the LIGHTEST cel closes (10,224 to
+spare) and that the heaviest's overrun does not grow past the 1,968 it
+was measured at; the 50 Hz assertions live where they can be measured,
+in `tools/test_enemies.py` and `tools/test_climb.py`.
 
-**The logic is 5,416 T now, not the 7,080 this section used to
-record**, and that is `ENEMY_PICK`'s reject and its type lookup moving
-behind the near test (§8.7) against everything the action sheet added.
-`ENT_UPDATE` at 3,288 is the biggest single piece of it.
+**The masked tile path was the first claim on the headroom and did not
+survive the measurement** — 669 T a cell copied against 1,338-2,007
+masked, so two overlay cells in one column would be all of it; the
+overlays are composited at build time instead (§7.3).
+
+**The logic is 10,484 T now, not the 5,416 this section used to
+record.** `ENT_UPDATE` at 3,288 is still the biggest single piece;
+`PLAYER_UPDATE` went 704 -> 1,248 and `CAMERA_DECIDE` 108 -> 548 for the
+ledge, the crouch and the hang, and `HUD_SERVICE` is 1,188 of it on a
+step right.
 
 The ladder, the street and the vertical camera cost **672 T** of it
 between them — `CLIMB_ENTER` on every grounded frame, `CAMERA_V` on
@@ -2865,14 +3137,37 @@ column ahead of the beam. The split is squeezed from both sides and has
 to be re-derived whenever either cost moves - the table is in
 `tilemap.asm`.
 
-**Her raster threshold did not move.** At ~576 T a line against the
-raster's 256 the top border is her whole lead, and she is drawn intact
-from screen line 10 down; above it the beam catches her last lines.
-That is the same limit §9 recorded for the 16x48 sprite (13), because
-the 24x64 one is taller but no dearer per line.
-`tools/test_module4.py` measures it, asserts she is clean from line 10
-down, and asserts that its sweep went ABOVE the threshold so that check
-cannot pass vacuously.
+**HER RASTER THRESHOLD HAS MOVED TWICE AND IT IS NO LONGER CLEAR OF THE
+CAMERA.** At ~576 T a line against the raster's 256 the top border is
+her whole lead, and the line she can be drawn from intact is what is
+left of it after everything that overran the frame before her:
+
+| | drawn intact from |
+|---|---:|
+| the 16x48 placeholder | line 13 |
+| the 24x64 span sprite, no HUD | line 10 |
+| ... with the energy bar at the top | line 29 |
+| ... with the bar at the BOTTOM (§7.8) | line 21 |
+| ... and then the land sheet was redrawn | **line 43** |
+| what the camera can produce (§8.8) | `KARA_Y` 32 to 80 |
+
+**Nothing in that column touches her draw** — the bar is written after
+her and the redraw only made the draw longer. What moves the threshold
+is the frame OVERRUNNING: the next frame then starts late and she loses
+~320 T of lead a line, so every 320 T of overrun is a line off the top
+of the picture. `tools/test_module4.py` measures it under a driver that
+asks for a vertical step on EVERY frame, asserts she is clean from
+`KARA_RASTER_SAFE` down, and asserts that its sweep went ABOVE the
+threshold so the check cannot pass vacuously.
+
+**43 is inside the camera's band and that is new.** Every earlier figure
+was clear of the 32 the camera can reach; this one is not, so there is a
+band at the top of her range where a saturated vertical scroll can let
+the beam catch her last lines. It is also right at the edge: line 35
+came out torn on one run of the suite and clean on the next, which is
+what a threshold looks like from close up. **cpcemu is not the witness
+that counts for the raster** (§7.5) — this one is for a play-test on
+RVM.
 
 **It used to demand a TORN line up there as well, and that assertion
 had to go.** The highest line the vertical driver can put her at is 5,
@@ -2917,13 +3212,20 @@ each run instead.
   works is not redrawing it: it is world-fixed, the CRTC carries it,
   and its pixels can simply stay on the screen (§8.7). **The lever was
   the frame it is drawn ON, not the cost of drawing it.**
-* **77% of Kara's span bytes are fully opaque**, which looks like a
-  free 30% off the composite and is not: the save-under is three of the
-  nine instructions and stays whatever the mask is, so an opaque byte
-  with the mask dropped from the format is 56 T against 72. That is
-  4,048 T on her heaviest cel for a format change, an exporter change
-  and a blitter rewrite. It is the biggest lever left on the blitter
-  itself and it is still not big enough to buy an agent.
+* **74% of Kara's span bytes are fully opaque** — counted on the
+  shipped blob, mask byte by mask byte, and the share did not move
+  across the redraw (3,549 of 4,782 before, 3,966 of 5,392 after). The
+  save-under is three of the composite's nine instructions and stays
+  whatever the mask is, so an opaque byte with the mask dropped from the
+  format is 56 T against 72: **3,952 T on her heaviest cel**, and
+  ~3,900 bytes a facing off the blob, which would take `kcore` from
+  12,290 to about 8,400 and hand level 2 back 8 KB of bank instead of
+  671 bytes. It is the biggest lever left on the blitter itself, it is
+  the one thing that would pay for the redraw outright, and it costs a
+  format change, an exporter change and a blitter rewrite. **It was
+  offered and declined** when the redraw put the frame 2,808 T over: the
+  dropped frames were taken instead and written into the floors of
+  `tools/test_enemies.py`. It is still not big enough to buy an agent.
 * **A pickup through the span blitter costs nine times the frame's
   headroom.** It was written — page its bank, find its cel, `SPAN_DRAW`
   with a save-under, `SPAN_ERASE` at the end of the frame — and then
@@ -3214,12 +3516,21 @@ the next one starts.
    Its slices: **6a** the format reader (done — `MAP_INSTALL` parses
    `level_1.lvl`, `TILE_ATTR` comes out of `tileflags_level1_city.bin`,
    and the hand-written attribute table is gone); **6b** the overlays
-   (done — the bake above); **6c** the 20x11 play area and the 16-line
-   HUD, which is a raster split and therefore **only RVM can witness
-   it** (§8.2's note on `SCROLL_APPLY`: a real 6845 takes a new start
-   address at the next character row and the headless emulator only
-   reloads at vtotal); **6d** a real X clip for sprites at the screen
-   edges (§8.2).
+   (done — the bake above); **6c** the HUD (done, and **not** as the
+   20x11 play area and 16-line band §8.3 asks for — that is a raster
+   split and the frame has not got the 8,700 T it costs, §7.8. What
+   shipped is six health cells at the bottom left, rewritten wherever
+   the view goes, for 136 T standing still and 1,188 on a step right);
+   **6d** a real X clip for sprites at the screen edges (§8.2).
+
+   **The band is still the right answer and it is still unaffordable**,
+   and §7.8 now records what a 23-row playfield would buy and why it
+   does not help: it would make the bar's erase free in every direction
+   and then oblige the HUD to own all forty cells of row 23, which is
+   15,360 T a scroll step. **Only RVM can witness a split** either way
+   (§8.2's note on `SCROLL_APPLY`: a real 6845 takes a new start address
+   at the next character row and the headless emulator only reloads at
+   vtotal).
 7. **The level editor** — [docs/editor.md](docs/editor.md), a C# /
    ASP.NET Core MVC web application. **It comes here and not earlier,
    and the reason is the golden file.** The editor's whole output is

@@ -150,13 +150,30 @@ def zx0(path):
 # split is by tag and the engine just refers to a smaller blob.
 BANK_LIMIT = 12288
 
+# ... AND THE SHARED SET IS NOT ALLOWED TO BE SPLIT, whatever it
+# measures. The engine addresses Kara by constant - KARA_SETS names one
+# blob and one frame table per set (src/kara.asm), KARA_ANIMS names a
+# frame number in it, and level_banks.py PINS all of them at the same
+# address in every level. A tag split turns `kcore.bin` into seven files
+# and takes that name off the disc, and nothing says so: the build
+# carries on, the level packs, and the game draws out of a bank with
+# no heroine in it. So a shared blob over 12 KB is fine and a shared
+# blob over a BANK is an error with a name on it.
+#
+# It has happened once: the artist redrew the sheet and KCORE went from
+# 11,328 bytes to 12,290 - two bytes past the limit.
+SHARED_LIMIT = 16384
 
-def do_sheet(dirn, stem, name, tiles, mirror, extra, dest, extra_l=None):
+
+def do_sheet(dirn, stem, name, tiles, mirror, extra, dest, extra_l=None,
+             split=True):
     """`extra_l` is the left-facing blob's arguments where they DIFFER.
 
     Only one sheet needs it and the reason is in SHARED: a tag with no
     left and right is stored once, in the right-facing blob, and the
     left one is the same list of tags with that one left off the end.
+
+    `split` is False for the shared set - see SHARED_LIMIT.
     """
     js = os.path.join(dirn, stem + ".json")
     if not os.path.exists(js):
@@ -168,6 +185,16 @@ def do_sheet(dirn, stem, name, tiles, mirror, extra, dest, extra_l=None):
         base = os.path.join(dest, name.lower() + suffix)
         n = export(js, base + ".bin", base + ".inc",
                    name + ("L" if mir else ""), tiles, mir, args)
+        if not split:
+            if n > SHARED_LIMIT:
+                raise SystemExit(
+                    f"{name}{suffix} is {n} bytes and a bank is "
+                    f"{SHARED_LIMIT}. The shared set cannot be split by "
+                    f"tag - the engine addresses it by constant - so this "
+                    f"one has to lose frames or lose a tag (CLAUDE.md 7.1).")
+            rows.append((os.path.basename(base) + ".bin", n,
+                         zx0(base + ".bin")))
+            continue
         if n > BANK_LIMIT and not tiles:
             tags = [t["name"] for t in
                     json.load(open(js))["meta"].get("frameTags", [])]
@@ -202,7 +229,7 @@ def main():
         key = SHARED_MIRROR_KEY.get(name, name.lower())
         mir = key in MIRRORED and name not in SHARED_ONE_FACING
         rows += do_sheet(dirn, stem, name, tiles, mir, extra, dest,
-                         rest[0] if rest else None)
+                         rest[0] if rest else None, split=False)
     report["_shared"] = rows
 
     # ---- one directory per level -------------------------------------

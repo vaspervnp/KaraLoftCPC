@@ -2,7 +2,7 @@
 """The intro screen, its palette, and the PRESS SPACE OR FIRE prompt.
 
 WHAT THE ARTIST SHIPPED AND WHAT THE HARDWARE WANTS ARE NOT THE SAME
-BYTES. assets/intro/intro_cpc_mode0.scr is 16,000 bytes - 200 lines of
+BYTES. The artist's .scr is 16,000 bytes - 200 lines of
 80, LINE AFTER LINE - and a CPC screen is not laid out that way: line L
 lives at (L AND 7) * &800 + (L >> 3) * 80, so 200 lines of it span
 16,336 bytes with the eight raster blocks interleaved. Loaded straight
@@ -39,26 +39,53 @@ import cpclib                                                   # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
 ART = os.path.join(ROOT, "assets", "intro")
+# WHICH PICTURE. intro_cpc_mode0 was the first one; intro_art_cpc_mode0
+# is the drawn version that replaced it, and the only thing that has to
+# change to swap them is this name - everything below reads the .scr,
+# the .png it is checked against and the palette JSON beside it.
+NAME = "intro_art_cpc_mode0"
 BUILD = os.path.join(ROOT, "build")
 
 W_BYTES = 80                    # 160 Mode 0 pixels
 LINES = 200
 TEXT = "PRESS SPACE OR FIRE"
-TEXT_Y = 4                      # the sky, and clear of her head at y=20
+TEXT_Y = 188                    # the pavement, under the picture
 TEXT_PEN = 11                   # the intro palette's white
+
+# THE TITLE IS BAKED INTO THE PICTURE and the prompt is not, because
+# only one of them moves: the title is drawn once into the .scr before
+# it is packed, so it costs nothing at all - not a byte of the core
+# image and not a T-state - while the prompt blinks and therefore needs
+# the two strips below.
+TITLE = "KARA LOFT"
+TITLE_Y = 2
+TITLE_SCALE = 2                 # a Mode 0 pixel is already 2:1, so this
+TITLE_PEN = 11                  # is a big chunky capital: white ...
+TITLE_SHADOW = 12               # ... on red, offset by one of ITS pixels
+SUB = "AND THE ILLUMINATI"
+SUB_Y = 20
+SUB_PEN = 15                    # yellow
 
 # An 8x8 glyph for each letter the prompt uses, and nothing else - a
 # full font would be 96 glyphs to draw ten of them.
 FONT = {
-    "P": ".####.. .#...#. .#...#. .####.. .#..... .#..... .#..... .......",
-    "R": ".####.. .#...#. .#...#. .####.. .#..#.. .#...#. .#...#. .......",
-    "E": ".#####. .#..... .#..... .####.. .#..... .#..... .#####. .......",
-    "S": "..###.. .#...#. .#..... ..###.. .....#. .#...#. ..###.. .......",
     "A": "..###.. .#...#. .#...#. .#####. .#...#. .#...#. .#...#. .......",
     "C": "..###.. .#...#. .#..... .#..... .#..... .#...#. ..###.. .......",
-    "O": "..###.. .#...#. .#...#. .#...#. .#...#. .#...#. ..###.. .......",
+    "D": ".####.. .#...#. .#...#. .#...#. .#...#. .#...#. .####.. .......",
+    "E": ".#####. .#..... .#..... .####.. .#..... .#..... .#####. .......",
     "F": ".#####. .#..... .#..... .####.. .#..... .#..... .#..... .......",
+    "H": ".#...#. .#...#. .#...#. .#####. .#...#. .#...#. .#...#. .......",
     "I": "..###.. ...#... ...#... ...#... ...#... ...#... ..###.. .......",
+    "K": ".#...#. .#..#.. .#.#... .##.... .#.#... .#..#.. .#...#. .......",
+    "L": ".#..... .#..... .#..... .#..... .#..... .#..... .#####. .......",
+    "M": ".#...#. .##.##. .#.#.#. .#.#.#. .#...#. .#...#. .#...#. .......",
+    "N": ".#...#. .##..#. .#.#.#. .#.#.#. .#..##. .#...#. .#...#. .......",
+    "O": "..###.. .#...#. .#...#. .#...#. .#...#. .#...#. ..###.. .......",
+    "P": ".####.. .#...#. .#...#. .####.. .#..... .#..... .#..... .......",
+    "R": ".####.. .#...#. .#...#. .####.. .#..#.. .#...#. .#...#. .......",
+    "S": "..###.. .#...#. .#..... ..###.. .....#. .#...#. ..###.. .......",
+    "T": ".#####. ...#... ...#... ...#... ...#... ...#... ...#... .......",
+    "U": ".#...#. .#...#. .#...#. .#...#. .#...#. .#...#. ..###.. .......",
     " ": "....... ....... ....... ....... ....... ....... ....... .......",
 }
 GLYPH_W = 8
@@ -68,6 +95,29 @@ def glyph_rows(ch):
     rows = FONT[ch].split()
     assert len(rows) == 8, ch
     return [r.ljust(GLYPH_W, ".") for r in rows]
+
+
+def stamp(pens, text, y0, scale, pen, shadow=None):
+    """Draw `text` centred, `scale` times up, into a grid of pens."""
+    w = len(text) * GLYPH_W * scale
+    x0 = (W_BYTES * 2 - w) // 2
+    assert x0 >= 0 and x0 % 2 == 0, (text, x0)
+    passes = [(shadow, scale, scale)] if shadow is not None else []
+    passes.append((pen, 0, 0))
+    for colour, dx, dy in passes:
+        for i, ch in enumerate(text):
+            rows = glyph_rows(ch)
+            for ry in range(8):
+                for rx in range(GLYPH_W):
+                    if rows[ry][rx] != "#":
+                        continue
+                    for sy in range(scale):
+                        for sx in range(scale):
+                            x = x0 + (i * GLYPH_W + rx) * scale + sx + dx
+                            y = y0 + ry * scale + sy + dy
+                            if 0 <= x < W_BYTES * 2 and 0 <= y < LINES:
+                                pens[y][x] = colour
+    return x0
 
 
 def to_screen(linear):
@@ -105,11 +155,11 @@ def zx0(path):
 
 
 def main():
-    scr = open(os.path.join(ART, "intro_cpc_mode0.scr"), "rb").read()
+    scr = open(os.path.join(ART, NAME + ".scr"), "rb").read()
     assert len(scr) == W_BYTES * LINES, len(scr)
 
     # ---- the picture, checked against the export's own .png ----------
-    png = Image.open(os.path.join(ART, "intro_cpc_mode0.png"))
+    png = Image.open(os.path.join(ART, NAME + ".png"))
     pens = [[png.getpixel((x, y)) for x in range(W_BYTES * 2)]
             for y in range(LINES)]
     wrong = sum(1 for y in range(LINES) for xb in range(W_BYTES)
@@ -119,13 +169,19 @@ def main():
         raise SystemExit(f"intro .scr disagrees with its .png in {wrong} "
                          f"bytes - is it line-major after all?")
 
+    # ---- the title, straight into the pens ---------------------------
+    stamp(pens, TITLE, TITLE_Y, TITLE_SCALE, TITLE_PEN, TITLE_SHADOW)
+    stamp(pens, SUB, SUB_Y, 1, SUB_PEN)
+    scr = bytes(cpclib.encode_pixels(pens[y][xb * 2], pens[y][xb * 2 + 1])
+                for y in range(LINES) for xb in range(W_BYTES))
+
     native = to_screen(scr)
     raw = os.path.join(BUILD, "intro.bin")
     open(raw, "wb").write(native)
     packed = zx0(raw)
 
     # ---- the palette -------------------------------------------------
-    js = json.load(open(os.path.join(ART, "intro_cpc_mode0_palette.json")))
+    js = json.load(open(os.path.join(ART, NAME + "_palette.json")))
     ink = ink_to_hw()
     lines = ["; generated by tools/make_intro.py - do not edit",
              "INTRO_PALETTE:"]
@@ -175,7 +231,7 @@ def main():
 
     print(f"-> intro.bin          {len(native)} bytes -> {packed} packed "
           f"({100 * packed // len(native)}%), "
-          f"{(packed + 511) // 512} sectors")
+          f"{(packed + 511) // 512} sectors, with \"{TITLE}\" baked in")
     print(f"   intro.inc         palette 17 bytes, prompt "
           f"\"{TEXT}\" {len(TEXT) * GLYPH_W}x8 at ({x0},{TEXT_Y}), "
           f"2 x {n_bytes * 8} bytes")

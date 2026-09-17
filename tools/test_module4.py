@@ -44,9 +44,35 @@ SCR_LINES = SCR_CHAR_ROWS * 8
 MAP_W, MAP_H = 128, 16           # the drawn tiles are 8x16, not 16x16
 SCREEN_WIDTH_BYTES = 80
 KARA_W, KARA_H = 12, 64          # the drawn sprite, stored as spans
-KARA_RASTER_SAFE = 10            # the highest line she can be DRAWN FROM and
+KARA_RASTER_SAFE = 43            # the highest line she can be DRAWN FROM and
                                  # still beat the beam to her own last line.
                                  # Measured by the check in main(), not assumed.
+                                 #
+                                 # IT WAS 10 AND THE ENERGY BAR MOVED IT, and
+                                 # not by touching her draw - the bar is written
+                                 # after her, at the other end of the picture
+                                 # (CLAUDE.md 7.8). A DOWNWARD row step costs it
+                                 # 9,208 T on the frame the CRTC latches, the
+                                 # frame runs over, and the NEXT frame starts
+                                 # late: she loses ~320 T of lead a line, so
+                                 # every 320 T of overrun is a line off the top.
+                                 # Measured with the bar poked out, this driver
+                                 # tears her at no line at all.
+                                 #
+                                 # AND THEN THE LAND SHEET WAS REDRAWN and it
+                                 # went from 21 to 43. Her heaviest cel is 323
+                                 # span bytes where it was 284, which is 2,808 T
+                                 # of composite at the blitter's 72 T floor, so
+                                 # the frame overruns by more and the next one
+                                 # starts later still. **43 is the first time
+                                 # this threshold has not been clear of the
+                                 # camera**, which holds her between screen
+                                 # lines 32 and 80 (8.8) - so under a vertical
+                                 # step on every frame there is a band at the
+                                 # top of her range where the beam catches her
+                                 # last lines. cpcemu is not the witness that
+                                 # counts for the raster (7.5): this one is for
+                                 # a play-test on RVM to confirm or deny.
 TILE_W_BYTES = 4                 # 8 pixels
 TILE_BYTES = TILE_W_BYTES * 16   # 64 - column-major, 2 char columns of 32
 COL_HEAD = 14                    # rows of the incoming column painted behind
@@ -391,6 +417,44 @@ def expected_pens(want, scroll):
     return rows
 
 
+HUD_CELLS, HUD_LINES = 6, 8
+HUD_BASE = (SCR_CHAR_ROWS - 1) * SCR_CHARS      # the bar is on row 23
+
+
+def hud_art():
+    """The bar's two cells, from what the build generated."""
+    text = open(os.path.join(ROOT, "build", "hud_art.inc")).read()
+    out = {}
+    for name in ("HUD_CELL_FULL", "HUD_CELL_EMPTY"):
+        body = text.split(name + ":")[1].splitlines()[1:]
+        out[name] = [[int(v.strip()[1:], 16)
+                      for v in line.strip()[3:].split(",")]
+                     for line in body[:HUD_LINES]]
+    return out
+
+
+HUD_ART = None
+
+
+def overlay_hud(want, scroll, lit=HUD_CELLS):
+    """Six cells at the BOTTOM row, columns 0-5 - src/hud.asm.
+
+    Every test here runs at full health, so `lit` is six; the bar's own
+    suite is what drives it down.
+    """
+    global HUD_ART
+    if HUD_ART is None:
+        HUD_ART = hud_art()
+    for c in range(HUD_CELLS):
+        art = HUD_ART["HUD_CELL_FULL" if c < lit else "HUD_CELL_EMPTY"]
+        word = (scroll + HUD_BASE + c) & 0x3FF
+        for line in range(HUD_LINES):
+            base = 0xC000 + (line << 11) + (word << 1)
+            want[base] = art[line][0]
+            want[base + 1] = art[line][1]
+    return want
+
+
 def model(tiles, level_map, blobs, st, with_kara, kara_st=None):
     """Expected video RAM for one sampled state.
 
@@ -410,10 +474,14 @@ def model(tiles, level_map, blobs, st, with_kara, kara_st=None):
     scroll, wx, wcr, kx, ky, kf, pending, fa = st
     want = expected_screen(tiles, level_map, scroll, wx, wcr)
     if not with_kara:
-        return overlay_head(want, tiles, level_map, wcr, pending)
+        return overlay_hud(overlay_head(want, tiles, level_map, wcr, pending),
+                           scroll)
     if kara_st is not None:
         kx, ky, kf, fa = kara_st[3], kara_st[4], kara_st[5], kara_st[7]
-    return overlay_kara(want, blobs, scroll, kx, ky, kf, fa)
+    # THE BAR GOES DOWN AFTER SHE DOES, on row 23, where the beam does
+    # not arrive until 65,536 T and where she never reaches (7.8).
+    return overlay_hud(overlay_kara(want, blobs, scroll, kx, ky, kf, fa),
+                       scroll)
 
 
 def step_deltas(machine, sym, frames, pump=None):
@@ -972,7 +1040,12 @@ def main():
             if prev is None:
                 prev = st
                 continue
-            bare = expected_pens(expected_screen(tiles, level_map, st[0], st[1], st[2]), st[0])
+            # THE BAR IS PART OF THE PICTURE and it is on row 23, so
+            # without it the first row that differs from the tilemap is
+            # the bar's and not hers (CLAUDE.md 7.8).
+            bare = expected_pens(overlay_hud(
+                expected_screen(tiles, level_map, st[0], st[1], st[2]), st[0]),
+                st[0])
             fb = machine.framebuffer()
             rows = [y for y, row in enumerate(bare)
                     if any(fb[(y0 + y) * FB_W + 64 + x * 4] != pen_to_hw[p]

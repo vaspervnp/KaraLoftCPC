@@ -252,15 +252,14 @@ SCROLL_DEMO:    di
                 ;      tick 3  27,152 T | tick 6  67,088 T
 .loop:          call WAIT_VSYNC
                 ; ---- SHE HAS JUST BEEN HIT --------------------------
-                ; There is no HUD yet - a static one over a screen the
-                ; CRTC is scrolling needs a raster split, and the split
-                ; needs a frame this one has not got (CLAUDE.md 8.3 puts
-                ; it in module 6 with the 20x11 play area). Until then
-                ; the border says it: four frames of red when her health
-                ; goes down, and black the rest of the time. It is two
-                ; OUTs on the frames it changes and nothing on the rest,
-                ; and it cannot be confused with the sprite the way
-                ; flashing HER could.
+                ; THE BORDER SAYS IT AS WELL AS THE BAR. There is an
+                ; energy bar at the bottom left now (src/hud.asm), but it
+                ; is six cells of twenty-four pixels and a hit can take
+                ; less than one of them; four frames of red border say
+                ; "that hurt" where the bar only says "this is how much
+                ; is left". Two OUTs on the frames it changes and
+                ; nothing on the rest, and it cannot be confused with
+                ; the sprite the way flashing HER could.
                 ld   hl,HURT_FLASH
                 ld   a,(hl)
                 or   a
@@ -300,6 +299,10 @@ SCROLL_DEMO:    di
                 or   a
                 call nz,KARA_SPAN_DRAW      ; ahead of the beam, in the border
                 call H_TAIL                 ; rows 18-23 of the committed column
+                ; ... and the energy bar, which lives on row 23 and is
+                ; therefore AFTER her: the beam does not reach it until
+                ; 65,536 T and she never overlaps it (src/hud.asm).
+                call HUD_SERVICE
 
                 di
                 call INPUT_SCAN             ; the AY address latch is shared
@@ -569,72 +572,13 @@ DISC_DIAG:      ld   hl,DISC_ST0
                 jr   c,.row
                 ret
 
-; ---------------------------------------------------------------------
-; HUD_UPDATE - two rows of seven. Only redrawn when a magazine changes;
-; fourteen block fills every frame would cost more than the sprite does.
-; ---------------------------------------------------------------------
-HUD_UPDATE:     ld   a,(HUD_DIRTY)
-                or   a
-                ret  z
-                xor  a
-                ld   (HUD_DIRTY),a
-                ld   a,(MAG_LEFT)
-                ld   c,a
-                ld   a,HUD_LEFT_LINE
-                call HUD_ROW
-                ld   a,(MAG_RIGHT)
-                ld   c,a
-                ld   a,HUD_RIGHT_LINE
-                ; fall through
+; THE AMMO HUD IS GONE WITH THE SCREEN IT BELONGED TO. HUD_UPDATE and
+; HUD_ROW drew two rows of seven round indicators for the Module 1-3
+; acceptance screen, which has been deleted; nothing has called them
+; since, and their one surviving comment - "the scrolling game needs a
+; split-screen HUD anyway" - turned out to be the wrong answer as well
+; (src/hud.asm has the measurement). The energy bar is in hud.asm.
 
-; IN: A = top line, C = rounds left        Clobbers AF, BC, DE, HL
-;
-; One pass over the whole row rather than seven DRAW_BLOCK calls. The
-; seven indicators are 3 bytes wide on a 5-byte pitch, so a scanline is
-; 21 writes and six 2-byte gaps - ONE address computation for the row
-; instead of one per indicator per scanline. That is the difference
-; between 49,040 T (61% of a frame, every time a shot is fired) and the
-; number now in CLAUDE.md 9.
-;
-; Scroll-correct vertically (SCR_NEXT_LINE carries the raster rule), but
-; the 33-byte horizontal run is NOT seam-tested: it assumes the row does
-; not cross offset 2047. True wherever the HUD is drawn today, which is
-; the unscrolled Module 1-3 screen. The scrolling game needs a
-; split-screen HUD anyway - that is Module 6's R12/R13 mid-frame change.
-HUD_ROW:        push bc                     ; C = rounds left
-                ld   c,4                    ; byte column of indicator 0
-                call SCR_ADDR               ; HL = its address under SCROLL
-                pop  bc
-                ex   de,hl                  ; DE = line base
-                ld   a,8
-                ld   (HUD_LINES),a
-
-.line:          ld   h,d                    ; working copy - DE keeps the base
-                ld   l,e
-                ld   b,MAG_SIZE
-.ind:           ld   a,MAG_SIZE
-                sub  b                      ; index of this indicator
-                cp   c
-                ld   a,PEN_AMMO_FULL
-                jp   c,.set
-                ld   a,PEN_AMMO_EMPTY
-.set:           ld   (hl),a                 ; 3 bytes of indicator
-                inc  hl
-                ld   (hl),a
-                inc  hl
-                ld   (hl),a
-                inc  hl
-                inc  hl                     ; 2 bytes of gap
-                inc  hl
-                djnz .ind
-
-                call SCR_NEXT_LINE
-                ld   hl,HUD_LINES
-                dec  (hl)
-                jp   nz,.line
-                ret
-
-HUD_LINES:      db 0
 
 ; ---------------------------------------------------------------------
 ; IRQ_HANDLER - the CPC fires 6 interrupts per frame (300 Hz). For now
@@ -742,6 +686,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "collide.asm"
                 include "player.asm"
                 include "tilemap.asm"
+                include "hud.asm"
 
 ; ---------------------------------------------------------------------
 ; Cross-module invariants. They live here, after every include, because

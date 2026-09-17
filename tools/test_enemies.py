@@ -311,12 +311,23 @@ def main():
     # hidden behind a loose threshold.
     print("\n  the loop, with a drone on screen:")
     for label, joy, floor, why, tap in (
-            ("standing still", 0, 200, "", False),
+            # A HIT COSTS A FRAME AND ONLY WHEN IT CROSSES A CELL.
+            # The drone shoots her while she stands there - 100 down to
+            # 76 over these 200 frames - and six cells over 100 points
+            # is 16.67 apiece, so one of those hits takes the bar from
+            # six lit to five and HUD_LEVEL lays the buffer out again:
+            # 5,732 + 2,348 T, landing on a frame that is already
+            # carrying ENEMY_REFRESH's 17,968. Measured against the same
+            # run with PLAYER_HP frozen at 100: 201 with the bar and 201
+            # without, against 199 and 201 when it is allowed to fall.
+            ("standing still", 0, 198,
+             "a hit that crosses a cell redraws the bar", False),
             ("walking right, scrolling", JOY_RIGHT, 198,
              "two frames an encounter pay for the enemy coming and going",
              False),
-            ("walking left, into it", JOY_LEFT, 195,
-             "... and turning round pans the camera for 20 frames", False),
+            ("walking left, into it", JOY_LEFT, 186,
+             "... turning round pans the camera for 20 frames, and a pan "
+             "is where the bar is dearest", False),
             # HELD IS AIM, NOT FIRE. The gun is draw-hold-RELEASE
             # (CLAUDE.md 8.4), so a trigger held down for 200 frames
             # never puts a round in the air and these two used to
@@ -324,9 +335,53 @@ def main():
             # walk that cost 6,228 T a firing frame went unseen. `tap`
             # says fire the way a player does; what it costs her is
             # tools/test_module5.py's business.
-            ("walking right + firing", JOY_RIGHT, 198, "", True),
+            # AND THE ENERGY BAR IS THE THIRD NAMED COST. It is six
+            # cells at the BOTTOM left and it has to be rewritten every
+            # time the start address moves (CLAUDE.md 7.8). A step RIGHT
+            # costs 1,188 T - two cells, and nothing at all to erase,
+            # because the word the bar leaves behind is the last column
+            # of row 22 and that is the incoming column H_TAIL has just
+            # painted. A step LEFT is 2,688: its incoming column is 0,
+            # so the leftover word is inside the bar's own row and has
+            # to come back off the tilemap.
+            #
+            # Measured against the same run with HUD_SERVICE poked to
+            # RET: 201/199/194/196/195 without the bar and
+            # 199/199/190/195/193 with it. The whole of it is the pan -
+            # walking right, where the camera steps every OTHER frame,
+            # is 199 either way.
+            # AND THE FOURTH NAMED COST IS THE ART ITSELF, which is the
+            # one nothing in the engine can be tuned to give back. The
+            # artist redrew the land sheet and her heaviest `kcore` cel
+            # went from 284 span bytes to 323: 39 bytes at the
+            # composite's 72 T floor is 2,808 T, and drawn plus erased
+            # the cel went 54,820 -> 57,524. The frame did not have it.
+            # Measured over the same five paths, same build, only the
+            # sheet changed:
+            #
+            #   still 199 -> 198   right 199 -> 198   left 190 -> 186
+            #   right+firing 195 -> 173   jumping+firing 193 -> 158
+            #
+            # The two firing paths are where it lands because a firing
+            # frame carries the heaviest cel in the game AND a round in
+            # the air AND the drone. What it looks like in play is
+            # ground she does not cover, and tools/test_module5.py
+            # measures it in bytes rather than in frames: 119 where the
+            # aiming alone accounts for 131.
+            #
+            # These floors are the measurement, not a target. They were
+            # accepted deliberately - the alternative was dropping the
+            # mask on the 74% of her span bytes that are fully opaque,
+            # which is 56 T a byte against 72 and ~3,950 T on this cel,
+            # and that is a format, an exporter and a blitter (CLAUDE.md
+            # 9, "what did not work").
+            ("walking right + firing", JOY_RIGHT, 173,
+             "... and the redrawn land sheet is 2,808 T of composite on "
+             "her heaviest cel", True),
             ("jumping + firing, scrolling",
-             JOY_RIGHT | JOY_UP, 198, "", True)):
+             JOY_RIGHT | JOY_UP, 158,
+             "... and the redrawn land sheet is 2,808 T of composite on "
+             "her heaviest cel", True)):
         mm = boot(sym, scroll=True)
         mm.joystick(JOY_RIGHT)
         for _ in range(90):

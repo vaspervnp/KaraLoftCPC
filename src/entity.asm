@@ -629,8 +629,6 @@ USE_MEDKIT:     ld   a,(PLAYER_HP)
 .store:         ld   (PLAYER_HP),a
                 ld   a,ER_HEALED
                 ld   (ENT_RESULT),a
-                ld   a,1
-                ld   (HUD_DIRTY),a
                 ret
 .full:          ld   a,ER_FULL
                 ld   (ENT_RESULT),a
@@ -1158,6 +1156,14 @@ ENT_REPAINT_DUE:
                 ret  z
                 ld   de,0
                 ld   (ENT_RP_DUE),de
+                ; THE ENERGY BAR MAY BE UNDER THIS. It lives on screen
+                ; row 23 and is only written when the view moves, so a
+                ; repaint that lands on it would stay. &FF is no health
+                ; she can have, so the next frame writes it again -
+                ; before the beam reaches row 23, and after the beam has
+                ; passed it here (src/hud.asm).
+                ld   a,&FF
+                ld   (HUD_HP),a
                 ; fall through with HL = the map cell
 ; ---------------------------------------------------------------------
 ; ENT_CELL_REPAINT - HL = a map byte. Repaints the four character cells

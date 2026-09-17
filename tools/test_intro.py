@@ -58,6 +58,22 @@ def inc_bytes(text, label, stop):
     return bytes(out)
 
 
+def text_strip(text):
+    """Where the prompt is, out of build/intro.inc - not recomputed.
+
+    `make_intro.py` decides the line the words sit on and emits the
+    eight VRAM addresses; this suite used to work them out again from a
+    hard-coded line 4, and then the prompt moved down to the pavement
+    and the two quietly disagreed. The picture check passed over the
+    wrong eight rows and the blink check read a strip of sky.
+    """
+    n = int(re.search(r"INTRO_TEXT_BYTES equ (\d+)", text).group(1))
+    blob = text.split("INTRO_TEXT_ADDR:")[1].split("INTRO_TEXT_ON:")[0]
+    addrs = [int(v, 16) for v in re.findall(r"dw &([0-9A-F]{4})", blob)]
+    assert len(addrs) == 8, addrs
+    return addrs, n
+
+
 def sync(m, sym):
     """Stop in WAIT_VSYNC's spin - the one moment the frame is whole.
 
@@ -116,13 +132,11 @@ def main():
           f"BASIC had been scrolling it")
 
     vram = bytes(m.read_ram(SCREEN, len(native)))
-    # The prompt is drawn over lines 4-11, so those bytes are allowed to
-    # differ; everything else must be the artist's, exactly.
-    skip = set()
-    for row in range(8):
-        y = 4 + row
-        base = (y & 7) * 2048 + (y >> 3) * W_BYTES
-        skip.update(range(base, base + W_BYTES))
+    # The prompt is drawn over eight lines wherever make_intro.py put
+    # them, so those bytes are allowed to differ; everything else must
+    # be the artist's, exactly.
+    t_addrs, t_bytes = text_strip(inc)
+    skip = {a - SCREEN + i for a in t_addrs for i in range(t_bytes)}
     wrong = [i for i in range(len(native))
              if i not in skip and vram[i] != native[i]]
     check("the whole picture is in video RAM, byte for byte",
@@ -173,8 +187,8 @@ def main():
     on = inc_bytes(inc, "INTRO_TEXT_ON", "INTRO_TEXT_OFF")
     off = inc_bytes(inc, "INTRO_TEXT_OFF", "\n\n")
     n = len(on) // 8
-    addrs = [0xC000 + ((4 + r) & 7) * 0x800 + ((4 + r) >> 3) * W_BYTES + 2
-             for r in range(8)]
+    addrs, n_inc = text_strip(inc)
+    assert n_inc == n, (n_inc, n)
     check("the two strips are different pictures", on != off,
           f"{sum(1 for a, b in zip(on, off) if a != b)} of {len(on)} bytes - "
           f"without that the blink below could not be seen")

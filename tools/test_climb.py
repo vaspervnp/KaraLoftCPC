@@ -49,7 +49,7 @@ import sys
 
 sys.path.insert(0, "/home/vasilhs/cpcemu")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench import symbols, boot                                  # noqa: E402
+from bench import symbols, boot, sync                            # noqa: E402
 import make_city_map as city                                     # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -202,6 +202,14 @@ def main():
         m.run_frames(1)
         if m.peek(sym["KARA_CLIMB"]):
             break
+    # AND THEN LET THE FRAME FINISH. run_frames() stops on the hardware's
+    # clock, not the game's, so on a frame the loop overruns it returns
+    # with the main loop halfway through - after CLIMB_ENTER has set
+    # KARA_CLIMB and before CLIMB_TURN_START has written the state. Read
+    # there, the grab shows KARA_STATE still holding the walk's. The
+    # turn is committed for the cel's own seven frames, so stepping on to
+    # the next WAIT_VSYNC cannot step past it.
+    sync(m, sym)
     on = st(m, sym)
     check("DOWN puts her on the ladder", on["climb"] == 1 and on["ground"] == 0,
           f"KARA_CLIMB {on['climb']}, KARA_GROUND {on['ground']}")
