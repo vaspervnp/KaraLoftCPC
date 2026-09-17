@@ -30,6 +30,7 @@ sys.path.insert(0, "/home/vasilhs/cpcemu")
 import cpclib
 from test_kara import decode
 from cpc import CPC
+from cpcboot import past_intro
 
 ROOT = os.path.join(HERE, "..")
 FB_W = 1024
@@ -601,6 +602,11 @@ def main():
     machine.insert_disc(os.path.abspath(os.path.join(ROOT, "build", "kara.dsk")))
     machine.type_text('RUN"DISC\n')
     machine.run_frames(400)
+    # THE TITLE SCREEN COMES FIRST NOW and it waits for a key rather
+    # than a timer (CLAUDE.md 7.7), so the prompt has to be answered
+    # before any of this is looking at the game at all.
+    check("the title screen answered the press",
+          past_intro(machine, sym), "PRESS SPACE OR FIRE -> the city")
     check("the game is running", machine.mode == 0, f"mode={machine.mode}")
 
     # THERE IS NO INTRO TO CUT SHORT ANY MORE. RUN"DISC goes straight to

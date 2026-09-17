@@ -48,7 +48,19 @@ UNPACK_BANK:    ld   c,a
                 ; falls into the depacker, which ends in RET
 
                 include "vendor/dzx0_fast.asm"
+UNPACK_RUN:     ; ... and the macro expands here, so this is its entry
                 DecompressZX0
+
+; ---------------------------------------------------------------------
+; UNPACK_AT - the same depacker, anywhere.
+;
+; The title screen goes STRAIGHT INTO VIDEO RAM: it is 16,336 bytes of
+; a 200-line picture, there is no bank to stage it through, and nothing
+; else is on the screen while it is up.
+; IN : HL = packed stream, DE = destination
+;      destroys what UNPACK_BANK destroys
+; ---------------------------------------------------------------------
+UNPACK_AT:      jp   UNPACK_RUN
 
 ; ---------------------------------------------------------------------
 ; UNPACK_LIST - unpack a whole level from a table already in RAM.

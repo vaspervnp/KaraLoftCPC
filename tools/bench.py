@@ -2,7 +2,9 @@
 loses the 40 framebuffer rows the emulator paints as colour 0 in vblank."""
 import sys, os, re
 sys.path.insert(0,"/home/vasilhs/cpcemu")
+sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from cpc import CPC
+from cpcboot import past_intro
 ROOT="/home/vasilhs/repos/KaraLoftCPC"
 STUB=0x9000; SPIN=STUB+4
 
@@ -16,6 +18,10 @@ def symbols():
 def boot(sym, scroll=False):
     m=CPC(); m.run_frames(150)
     m.insert_disc(os.path.abspath(f"{ROOT}/build/kara.dsk")); m.type_text('RUN"DISC\n'); m.run_frames(400)
+    # THE TITLE SCREEN IS IN THE WAY NOW, and it waits for a key rather
+    # than a timer (CLAUDE.md 7.7). past_intro presses it; without this
+    # every suite below measures a machine sitting on a still picture.
+    past_intro(m, sym)
     if scroll:
         # WAIT FOR THE LEVEL, DO NOT COUNT FRAMES. LEVEL_LOAD is 1.4 s
         # with interrupts off (CLAUDE.md 7.5); a fixed 40-frame wait put

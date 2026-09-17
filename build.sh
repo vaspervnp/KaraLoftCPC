@@ -64,6 +64,12 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
 # Where the level streams will sit on the disc. The layout comes from
 # their sizes alone, so the include can be written before RASM runs and
 # the image patched after iDSK has built it.
+# The title picture: the artist's linear .scr into the CRTC's own screen
+# order, ZX0-packed for the disc, plus its palette and the two strips the
+# PRESS SPACE OR FIRE prompt blinks between. Must run BEFORE dskdata.py,
+# which lays the packed streams out on the disc from their sizes.
+python3 "$ROOT/tools/make_intro.py"
+
 python3 "$ROOT/tools/dskdata.py" --inc
 
 # --- code -------------------------------------------------------------

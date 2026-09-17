@@ -1,0 +1,109 @@
+{
+ "size": [
+  160,
+  200
+ ],
+ "mode": 0,
+ "pixel_ratio": "2:1",
+ "screen_bytes": 16000,
+ "load_address": "&C000",
+ "pens": [
+  {
+   "pen": 0,
+   "hex": "000000",
+   "firmware_ink": 0,
+   "pixels": 0
+  },
+  {
+   "pen": 1,
+   "hex": "000000",
+   "firmware_ink": 0,
+   "pixels": 17668
+  },
+  {
+   "pen": 2,
+   "hex": "000080",
+   "firmware_ink": 1,
+   "pixels": 4389
+  },
+  {
+   "pen": 3,
+   "hex": "008080",
+   "firmware_ink": 10,
+   "pixels": 273
+  },
+  {
+   "pen": 4,
+   "hex": "80FFFF",
+   "firmware_ink": 23,
+   "pixels": 518
+  },
+  {
+   "pen": 5,
+   "hex": "800000",
+   "firmware_ink": 3,
+   "pixels": 2311
+  },
+  {
+   "pen": 6,
+   "hex": "FF8000",
+   "firmware_ink": 15,
+   "pixels": 905
+  },
+  {
+   "pen": 7,
+   "hex": "FF8080",
+   "firmware_ink": 16,
+   "pixels": 1080
+  },
+  {
+   "pen": 8,
+   "hex": "FFFF80",
+   "firmware_ink": 25,
+   "pixels": 684
+  },
+  {
+   "pen": 9,
+   "hex": "808000",
+   "firmware_ink": 12,
+   "pixels": 518
+  },
+  {
+   "pen": 10,
+   "hex": "808080",
+   "firmware_ink": 13,
+   "pixels": 3337
+  },
+  {
+   "pen": 11,
+   "hex": "FFFFFF",
+   "firmware_ink": 26,
+   "pixels": 273
+  },
+  {
+   "pen": 12,
+   "hex": "FF0000",
+   "firmware_ink": 6,
+   "pixels": 30
+  },
+  {
+   "pen": 13,
+   "hex": "008000",
+   "firmware_ink": 9,
+   "pixels": 0
+  },
+  {
+   "pen": 14,
+   "hex": "0080FF",
+   "firmware_ink": 11,
+   "pixels": 0
+  },
+  {
+   "pen": 15,
+   "hex": "FFFF00",
+   "firmware_ink": 24,
+   "pixels": 14
+  }
+ ],
+ "note": "the game palette: the sprites use the same pens, so no INK changes are needed after this screen"
+}

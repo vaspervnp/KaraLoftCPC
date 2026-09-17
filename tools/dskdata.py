@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
 LEV = os.path.join(ROOT, "build", "levels")
 DSK = os.path.join(ROOT, "build", "kara.dsk")
+INTRO = os.path.join(ROOT, "build", "intro.zx0")
 
 DATA_TRACK = 8              # AMSDOS reaches track 3 today; this is headroom
 SECT_FIRST = 0xC1
@@ -43,6 +44,17 @@ def levels():
 def plan():
     """[(level, kind, [(cfg, track, sector, nsectors, path)])], in disc order."""
     out, cursor = [], DATA_TRACK * SECTORS
+    # THE TITLE PICTURE GOES FIRST, and it is here rather than in a
+    # level directory because it belongs to no level: it is read once,
+    # before the first one loads, and unpacked straight into video RAM
+    # (src/intro.asm). It travels as a one-"bank" record so the layout,
+    # the include and the reader are all the same shape as a level's.
+    if os.path.exists(INTRO):
+        n = (os.path.getsize(INTRO) + SECT_SIZE - 1) // SECT_SIZE
+        out.append(("intro", "scr", [(CFG["C0"], cursor // SECTORS,
+                                      SECT_FIRST + cursor % SECTORS,
+                                      n, INTRO)]))
+        cursor += n
     for lvl in levels():
         d = os.path.join(LEV, lvl)
         for kind in ("lvl", "set"):

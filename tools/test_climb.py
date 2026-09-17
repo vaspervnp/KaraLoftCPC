@@ -60,6 +60,8 @@ JOY_UP, JOY_DOWN, JOY_LEFT, JOY_RIGHT = 0x01, 0x02, 0x04, 0x08
 TA_SOLID, TA_PLATFORM, TA_CLIMB = 0x01, 0x02, 0x08
 TILE_LADDER = 25
 KARA_BOX_H = 64
+KARA_BOX_W = 6                   # her body's own width, centred in the
+                                 # 12-byte sprite box (CLAUDE.md 8.10)
 SCREEN_LINES = 192
 
 fails = []
@@ -82,14 +84,40 @@ def st(m, sym):
 
 
 def onto_ladder(m, sym, tile):
-    """Walk her right until her box straddles the ladder at map tile
-    `tile`, which is where DOWN can find it under her feet."""
-    want = tile * 4 - 1              # CLIMB_GRAB's own answer, see player.asm
+    """Walk her right until her box's MIDDLE is over the ladder at map
+    tile `tile`, which is what CLIMB_AT probes (collide.asm).
+
+    IT USED TO STOP AT `KARA_WX >= tile * 4 - 1` AND THAT IS ONE BYTE
+    WIDE ON A WALK THAT STEPS TWO. She walks 1 byte a frame in the
+    middle of the screen and 2 in the camera's push zone (CLAUDE.md
+    8.2), so which byte the poll first sees past the mark depends on the
+    parity of the frame the walk started on - and the boot got a frame
+    longer when the title screen went in front of it. Stopping on the
+    thing the engine actually asks about is parity-proof: the tile is
+    four bytes wide and her stride is at most two, so the middle cannot
+    step over it.
+    """
+    def over():
+        wx = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
+        return (wx + KARA_BOX_W // 2) >> 2
+
+    # SHE STARTS ON THE FIRST LADDER - PlayerStart is world x 43 and
+    # LADDER_X[0] is bytes 44-47 - so step her off it to the left first,
+    # or "walking over the top rung does not drop her through it" would
+    # pass without her ever having walked over anything. Left and then
+    # right, rather than picking a ladder further along, because every
+    # number the rest of this suite is measured against belongs to this
+    # end of the roof.
+    m.joystick(JOY_LEFT)
+    for _ in range(300):
+        if over() <= tile - 3:
+            break
+        m.run_frames(1)
     m.joystick(JOY_RIGHT)
     for _ in range(300):
-        m.run_frames(1)
-        if m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8) >= want:
+        if over() == tile:
             break
+        m.run_frames(1)
     m.joystick(0)
     m.run_frames(2)
 
@@ -198,10 +226,17 @@ def main():
         turn += 1
     turned = st(m, sym)
     m.joystick(0)
+    # THE HOLD IS THE ART'S BEAT PLUS THE FRAME THE STATE WAS ENTERED
+    # ON. CLIMB_GRAB writes the state; ACT_ANIMATE loads the cel's timer
+    # on the NEXT call, because entering a state leaves the cel index at
+    # 255 so that the first cel is the one that shows (CLAUDE.md 8.4).
+    # The poll below can add one more. Measured over three phases of the
+    # walk: 7, 8, 8 frames against the artist's 6.
     check("and it holds her where she is, for the art's own beat",
-          turned["wy"] == on["wy"] and abs(turn - dur) <= 1,
-          f"{turn} frames, and the artist drew the cel for {dur}; "
-          f"world y {on['wy']} -> {turned['wy']}")
+          turned["wy"] == on["wy"] and dur <= turn <= dur + 2,
+          f"{turn} frames, and the artist drew the cel for {dur} - plus the "
+          f"frame the state went in on; world y {on['wy']} -> "
+          f"{turned['wy']}")
     check("then the climb cels come up, out of the ACTION blob",
           turned["kset"] == sym["KSET_ACT"]
           and turned["state"] == sym["KST_CLIMB"]

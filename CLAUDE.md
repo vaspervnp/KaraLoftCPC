@@ -21,9 +21,10 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-**`RUN"DISC` starts on the rooftop, and that is the only screen there
-is.** The core boots, self-tests its banks and goes straight to the
-city. **The Module 1-3 acceptance screen has been deleted** — colour
+**`RUN"DISC` opens on the title picture and then starts on the
+rooftop.** The core boots, self-tests its banks, puts the artist's
+160x200 screen up off the disc, loads level 1 underneath it, blinks
+PRESS SPACE OR FIRE, and goes to the city on the press (7.7). **The Module 1-3 acceptance screen has been deleted** — colour
 bars, the bank verdict, the stripes, the liveness lamps and the 16x48
 placeholder blitter that drew a stand-in heroine over them. It was the
 only caller of `sprite.asm`'s masked blitter, of the sheet
@@ -95,7 +96,7 @@ belong to the development screen (§9). **A drone coming into view no
 longer costs her a frame**, which on this loop is not a stutter but a
 frame with no heroine in it (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all fifteen
+`./tools/run_tests.sh` runs every acceptance suite and **all sixteen
 pass**, including the frame budget: a scrolling frame on Kara's
 heaviest animation frame is 76,324 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
@@ -113,7 +114,8 @@ src/sprite.asm    where a pixel IS: the address model and the line
                   stepping every blitter shares
 src/bullets.asm   dual pistols, 14-round pool, reloading
 src/spanblit.asm  the span-compressed blitter and its erase script
-src/unpack.asm    ZX0 into a bank, and LEVEL_LOAD
+src/unpack.asm    ZX0 into a bank, into VRAM, and LEVEL_LOAD
+src/intro.asm     the title picture and its blinking prompt (7.7)
 src/disc.asm      the uPD765 driver - raw sectors, no firmware.
                   READ docs/AmstradDskReadHowTo.md BEFORE TOUCHING IT
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
@@ -140,6 +142,8 @@ tools/build_levels.py      the level art packages -> blobs, and which of
 tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
 tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
+tools/make_intro.py        the title .scr -> the CRTC's screen order,
+                           packed, plus its palette and the prompt (7.7)
 tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
                            and the build-time bake of its overlay tiles
 tools/make_level.py        that map + the entity table -> level_1.lvl,
@@ -147,9 +151,10 @@ tools/make_level.py        that map + the entity table -> level_1.lvl,
 tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
+tools/test_intro.py        the title screen, its palette and the press
 tools/test_format.py       the level file, the engine's reading of it,
                            and the overlay bake
-tools/test_*.py            acceptance suites, fifteen of them
+tools/test_*.py            acceptance suites, sixteen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -1243,6 +1248,84 @@ the hardware never shows. Camera is orthographic, per plan.md.
 `tools/png2screen.py` then picks 16 of the 27 hardware colours by usage, optionally
 Floyd-Steinberg dithers (worth it — a render banded to 16 colours looks poor without
 it), and writes `overscan.bin` plus a palette include and a preview.
+
+### 7.7 The title screen, and the layout the artist's `.scr` is NOT in
+
+`assets/intro/intro_cpc_mode0.scr` is the picture the game opens on:
+160x200 Mode 0, the artist's own sixteen inks, 16,000 bytes. **Those
+bytes are 200 lines one after another and a CPC screen is not laid out
+that way.** Line L lives at `(L AND 7) * &800 + (L >> 3) * 80` (6.4), so
+200 lines of it span **16,336** bytes across eight interleaved raster
+blocks — which is also why 16,000 could never have been a screen. Loaded
+straight to `&C000`, as the `INTRO.BAS` shipped beside it does, the
+picture comes out in eight bands.
+
+`tools/make_intro.py` does the conversion, checks it against the `.png`
+the same export produced, and ZX0-packs the result: **16,336 -> 2,473
+bytes, five sectors and one read.** It goes on the disc as raw sectors
+with the level data (7.5) and `src/intro.asm` unpacks it **straight into
+video RAM** — there is no bank to stage it through and no reason for
+one, because nothing else is on the screen while the title is up.
+
+**The picture goes up BEFORE the level loads and the prompt AFTER**, and
+that order is the whole design:
+
+```
+CORE_ENTRY -> BANK_TEST -> INTRO_SHOW   picture on screen, 0.2 s
+                        -> LEVEL_LOAD   1.6 s, interrupts off (7.5)
+                        -> INTRO_WAIT   PRESS SPACE OR FIRE, blinking
+                        -> PALETTE_SET  back to the game's sixteen
+                        -> SCROLL_INIT  and she is on the roof
+```
+
+A prompt put up first would be a lie for a second and a half: nothing
+can be pressed during `LEVEL_LOAD`, which runs with interrupts off. Put
+up after, it means what it says — the press starts the game on the next
+frame.
+
+**The words are two pre-rendered strips, not a font and a save-under.**
+The build knows the picture and it knows where the words go, so it emits
+the picture with them and the picture without; the blink is one `LDIR`
+either way, 76 bytes on each of eight lines. The eight lines are in
+eight different 2 KB blocks, so their addresses are a table rather than
+a stride. They sit on lines 4-11, which is the night sky — measured, not
+assumed: lines 0-15 of this image are 1,259 pixels of pen 1 out of 1,280.
+
+**`WAIT_VSYNC` TESTS THE LEVEL AND THE PULSE IS 16 SCANLINES LONG**, so
+a loop whose body is a few hundred T goes round it several times inside
+one pulse. The main loop never notices — its own work always overruns
+the pulse — but `INTRO_WAIT` went round **four times a frame**, blinking
+at four times the rate it was written for and scanning the keyboard four
+times over. `WAIT_VSYNC_END` spins until the pulse drops, and the pair
+of them is an edge. Anything else with a short body needs the same.
+
+**It waits for the RELEASE as well as the press.** The same bit is her
+trigger and the gun is draw-hold-release (8.4), so a press still held
+when the level starts is an `AIM` that plants her where she stands, and
+letting go of it fires a round the player never asked for.
+
+`tools/test_intro.py` compares **the whole picture in video RAM, byte
+for byte** against what the build produced — that is four
+transformations checked at once: the layout change, ZX0, five raw
+sectors and a depacker writing into VRAM. Its controls are the two
+mistakes that look almost right: comparing against the LINEAR `.scr`
+(which must FAIL, and does, at 4,348 of 16,000 bytes agreeing by
+coincidence), and starting the game without pressing anything (which
+must not happen, and `FRAME_COUNT` says so). The palette is checked
+**where it shows** — the gate array's pen registers cannot be read back,
+here or on the machine, so a pixel whose pen the picture knows is
+sampled out of the framebuffer, which is indexed by hardware colour.
+
+**The two palettes share eleven of their sixteen hardware colours**, so
+after the handover a colour-set comparison proves nothing; the city's
+pens are decoded out of video RAM through the engine's own scrolled
+address model instead and every pixel checked against the colour
+`src/palette.asm` gives that pen — with 1,914 of them that would be
+wrong under the title's pens, which is what stops the check passing
+either way. **Her own box is excluded and nothing is wrong with it**:
+she is drawn and erased inside one frame (8.7), so at the `WAIT_VSYNC`
+the erase has put the background back in RAM while the framebuffer still
+holds the frame she was in.
 
 ## 8. Game architecture
 
@@ -2446,11 +2529,27 @@ iterations against interrupt ticks** instead — the gate array delivers exactly
 | standing still | 200 | **locked** |
 | walking right with a drone in view | 200 | **locked** — it was 199 |
 | turning round, with a drone in view | 200 | **locked** — it was 199 |
-| walking right and FIRING, with a drone | 198 | the pool costs her nothing now |
+| walking right and FIRING, no drone on screen | 200 | **locked** — the pool costs her nothing |
+| walking right and FIRING, past a drone | 196-200 | the encounter, and only the encounter |
 | jumping and firing, scrolling | 198 | |
 | climbing down the ladder | 200 | **locked** — and the view scrolling with her |
 | standing on the street | 201 | **locked** |
 | walking the street | 201 | **locked** |
+
+**FIRING PAST A DRONE IS THE ONE PATH THAT STILL DROPS FRAMES, AND IT
+IS THE ENCOUNTER.** Tap-firing while the screen scrolls is 200 of 200
+with the level's drones taken off and 196-200 with them on, tracking how
+many of the 200 frames the drone was on screen for — measured over four
+starting phases, with the drone-off run as the control, so the cost is
+the encounter and not the gun. The frames it loses are frames carrying
+the `shoot` cel, which at 54,444 T drawn and erased is the heaviest in
+the game, plus one of the drone's two unmissable draws (§8.7).
+`ENEMY_ROOM`'s gate cannot see it: the tick is a whole 13,312 T and a
+firing frame that reaches the refresh at tick 5 has thousands of T less
+than the walking frame the gate was measured against. Tightening the
+gate by a whole tick was tried and measured — 196 to 196 — so the cost
+is not the refresh, and the entry and exit draws are not negotiable.
+**Four frames in 200 while she shoots next to a drone.**
 
 **The two transients that used to be named here are gone, and a play-
 test is what found them.** A drone costs 17,968 T and a scrolling frame

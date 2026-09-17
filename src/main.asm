@@ -152,8 +152,13 @@ CORE_ENTRY:     ; Install our own IM 1 handler. The firmware's lives in the
                 assert 67088 + 14172 < 79872 + 4060
 
 SCROLL_DEMO:    di
-                xor  a
-                call SCREEN_CLS
+                ; THE TITLE FIRST, AND THE PROMPT AFTER THE LOAD. The
+                ; picture is five sectors and goes straight into video
+                ; RAM (src/intro.asm); the 1.6 s LEVEL_LOAD below then
+                ; runs with it on the screen and with interrupts off,
+                ; which is exactly why "PRESS SPACE OR FIRE" is not put
+                ; up until afterwards - nothing could answer it.
+                call INTRO_SHOW
 
                 ; THE REAL ART, off the disc. Level 1's gameplay set puts
                 ; kcore in &C5 and kcore_l in &C6 - pinned there by
@@ -183,6 +188,11 @@ SCROLL_DEMO:    di
                 ld   (MAG_RIGHT),a
                 xor  a
                 ld   (RELOAD_TIMER),a
+
+                call INTRO_WAIT             ; ... and now it can be answered
+                call PALETTE_SET            ; back off the artist's 16 colours
+                xor  a
+                call SCREEN_CLS
                 call SCROLL_INIT            ; ... which installs the map
                 ld   a,(LEVEL_OK)
                 or   a
@@ -708,6 +718,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "sprite.asm"
                 include "spanblit.asm"
                 include "unpack.asm"
+                include "intro.asm"
                 include "disc.asm"
                 include "levels/disc.inc"
                 include "levels/banks.inc"

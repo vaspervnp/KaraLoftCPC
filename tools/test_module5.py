@@ -150,7 +150,7 @@ JOY_RIGHT, JOY_FIRE = 0x08, 0x10
 FRAMES = 200
 
 
-def walk(sym, pattern, frames=FRAMES, top=None):
+def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False):
     """Hold a joystick pattern and report (loop iterations, bytes travelled).
 
     `top` pokes BUL_TOP every frame, which is the negative control: it
@@ -163,6 +163,8 @@ def walk(sym, pattern, frames=FRAMES, top=None):
     peak = 0
     for t in range(frames):
         m.joystick(pattern(t))
+        if kill_enemies:
+            m.poke(sym["ENEMY_LIVE"], 0)    # ENEMY_PICK then finds nobody
         if top is not None:
             m.poke(sym["BUL_TOP"], top)
         m.run_frames(1)
@@ -226,8 +228,23 @@ def firing_costs_her_nothing(sym):
           abs(fired_x - (plain_x - aiming)) <= 4,
           f"{fired_x} bytes against {plain_x} walking less {aiming} aiming "
           f"= {plain_x - aiming} expected")
-    check("and the loop still holds 50 Hz",
-          fired >= 197, f"{fired} loop iterations in {FRAMES} hardware frames")
+    # WHAT IT COSTS TO FIRE PAST A DRONE, with the encounter measured
+    # rather than assumed. Tap-firing on a scrolling frame is 200 of 200
+    # with nothing else on the screen; the drone's two unmissable frames
+    # - the one it comes into view on and the one it leaves on (8.7) -
+    # land on frames already carrying the `shoot` cel, which at 54,444 T
+    # drawn and erased is the heaviest in the game (9). Measured over
+    # four starting phases: 196 to 200 loops, tracking how many of the
+    # 200 frames the drone was on screen for.
+    alone, alone_x, _ = walk(sym, tap, kill_enemies=True)
+    print(f"    ... and with no drone   {alone} loops, {alone_x} bytes")
+    check("firing costs her nothing on its own", alone >= 199,
+          f"{alone} loop iterations in {FRAMES} hardware frames with the "
+          f"level's drones taken off - so what the encounter costs below "
+          f"is the encounter and not the gun")
+    check("and a drone encounter costs at most four frames of it",
+          fired >= alone - 4,
+          f"{fired} loop iterations against {alone} without the drone")
 
     # THE NEGATIVE CONTROL: put the walk back to its old depth.
     #

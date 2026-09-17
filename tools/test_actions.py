@@ -429,11 +429,13 @@ def main():
     # -----------------------------------------------------------------
     print("\n  what the keyboard scan makes of the keys it can be sent:")
     from cpc import CPC
+    from cpcboot import past_intro
     m2 = CPC()
     m2.run_frames(150)
     m2.insert_disc(os.path.abspath(os.path.join(ROOT, "build", "kara.dsk")))
     m2.type_text('RUN"DISC\n')
     m2.run_frames(400)
+    past_intro(m2, sym)                 # the title waits for a key (7.7)
     m2.run_frames(150)
 
     def held(key, frames=8):

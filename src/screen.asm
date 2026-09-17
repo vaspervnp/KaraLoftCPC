@@ -106,7 +106,17 @@ BLK_VAL:        db 0
 ;                                destroys AF,BC,HL
 ; ---------------------------------------------------------------------
 PALETTE_SET:    ld   hl,PALETTE_DATA
-                ld   bc,GA_PORT * 256   ; C = 0 = select pen 0
+                ; falls into PALETTE_LOAD
+
+; ---------------------------------------------------------------------
+; PALETTE_LOAD - the same, from any 17-byte table.
+;
+; The title screen is the artist's own 16 colours and not the game's
+; (src/palette.asm), so there are two tables and one routine.
+; IN:  HL = 16 pen values then the border, already OR'd with
+;      GA_COLOUR_BASE      destroys AF,BC,HL
+; ---------------------------------------------------------------------
+PALETTE_LOAD:   ld   bc,GA_PORT * 256   ; C = 0 = select pen 0
 .pen:           out  (c),c              ; %00xxxxxx - select pen C
                 ld   a,(hl)
                 inc  hl
@@ -138,4 +148,22 @@ WAIT_VSYNC:     ld   bc,PPI_PORT_B * 256
 .wait:          in   a,(c)
                 rra
                 jr   nc,.wait
+                ret
+
+; ---------------------------------------------------------------------
+; WAIT_VSYNC_END - spin until the CRTC drops VSYNC again.
+;
+; WAIT_VSYNC TESTS THE LEVEL, NOT AN EDGE, and the pulse is 16
+; scanlines - about 4,100 T (CLAUDE.md 9). The main loop does not care:
+; its own work always overruns the pulse. A loop whose body is a few
+; hundred T does: INTRO_WAIT went round FOUR TIMES inside one pulse, so
+; its prompt blinked at four times the rate it was written for and its
+; keyboard was scanned four times a frame. Calling this at the end of
+; the body makes the pair an edge.
+;                                destroys AF,BC
+; ---------------------------------------------------------------------
+WAIT_VSYNC_END: ld   bc,PPI_PORT_B * 256
+.wait:          in   a,(c)
+                rra
+                jr   c,.wait
                 ret

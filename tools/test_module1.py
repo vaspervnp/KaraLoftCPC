@@ -50,6 +50,9 @@ for _ in range(200):                     # LEVEL_LOAD is 1.4 s with DI
     c.run_frames(2)
     if c.peek(sym["LEVEL_OK"]):
         break
+# ... and then the title screen waits for a key, not for a timer
+from cpcboot import past_intro           # noqa: E402
+past_intro(c, sym)
 c.run_frames(6)
 
 print("boot:")
