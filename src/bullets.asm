@@ -26,7 +26,14 @@ BUL_DIR         equ 3                   ; 0 = RIGHT, 1 = left - KARA_FACING's
 BUL_LIFE        equ 4
 
 BUL_SPEED       equ 2                   ; bytes per frame = 4 Mode 0 pixels
-BUL_LIFE_INIT   equ 60
+BUL_SLOW        equ 3                   ; ... on two frames in BUL_SLOW. A
+                                        ; whole byte is 4 pixels and there is
+                                        ; no half of one, so a third off the
+                                        ; speed is a frame they do not move
+                                        ; on - main.asm keeps the phase
+BUL_LIFE_INIT   equ 90                  ; frames, and it is BUL_SLOW / 2
+                                        ; longer than the 60 it was, so the
+                                        ; slower round still reaches as far
 BUL_PEN         equ &CF                 ; solid pen 11, bright yellow
 RELOAD_FRAMES   equ 60                  ; 1.2 s at 50 Hz
 
@@ -187,6 +194,10 @@ UPDATE_BULLETS: ld   a,(BUL_LIVE)
                 pop  hl
                 jr   z,.kill
 
+                ld   a,(BUL_PHASE)      ; the frame they hold still on:
+                dec  a                  ; it still ages, and it is still
+                jr   z,.skip            ; where it was, so nothing else
+                                        ; about it has changed
                 push hl
                 inc  hl
                 ld   a,(hl)             ; x

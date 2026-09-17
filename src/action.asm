@@ -9,7 +9,9 @@
 ;   WALK  left or right on the ground          walk,       loops
 ;   RUN   SHIFT and a direction                run,        loops
 ;   JUMP  off the ground, however she got off  jump,       holds
-;   ROLL  Z, on the ground                     roll,       runs out
+;   ROLL  DOWN and a direction, on the ground  roll,       runs out
+;   CROUCH DOWN alone, on the ground           roll cel 0, holds
+;   HANG  DOWN at the lip of a floor            hang,       loops
 ;   AIM   SPACE held                           shoot_draw, holds
 ;   FIRE  SPACE released from AIM              shoot,      runs out
 ;   CLIMB UP or DOWN on a ladder               climb,      loops
@@ -53,7 +55,16 @@ KST_CLIMB       equ 7           ; on a ladder, moving or stopped
 KST_CLIMB_TURN  equ 8           ; ... and stepping on or off it
 KST_DROP        equ 9           ; falling, having not jumped
 KST_DIE         equ 10          ; ... and the last thing she does
-KST_COUNT       equ 11
+KST_CROUCH      equ 11          ; DOWN alone, on her feet
+KST_HANG        equ 12          ; ... and DOWN at the lip of a floor
+KST_COUNT       equ 13
+
+; WHERE HER BOX STARTS WHEN SHE IS DOWN ON ONE KNEE. The crouch is the
+; roll's first cel and the artist draws it from line 23 of the 64-line
+; box, against line 6 standing - measured off the shipped sheet, and
+; what enemy.asm's EBUL_HITS_HER takes off the top of her hitbox so
+; their rounds go over her.
+KARA_CROUCH_TOP equ 23
 KST_BYTES       equ 4
 
 ; set, first frame in that blob, cels, loops?
@@ -68,6 +79,8 @@ KARA_ANIMS:     db KSET_CORE,  KCORE_IDLE_FIRST,       KCORE_IDLE_COUNT,       1
                 db KSET_ACT,   KACT_CLIMB_TURN_FIRST,  KACT_CLIMB_TURN_COUNT,  0
                 db KSET_ACT,   KACT_DROP_FIRST,        KACT_DROP_COUNT,        1
                 db KSET_ACT,   KACT_DIE_FIRST,         KACT_DIE_COUNT,         0
+                db KSET_EXTRA, KEXTRA_ROLL_FIRST,      1,                      0
+                db KSET_ACT,   KACT_HANG_FIRST,        KACT_HANG_COUNT,        1
 
 ; One duration table per SET, indexed by the frame's number in its blob.
 KARA_DURATIONS: dw KCORE_DURATION
@@ -136,7 +149,21 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 ; moving - so the state stays CLIMB and the animator is
                 ; simply not called. ACT_SHOW still draws her, so she is
                 ; on exactly the rung and exactly the cel she stopped on.
-.choose:        ld   a,(KARA_CLIMB)
+                ; ---- and so does a ledge ---------------------------
+                ; player.asm owns the whole of it (EDGE_ENTER): the
+                ; crouch before she takes hold is phase 1 and hanging is
+                ; phase 2, and it holds her still through both. All this
+                ; does is name the cels.
+.choose:        ld   a,(KARA_HANG)
+                or   a
+                jr   z,.not_hang
+                dec  a
+                ld   a,KST_CROUCH
+                jp   z,.want
+                ld   a,KST_HANG
+                jp   .want
+
+.not_hang:      ld   a,(KARA_CLIMB)
                 or   a
                 jr   z,.not_climb
                 ld   a,(INPUT_NOW)
@@ -208,6 +235,28 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 ld   a,KST_FIRE
                 jr   z,.want
 
+                ; ---- DOWN ON ITS OWN IS A CROUCH --------------------
+                ; The roll's first cel is her on one knee, so the pose is
+                ; already drawn and costs nothing to ship. What it is FOR
+                ; is their rounds: it takes 23 lines off the top of her
+                ; hitbox (enemy.asm), so a drone's shot goes over her.
+                ;
+                ; IT IS THE LAST THING DOWN MEANS. A ladder under her
+                ; feet takes it first - the climb branch above runs
+                ; before this one, and player.asm has already put her on
+                ; the shaft - DOWN with a direction is the roll, and the
+                ; gun beats it too, so a player holding DOWN can still
+                ; shoot back rather than pressing a trigger that does
+                ; nothing. She stands up to aim; ducking is not cover
+                ; she can fire from.
+                ld   a,c
+                and  IN_DOWN
+                jr   z,.no_crouch
+                ld   a,c
+                and  IN_LEFT + IN_RIGHT
+                ld   a,KST_CROUCH
+                jr   z,.want
+.no_crouch:
                 ; ---- on her feet: still, walking or running ---------
                 ld   a,c
                 and  IN_LEFT + IN_RIGHT

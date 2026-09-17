@@ -1,6 +1,6 @@
 ; =====================================================================
 ; Kara Loft and the Illuminati
-; MODULE 4 - hardware scrolling engine over a banked tilemap
+; MODULE 5 - the city, and the heroine in it
 ;
 ; Build: ./build.sh        Output: build/kara.dsk
 ;
@@ -11,20 +11,21 @@
 ; bootstrap that relocates the core engine down to &0040 and jumps to
 ; it, after which the window is free for level data.
 ;
-; The demo screen doubles as the acceptance test for Modules 1-3:
+; RUN"DISC STARTS ON THE ROOFTOP. The core boots, self-tests its banks,
+; loads level 1 off the disc and goes straight to SCROLL_DEMO: the city
+; tilemap scrolled by the CRTC start address, with Kara drawn over it
+; out of her span blobs, the entity table, the drones and the ladders
+; down to the street.
 ;
-;   lines   0- 31   16 colour bars, one per pen     (Mode 0 encoding)
-;   lines  36- 51   5 bank markers, green = pass    (bank switching)
-;   lines  56- 63   heartbeat and interrupt lamps   (IM 1, main loop)
-;   lines  64-175   striped background              (masking, restore)
-;   line     112    Kara, walking and firing
-;   lines 180-197   two magazines of 7 rounds       (dual pistols)
-;
-; After DEMO_TIMER frames it switches to the Module 4 screen: the city
-; tilemap, scrolled by the CRTC start address, right then down then up.
-;
-; The border turns red for exactly as long as the frame's drawing takes,
-; which is how tools/test_module3.py measures the T-state cost.
+; THE MODULE 1-3 ACCEPTANCE SCREEN IS GONE. It was colour bars, the bank
+; self-test's verdict, a striped background and the 16x48 placeholder
+; heroine walking over it, kept as a development screen long after the
+; game stopped going through it - and it was the only caller of the
+; 16x48 blitter, of the placeholder sheet png2sprite.py exported, and of
+; the coloured border bands. All of it has been deleted; what the game
+; needs of module 3 - the address model, the bullet pool, the HUD - is
+; still here and is tested in the game rather than on a screen of its
+; own.
 ; =====================================================================
 
                 include "config.asm"
@@ -39,27 +40,13 @@ ENEMY_SCRIPT    equ &8700               ; ... and the one enemy on screen has
                                         ; its own, the same size
 EBUL_SAVE       equ &81C0               ; their rounds, 4 bytes a slot
 
-KARA_HOME_Y     equ 96          ; the line the DEV SCREEN draws her on, and
-                                ; nothing to do with KARA_BOX_H: that screen
-                                ; runs the 16x48 placeholder path, not the
-                                ; span blitter, and 96 puts it in the middle
-                                ; of the stripes at 64-175
-STRIPE_TOP      equ 64
-STRIPE_BANDS    equ 14
+KARA_HOME_Y     equ 96          ; the line KARA_Y starts on before a level
+                                ; has placed her
 HUD_LEFT_LINE   equ 180
 HUD_RIGHT_LINE  equ 190
-; Raster-time markers. The border is set to a different colour for each
-; phase of the frame, so the coloured bands down the left edge ARE the
-; profile - tools/test_module3.py counts their scanlines. 1 scanline =
-; 64 us = 256 T-states.
-MARK_ERASE      equ 21                  ; bright blue
-MARK_LOGIC      equ 30                  ; yellow
-MARK_SPRITE     equ 12                  ; bright red
-MARK_BULLETS    equ 18                  ; bright green
-MARK_HUD        equ 24                  ; magenta
-MARK_IDLE       equ 20                  ; black
-MARK_COLUMN     equ 18                  ; bright green - the column head
-MARK_TAIL       equ 24                  ; magenta - the column tail
+BORDER_BLACK    equ 20          ; the game's border, set once and left
+BORDER_HURT     equ 12          ; ... except for the frames she is hit on
+HURT_FRAMES     equ 4           ; and there are four of them
 
 ; =====================================================================
 ; BOOTSTRAP - entered from BASIC with CALL &4000, firmware still live.
@@ -128,113 +115,6 @@ CORE_ENTRY:     ; Install our own IM 1 handler. The firmware's lives in the
                 call BANK_TEST              ; must run before anything else
                 jp   SCROLL_DEMO            ; ... and straight to the roof
 
-; ---------------------------------------------------------------------
-; INTRO_SCREEN - the Module 1-3 acceptance screen: colour bars, the
-; bank self-test's verdict, the stripe background, and Kara walking and
-; firing over it out of the 16x48 placeholder blitter.
-;
-; IT IS NO LONGER ON THE WAY IN. The game starts on the rooftop; this
-; is a development screen, kept because the whole of module 3 -
-; sprite.asm, the HUD, the bullet pool's drawing - is still tested
-; against it by tools/test_module3.py, which enters here directly. It
-; puts the CRTC and the start address back the way it needs them,
-; because the scrolling demo will have moved both.
-; ---------------------------------------------------------------------
-INTRO_SCREEN:   di
-                ; Her position is the scrolling demo's by now - the boot
-                ; goes there first - so put it back where this screen's
-                ; own checks expect her.
-                xor  a
-                ld   (KARA_X),a
-                ld   (KARA_FRAME),a
-                ld   (RELOAD_TIMER),a
-                ld   (BUL_LIVE),a           ; the pool's save-under belongs to
-                ld   (BUL_DREW),a           ; a screen that is about to go,
-                ld   (BUL_TOP),a            ; and so does how deep it went
-                ld   (BUL_DREW_TOP),a
-                ld   hl,BULLETS
-                ld   de,BULLETS + 1
-                ld   bc,BUL_MAX * BUL_STRIDE - 1
-                ld   (hl),0
-                ldir
-                ld   (KARA_FACING),a        ; A is still 0: she walks right
-                ld   (KARA_STEP),a          ; here, and the demo's firing
-                ld   (FIRE_TIMER),a         ; timer starts from the top
-                ld   a,MAG_SIZE
-                ld   (MAG_LEFT),a
-                ld   (MAG_RIGHT),a
-                ld   a,BUL_MAX * 2
-                ld   (AMMO_RESERVE),a
-                ; AND NO MAP, because this screen is not a level. The
-                ; city's map is still installed from the boot's level
-                ; load, and a round's tile probe (bullets.asm) would
-                ; read it through a WORLD_X that means nothing here -
-                ; every shot died on a "wall" the moment it left the
-                ; muzzle. Tile 0 is sky, and SCROLL_DEMO installs the
-                ; real map again on the way back.
-                ld   hl,MAP_ADDR
-                ld   de,MAP_ADDR + 1
-                ld   bc,MAP_W * MAP_H - 1
-                ld   (hl),0
-                ldir
-                call BUFFERS_CLEAR
-                ld   a,KARA_HOME_Y
-                ld   (KARA_Y),a
-                ld   hl,0
-                ld   (SCROLL),hl
-                call SCROLL_APPLY
-                ld   b,CRTC_R6
-                ld   c,25                   ; the firmware's own height
-                call CRTC_SET
-                xor  a
-                call SCREEN_CLS
-                call DRAW_COLOUR_BARS       ; uses the banked window
-                call DRAW_BANK_RESULTS
-                call DRAW_STRIPES
-
-                ei
-
-; ---------------------------------------------------------------------
-; Main loop. Each phase paints the border its own colour first, so the
-; frame's cost is legible as coloured bands down the left edge.
-; ---------------------------------------------------------------------
-MAIN_LOOP:      call WAIT_VSYNC
-
-                ld   a,MARK_ERASE
-                call BORDER_SET
-                call BUL_ERASE              ; erase in reverse draw order:
-                call KARA_ERASE             ; bullets were drawn over Kara
-
-                ld   a,MARK_LOGIC
-                call BORDER_SET
-                call GAME_LOGIC
-
-                ld   a,MARK_SPRITE
-                call BORDER_SET
-                call KARA_DRAW
-
-                ld   a,MARK_BULLETS
-                call BORDER_SET
-                call BUL_DRAW
-
-                ld   a,MARK_HUD
-                call BORDER_SET
-                call HUD_UPDATE
-
-                ld   a,MARK_IDLE
-                call BORDER_SET
-                call LAMPS                  ; not game work, so not measured
-
-                ; The dev screen hands back to the scrolling demo when
-                ; DEMO_TIMER runs out; tools/test_module3.py pins it open.
-                ld   hl,(DEMO_TIMER)
-                dec  hl
-                ld   (DEMO_TIMER),hl
-                ld   a,h
-                or   l
-                jp   z,SCROLL_DEMO
-                jp   MAIN_LOOP
-
 ; =====================================================================
 ; MODULE 4 demo - the city scrolls under CRTC control.
 ;
@@ -248,22 +128,15 @@ MAIN_LOOP:      call WAIT_VSYNC
 ; ---------------------------------------------------------------------
 ; WHICH OF KARA'S LINES THE ERASE HAS TO WAIT FOR.
 ;
-; The erase walks top-down and so does the beam, so whether the first or
-; the last line is the binding one is decided by which of them is
-; faster per line. The raster spends 256 T on a line. Measured:
+; The erase walks top-down and so does the beam, and which line binds is
+; decided by which of them is faster. The raster spends 256 T on a line;
+; the span erase spends about 97 plus 24 a span byte, so it is faster
+; and CLOSES on the beam - the binding line is its last.
 ;
-;   full-width restore, 8 LDIs a line     241 T a line  - FASTER
-;   clipped restore, per-line overhead    336-466 T     - SLOWER
-;
-; A restore that is faster than the beam starts behind it and closes the
-; gap, so its LAST line is the one that must already have been
-; displayed. A restore that is slower can only fall further behind, so
-; clearing its FIRST line is enough - and that is worth having, because
-; her first line can be 47 lines and 12,000 T earlier than her last.
-;
-; Waiting on the last line in both cases would be safe but would put a
-; clipped erase after tick 6 with 22,000 T of work and only 16,800 T of
-; frame left.
+; That is not the same as waiting for the beam to clear her last line,
+; which is what this used to do and which waits her whole height too
+; long. The gate in the loop is her FIRST line plus the measured lead
+; the run needs to stay behind the beam all the way down.
 ; ---------------------------------------------------------------------
                 ; ... and the erase has to fit between tick 6 and the END
                 ; of the next VSYNC pulse, not its start. SPR_RESTORE is
@@ -325,7 +198,7 @@ SCROLL_DEMO:    di
                 ; would rather have, and CLAUDE.md 9 says not to profile
                 ; from them anyway: they under-report by the 40 scanlines
                 ; the emulator paints as colour 0 in vblank.
-                ld   a,MARK_IDLE            ; black
+                ld   a,BORDER_BLACK
                 call BORDER_SET
                 ei
 
@@ -368,16 +241,54 @@ SCROLL_DEMO:    di
                 ;      tick 2  13,844 T | tick 5  53,780 T
                 ;      tick 3  27,152 T | tick 6  67,088 T
 .loop:          call WAIT_VSYNC
-                call SCROLL_VBLANK          ; R12/R13 may only be written here:
+                ; ---- SHE HAS JUST BEEN HIT --------------------------
+                ; There is no HUD yet - a static one over a screen the
+                ; CRTC is scrolling needs a raster split, and the split
+                ; needs a frame this one has not got (CLAUDE.md 8.3 puts
+                ; it in module 6 with the 20x11 play area). Until then
+                ; the border says it: four frames of red when her health
+                ; goes down, and black the rest of the time. It is two
+                ; OUTs on the frames it changes and nothing on the rest,
+                ; and it cannot be confused with the sprite the way
+                ; flashing HER could.
+                ld   hl,HURT_FLASH
+                ld   a,(hl)
+                or   a
+                jr   z,.no_flash
+                dec  (hl)
+                ld   a,BORDER_HURT
+                jr   nz,.flash
+                ld   a,BORDER_BLACK         ; the last of them: put it back
+.flash:         call BORDER_SET
+.no_flash:      call SCROLL_VBLANK          ; R12/R13 may only be written here:
                 call H_COMMIT               ; vertical, then horizontal
                 call ENEMY_PICK             ; which one is in view UNDER THE
                                             ; view just latched - see the note
                                             ; on ENEMY_UPDATE
+                ; THE ROUNDS GO DOWN BEFORE SHE DOES, AND THE REASON IS
+                ; THE BEAM. They used to be drawn over her - she fires
+                ; past herself - and her draw is 32,000-40,000 T, so
+                ; BUL_DRAW was reached 10,200 us into the frame with the
+                ; beam already at display line 98. A round leaving her
+                ; muzzle on the ROOF is at line 43-49, which the beam
+                ; passed at 6,980 us: it was written to video RAM behind
+                ; the beam and lifted off again at 13,400, so it was
+                ; never displayed at all. Down on the STREET the same
+                ; round is at line 113, the beam gets there at 11,076,
+                ; and it shows - which is exactly how it was reported:
+                ; "I only see the bullets at street level".
+                ;
+                ; Drawn first they are 500 us in, ahead of the beam
+                ; everywhere. The price is her lead: BUL_DRAW is 1,876 T
+                ; with a full pool and nothing at all with an empty one
+                ; (bullets.asm), so while she is firing she is drawn up
+                ; to seven scanlines later and her safe line moves with
+                ; it. The erase order below is reversed to match.
+                call BUL_DRAW
+                call EBUL_DRAW
                 ld   a,(LEVEL_OK)
                 or   a
                 call nz,KARA_SPAN_DRAW      ; ahead of the beam, in the border
-                call BUL_DRAW               ; over her: she fires past herself
-                call EBUL_DRAW              ; ... and so do they
                 call H_TAIL                 ; rows 18-23 of the committed column
 
                 di
@@ -410,11 +321,52 @@ SCROLL_DEMO:    di
                 ld   a,(KARA_LAST_CNT)      ; culled: she left no script, but
                 or   a                      ; the rounds still have to come up
                 jr   z,.bullets_only
+                ; THE GATE IS HER FIRST LINE PLUS A MEASURED LEAD, NOT
+                ; HER LAST, AND THE DIFFERENCE IS WHAT THE FALL COST.
+                ;
+                ; Both walk downwards. The erase is FASTER than the beam
+                ; - about 97 T a line plus 24 a span byte, against the
+                ; raster's 256 - so it closes on the beam and the line
+                ; that binds really is the last one. But "the beam has
+                ; passed her last line" is not what that requires: the
+                ; erase needs the whole of its own run to REACH that
+                ; line, so what it actually needs is
+                ;
+                ;     start >= beam(first line) + max over k of
+                ;              (256k - what the erase has spent by k)
+                ;
+                ; and over all 59 shipped cels the worst that maximum
+                ; comes to is 17.8 scanlines. Waiting for the beam to
+                ; clear her LAST line waits 62.
+                ;
+                ; Free while the frame had room. Falling through the
+                ; roof's gap it is not: she is low in the picture, the
+                ; camera is stepping the view under her, and the erase
+                ; started 1,767 us into her own frame's last third and
+                ; ran 1,300 us past the vblank. FOUR DROPPED FRAMES down
+                ; the fall - and a dropped frame is one with no heroine
+                ; in it at all, because she has been erased and the next
+                ; draw waits for the vblank after next. "A little
+                ; flicker on the fall", and that is what it was.
+                ;
+                ; KARA_ERASE_LEAD is the margin on top: the beam is that
+                ; many lines past her first line before the erase starts,
+                ; which is what a line whose spans are denser than
+                ; average can eat into without catching it up.
+                ld   a,(KARA_LAST_CNT)
+                ld   b,a
                 ld   a,(KARA_LAST_BOT)
-                call RASTER_WAIT
-                call EBUL_ERASE             ; reverse draw order: the rounds
-                call BUL_ERASE              ; went down over her
-                call KARA_SPAN_ERASE
+                sub  b                      ; her first drawn line, less one
+                add  a,1 + KARA_ERASE_LEAD
+                cp   192
+                jr   c,.gate
+                ld   a,191                  ; the bottom of the picture
+.gate:          call RASTER_WAIT
+                call KARA_SPAN_ERASE        ; reverse draw order: she went
+                call EBUL_ERASE             ; down OVER the rounds, so her
+                call BUL_ERASE              ; save-under holds their pixels
+                                            ; and has to put them back before
+                                            ; they restore the background
                 jr   .erased
 .bullets_only:  call EBUL_ERASE
                 call BUL_ERASE
@@ -427,7 +379,18 @@ SCROLL_DEMO:    di
 
                 ld   hl,FRAME_COUNT
                 inc  (hl)
-                jp   .loop
+                ; ONE FRAME IN THREE THE ROUNDS HOLD STILL. Both pools
+                ; step whole BYTES - 4 Mode 0 pixels - so a third off
+                ; their speed is not a smaller step, it is a step they
+                ; do not take. The counter is here because
+                ; UPDATE_BULLETS returns early on an empty pool and
+                ; their rounds would then run at a speed that depended
+                ; on whether she was firing.
+                ld   hl,BUL_PHASE
+                dec  (hl)
+                jr   nz,.phased
+                ld   (hl),BUL_SLOW
+.phased:        jp   .loop
 
 ; ---------------------------------------------------------------------
 ; RASTER_WAIT - spin until the beam has FINISHED display line A.
@@ -597,50 +560,6 @@ DISC_DIAG:      ld   hl,DISC_ST0
                 ret
 
 ; ---------------------------------------------------------------------
-; GAME_LOGIC - walk Kara across the screen, fire on a timer, age the
-; rounds. Module 5 replaces this with real input and AI.
-; ---------------------------------------------------------------------
-GAME_LOGIC:     ld   a,(KARA_STEP)
-                inc  a
-                ld   (KARA_STEP),a
-                and  1
-                jr   nz,.no_walk            ; move one byte every other frame
-
-                ld   a,(KARA_X)
-                inc  a
-                cp   SCREEN_WIDTH_BYTES - SPR_WIDTH_BYTES + 1
-                jr   c,.store_x
-                xor  a                      ; wrap to the left edge
-.store_x:       ld   (KARA_X),a
-                ld   a,(KARA_STEP)
-                rrca
-                rrca
-                rrca
-                and  3                      ; new walk frame every 8 frames
-                ld   (KARA_FRAME),a
-.no_walk:
-                ld   a,(FIRE_TIMER)
-                inc  a
-                cp   10
-                jr   c,.keep_timer
-                call FIRE_BULLET
-                xor  a
-.keep_timer:    ld   (FIRE_TIMER),a
-
-                call UPDATE_BULLETS
-                call UPDATE_RELOAD
-
-                ; Demo only: hand Kara another two clips when the reserve
-                ; runs dry, so the firing and reloading keep cycling. The
-                ; real game drops ammo as a pickup instead.
-                ld   a,(AMMO_RESERVE)
-                or   a
-                ret  nz
-                ld   a,BUL_MAX * 2
-                ld   (AMMO_RESERVE),a
-                ret
-
-; ---------------------------------------------------------------------
 ; HUD_UPDATE - two rows of seven. Only redrawn when a magazine changes;
 ; fourteen block fills every frame would cost more than the sprite does.
 ; ---------------------------------------------------------------------
@@ -706,46 +625,6 @@ HUD_ROW:        push bc                     ; C = rounds left
                 ret
 
 HUD_LINES:      db 0
-
-; ---------------------------------------------------------------------
-; LAMPS - the Module 1 liveness indicators.
-;   heartbeat toggles every 25 frames  -> the main loop is running
-;   interrupt lamp green while ticking -> IM 1 is firing
-; ---------------------------------------------------------------------
-LAMPS:          ld   a,(FRAME_COUNT)
-                inc  a
-                ld   (FRAME_COUNT),a
-                cp   25
-                jr   c,.skip_beat
-                xor  a
-                ld   (FRAME_COUNT),a
-                ld   a,(HEARTBEAT)
-                xor  &FF                    ; &FC <-> &03, pen 7 <-> pen 8
-                ld   (HEARTBEAT),a
-                ld   (BLK_VAL),a
-                ld   a,4
-                ld   (BLK_X),a
-                call LAMP_BLOCK
-.skip_beat:
-                ld   a,(IRQ_TICKS)
-                ld   hl,IRQ_LAST
-                cp   (hl)                   ; unchanged across a whole frame?
-                ld   (hl),a
-                ld   a,PEN_RED              ; then the interrupt is dead
-                jr   z,.irq_done
-                ld   a,PEN_GREEN
-.irq_done:      ld   (BLK_VAL),a
-                ld   a,16
-                ld   (BLK_X),a
-                ; fall through
-
-LAMP_BLOCK:     ld   a,56
-                ld   (BLK_LINE),a
-                ld   a,8
-                ld   (BLK_HEIGHT),a
-                ld   a,8
-                ld   (BLK_W),a
-                jp   DRAW_BLOCK
 
 ; ---------------------------------------------------------------------
 ; IRQ_HANDLER - the CPC fires 6 interrupts per frame (300 Hz). For now
@@ -822,96 +701,6 @@ BANK_STORE:     ld   a,PEN_GREEN
 .ok:            ld   (hl),a
                 inc  hl
                 ret
-
-; ---------------------------------------------------------------------
-; DRAW_COLOUR_BARS - 16 bars, one per pen, 5 bytes wide, 32 lines tall.
-; Proves the Mode 0 encoding, the palette write and the VRAM addressing
-; in one picture: bar N must read back as pen N.
-; ---------------------------------------------------------------------
-DRAW_COLOUR_BARS:
-                ld   hl,PEN_SOLID
-                xor  a
-                ld   (BLK_X),a
-                ld   (BLK_LINE),a
-                ld   a,32
-                ld   (BLK_HEIGHT),a
-                ld   a,5
-                ld   (BLK_W),a
-                ld   b,16
-.bar:           push bc
-                push hl
-                ld   a,(hl)
-                ld   (BLK_VAL),a
-                call DRAW_BLOCK
-                ld   a,(BLK_X)
-                add  a,5
-                ld   (BLK_X),a
-                pop  hl
-                inc  hl
-                pop  bc
-                djnz .bar
-                ret
-
-; ---------------------------------------------------------------------
-; DRAW_BANK_RESULTS - five blocks: &C0, C4, C5, C6, C7. Green = pass.
-; ---------------------------------------------------------------------
-DRAW_BANK_RESULTS:
-                ld   hl,BANK_RESULT
-                ld   a,36
-                ld   (BLK_LINE),a
-                ld   a,16
-                ld   (BLK_HEIGHT),a
-                ld   a,10
-                ld   (BLK_W),a
-                ld   a,4
-                ld   (BLK_X),a
-                ld   b,5
-.blk:           push bc
-                push hl
-                ld   a,(hl)
-                ld   (BLK_VAL),a
-                call DRAW_BLOCK
-                ld   a,(BLK_X)
-                add  a,14
-                ld   (BLK_X),a
-                pop  hl
-                inc  hl
-                pop  bc
-                djnz .blk
-                ret
-
-; ---------------------------------------------------------------------
-; DRAW_STRIPES - the background Kara walks over. Six pens in rotation, so
-; a blitter that loses a byte, shifts a line or restores the wrong row
-; shows up as a broken stripe rather than as nothing at all.
-; ---------------------------------------------------------------------
-DRAW_STRIPES:   ld   a,STRIPE_TOP
-                ld   (BLK_LINE),a
-                ld   a,8
-                ld   (BLK_HEIGHT),a
-                xor  a
-                ld   (BLK_X),a
-                ld   a,SCREEN_WIDTH_BYTES
-                ld   (BLK_W),a
-                ld   hl,STRIPE_PENS
-                ld   b,STRIPE_BANDS
-.band:          push bc
-                push hl
-                ld   a,(hl)
-                ld   (BLK_VAL),a
-                call DRAW_BLOCK
-                ld   a,(BLK_LINE)
-                add  a,8
-                ld   (BLK_LINE),a
-                pop  hl
-                inc  hl
-                pop  bc
-                djnz .band
-                ret
-
-STRIPE_PENS:    db &0C, &3C, &03, &0F, &33, &3F      ; pens 2, 6, 8, 10, 12, 14
-                db &0C, &3C, &03, &0F, &33, &3F
-                db &0C, &3C
 
                 include "bank.asm"
                 include "screen.asm"
@@ -1035,7 +824,6 @@ KARA_FRAME:     db 0
 KARA_FACING:    db 0                    ; 0 = RIGHT, 1 = left - the way
                                         ; player.asm writes it, and the
                                         ; way kara.asm indexes KARA_SETS
-KARA_STEP:      db 0
 KARA_LAST_ADDR: dw 0
 KARA_LAST_TOP:  db 0            ; her first and last DRAWN screen lines,
 KARA_LAST_BOT:  db 0            ; which clipping makes different from Y, Y+63
@@ -1043,31 +831,19 @@ KARA_LAST_CNT:  db 0            ; lines drawn; 0 = entirely off the display
 KARA_ANIM:      db 0            ; index within the current tag's frames
 LEVEL_OK:       db 0            ; did the disc load work? 0 = draw no sprite
 KARA_SAVE_PTR:  dw 0            ; where in KARA_SAVE the drawn part starts
+KARA_ERASE_LEAD equ 24          ; scanlines of beam the erase starts behind
+                                ; her FIRST drawn line, and the number is
+                                ; measured over all 59 shipped cels - see the
+                                ; gate in the loop. The worst of them needs
+                                ; 17.8, the worst one anything PLAYS 15.3.
+
 KARA_CLIP_W:    db 0            ; the drawn rectangle, so KARA_ERASE can
 KARA_CLIP_H:    db 0            ; replay exactly what KARA_DRAW wrote
-CLIP_SY0:       db 0            ; ... and the working state both lanes use
-CLIP_SX0:       db 0
-CLIP_SLINE:     db 0
-CLIP_OFF:       dw 0
-CLIP_ADDR:      dw 0
-CLIP_SPR:       dw 0
-CLIP_SAVE:      dw 0
-CLIP_STEP:      dw 0
-FIRE_TIMER:     db 0
-DEMO_TIMER:     dw 600                  ; frames of the Module 1-3 dev screen,
-                                        ; which nothing reaches any more unless
-                                        ; it jumps to INTRO_SCREEN
 DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up
 DEMO_PHASE_T:   db 0
 FRAME_TICK0:    db 0
-
-                ; SPR_DRAW_SAVE advances the sprite pointer with INC L, so
-                ; every frame has to start on a 16-byte boundary.
-                align 16
-KARA_SPRITES:   incbin "kara_sprites.bin"
-                ; The fast blitter lane walks a 16-byte line with INC L.
-                assert (KARA_SPRITES AND 15) == 0
-
+BUL_PHASE:      db BUL_SLOW     ; 3, 2, 1, 3, ... - at 1 the rounds hold
+HURT_FLASH:     db 0            ; frames of red border left on a hit
                 ; The MAP rides inside the core image, so the boot
                 ; relocation lands it in base RAM - which is the only
                 ; reason MAP_INSTALL can LDIR it to MAP_ADDR.

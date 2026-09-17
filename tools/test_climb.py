@@ -75,7 +75,8 @@ def st(m, sym):
         wy=m.peek(sym["KARA_WY"]), ground=m.peek(sym["KARA_GROUND"]),
         climb=m.peek(sym["KARA_CLIMB"]), cr=m.peek(sym["WORLD_CR"]),
         state=m.peek(sym["KARA_STATE"]), kset=m.peek(sym["KARA_SET"]),
-        frame=m.peek(sym["KARA_FRAME"]), ky=m.peek(sym["KARA_Y"]))
+        frame=m.peek(sym["KARA_FRAME"]), ky=m.peek(sym["KARA_Y"]),
+        facing=m.peek(sym["KARA_FACING"]))
 
 
 def onto_ladder(m, sym, tile):
@@ -108,6 +109,8 @@ def main():
     for n in ("KARA_CLIMB", "PLAYER_CLIMB", "CLIMB_ENTER", "CLIMB_GRAB",
               "CLIMB_AT", "CAMERA_V", "KST_CLIMB", "KACT_CLIMB_COUNT",
               "KSET_ACT", "KST_JUMP", "KARA_COYOTE", "P_COYOTE",
+              "KST_HANG", "KST_CROUCH", "KARA_HANG", "HANG_BEAT",
+              "HANG_HOLD", "HANG_DROP", "KACT_HANG_FIRST", "KACT_HANG_COUNT",
               "V_CR_MAX", "CAM_TOP", "CAM_BOT", "TILE_ATTR",
               "KST_CLIMB_TURN", "CLIMB_TURN_START", "CLIMB_TURN_OFF",
               "KACT_CLIMB_FIRST", "KACT_CLIMB_TURN_FIRST", "KACT_DURATION",
@@ -639,6 +642,119 @@ def main():
           f"{least2 // 4}, which is inside the garage's own four "
           f"({garage_x}..{garage_x + 3}) - so the walk above is the tiles "
           f"and not the walk")
+
+    # ---- 12. the OTHER way down: the ledge --------------------------
+    # A ladder is the way down the level gives you. This is the one the
+    # floor gives you: DOWN at the lip and she crouches, takes hold and
+    # hangs off it on the `hang` cels the artist redrew for it. Let the
+    # key up and she waits HANG_HOLD frames and climbs back; press it
+    # again inside them and she lets go, which is a drop.
+    print("\n  the ledge at the gap:")
+
+    def to_lip(mm=None):
+        mm = mm or boot(sym, scroll=True)
+        mm.joystick(JOY_RIGHT)
+        for _ in range(700):
+            mm.run_frames(1)
+            mm.poke(sym["PLAYER_HP"], 100)
+            if wx_of(mm) >= city.ROOF_GAP[0] * 4 - 7:
+                break
+        mm.joystick(0)
+        mm.run_frames(2)
+        return mm
+
+    def wx_of(mm):
+        return mm.peek(sym["KARA_WX"]) | (mm.peek(sym["KARA_WX"] + 1) << 8)
+
+    mm = to_lip()
+    stood = st(mm, sym)
+    mm.joystick(JOY_DOWN)
+    mm.run_frames(4)
+    ducked = st(mm, sym)
+    check("DOWN at the lip crouches her first",
+          ducked["state"] == sym["KST_CROUCH"]
+          and mm.peek(sym["KARA_HANG"]) == 1
+          and ducked["wy"] == stood["wy"],
+          f"KARA_STATE {ducked['state']} (CROUCH is {sym['KST_CROUCH']}), "
+          f"still on the roof at {ducked['wy'] + KARA_BOX_H}")
+    check("... and turns her back on the drop",
+          ducked["facing"] == 1 and stood["facing"] == 0,
+          f"KARA_FACING {stood['facing']} -> {ducked['facing']} - the art is "
+          f"drawn with the building to her RIGHT, so a right-hand lip is the "
+          f"mirrored cel")
+    mm.run_frames(sym["HANG_BEAT"] + 2)
+    hung = st(mm, sym)
+    check("... and then she takes hold of it",
+          hung["state"] == sym["KST_HANG"] and hung["kset"] == sym["KSET_ACT"]
+          and sym["KACT_HANG_FIRST"] <= hung["frame"]
+          < sym["KACT_HANG_FIRST"] + sym["KACT_HANG_COUNT"]
+          and hung["ground"] == 0,
+          f"KARA_STATE {hung['state']} (HANG is {sym['KST_HANG']}), cel "
+          f"{hung['frame']} of the kact blob's hang run")
+    check("... hanging exactly the art's own drop below the floor",
+          hung["wy"] == stood["wy"] + sym["HANG_DROP"],
+          f"world y {stood['wy']} -> {hung['wy']}: the cel puts the ledge's "
+          f"top surface on line 6 of a box whose last line is 63")
+    mm.run_frames(60)
+    still = st(mm, sym)
+    check("... and the key held down holds her there",
+          still["state"] == sym["KST_HANG"] and still["wy"] == hung["wy"],
+          f"60 frames later she is still at {still['wy']} - the count only "
+          f"starts when DOWN comes up")
+
+    mm.joystick(0)
+    mm.run_frames(sym["HANG_HOLD"] - 6)
+    waiting = st(mm, sym)
+    mm.run_frames(12)
+    back = st(mm, sym)
+    check("letting the key up and NOT pressing it again climbs her back",
+          waiting["state"] == sym["KST_HANG"] and back["ground"] == 1
+          and back["wy"] + KARA_BOX_H == ROOF_Y,
+          f"still hanging {sym['HANG_HOLD'] - 6} frames after the key, back on "
+          f"the roof at {back['wy'] + KARA_BOX_H} after "
+          f"{sym['HANG_HOLD']}")
+
+    print("\n  ... and the other answer:")
+    mm = to_lip()
+    mm.joystick(JOY_DOWN)
+    mm.run_frames(sym["HANG_BEAT"] + 6)
+    mm.joystick(0)
+    mm.run_frames(6)
+    mm.joystick(JOY_DOWN)                   # asked again, inside the window
+    mm.run_frames(2)
+    mm.joystick(0)
+    let_go = st(mm, sym)
+    check("pressing DOWN again inside the window lets go",
+          let_go["state"] == sym["KST_DROP"] and let_go["ground"] == 0,
+          f"KARA_STATE {let_go['state']} (DROP is {sym['KST_DROP']}) - letting "
+          f"go is a fall she did not choose, not a jump")
+    for _ in range(120):
+        mm.run_frames(1)
+        mm.poke(sym["PLAYER_HP"], 100)
+        if mm.peek(sym["KARA_GROUND"]):
+            break
+    down = st(mm, sym)
+    check("... and she falls to the street",
+          down["wy"] + KARA_BOX_H == STREET_Y,
+          f"feet at {down['wy'] + KARA_BOX_H}, pavement at {STREET_Y}")
+
+    print("\n  the negative control - it is the LIP, not the key:")
+    mm = boot(sym, scroll=True)
+    mm.joystick(JOY_RIGHT)
+    mm.run_frames(60)                       # out in the middle of the roof
+    mm.joystick(0)
+    mm.run_frames(2)
+    mid = st(mm, sym)
+    mm.joystick(JOY_DOWN)
+    mm.run_frames(sym["HANG_BEAT"] + 20)
+    ctl = st(mm, sym)
+    check("DOWN in the middle of a floor is a crouch and nothing more",
+          ctl["state"] == sym["KST_CROUCH"] and mm.peek(sym["KARA_HANG"]) == 0
+          and ctl["wy"] == mid["wy"] and ctl["ground"] == 1,
+          f"KARA_STATE {ctl['state']}, KARA_HANG {mm.peek(sym['KARA_HANG'])}, "
+          f"still standing at {ctl['wy'] + KARA_BOX_H} - so the hang is the "
+          f"floor running out and not the key")
+    mm.joystick(0)
 
     print()
     if fails:

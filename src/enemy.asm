@@ -125,7 +125,10 @@ ES_HP           equ 10          ; 0 = dead, and the slot goes quiet
 ES_HOME         equ 11          ; dw - where it was placed: the patrol centre
 ES_SPAN         equ 13          ; db - half-width of the patrol, in pixels
 ES_DIR          equ 14          ; db - 0 = moving right
+ES_DIE          equ 15          ; db - frames of dying left, 0 = not
 ES_STRIDE       equ 16
+EN_DIE_FRAMES   equ 40          ; how long the fall and the flashing last
+EN_DIE_VY_MAX   equ 6           ; pixels a frame it can reach on the way down
 ENEMY_MAX       equ 4
 
 EBUL_MAX        equ 4
@@ -135,8 +138,9 @@ EBUL_X          equ 1           ; screen byte column, exactly like BULLETS
 EBUL_Y          equ 2
 EBUL_DIR        equ 3
 EBUL_LIFE       equ 4
-EBUL_SPEED      equ 2
-EBUL_LIFE_INIT  equ 70
+EBUL_SPEED      equ 2           ; bytes a frame, on two frames in three
+EBUL_LIFE_INIT  equ 105         ; and half as long again, because they
+                                ; move on two frames in three now
 EBUL_PEN        equ &0F         ; solid pen 3 - their shots are not hers
 EBUL_DAMAGE     equ 8
 
@@ -329,8 +333,8 @@ ENEMY_PICK:     xor  a
                 ld   ix,ENEMIES
 .next:          push bc
                 ld   a,(ix + ES_HP)
-                or   a
-                jp   z,.skip                ; dead
+                or   (ix + ES_DIE)          ; dead AND done falling. One that
+                jp   z,.skip                ; is still coming down is live
 
                 ld   c,(ix + ES_X)
                 ld   b,(ix + ES_X + 1)
@@ -488,6 +492,11 @@ ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
                 push hl                     ; empty though
                 pop  ix
 
+                ; ---- dead ones fall before they go -----------------
+                ld   a,(ix + ES_DIE)
+                or   a
+                jp   nz,ENEMY_DYING
+
                 ; ---- patrol ----------------------------------------
                 ld   hl,(ENEMY_TYP)
                 ld   de,EN_T_SPEED
@@ -541,9 +550,20 @@ ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
                 ; A patrol turns at the end of its beat; a gun turns to
                 ; whoever it is shooting at. They are different things
                 ; and the sprite follows the gun.
+                ; IT HAS TO BE ON THE SCREEN BEFORE IT CAN SHOOT.
+                ; Being LIVE and being DRAWN are a few frames apart now:
+                ; a drone has to clear the drawable edge by EN_HYST and
+                ; then wait for a frame with room for its draw, so it
+                ; could open fire from a screen the player cannot see it
+                ; on. Rounds arriving out of nowhere are not a difficulty
+                ; setting. ENEMY_DREW is the honest test - its pixels are
+                ; up there - and the sight test below is what it costs.
                 call ENEMY_SEES
                 jr   nc,.blind
                 ld   (ix + ES_FACE),a       ; ENEMY_SEES leaves the facing in A
+                ld   a,(ENEMY_DREW)
+                or   a
+                jr   z,.armed               ; live, but nobody can see it yet
                 ld   a,(ix + ES_FIRE)
                 dec  a
                 ld   (ix + ES_FIRE),a
@@ -848,6 +868,9 @@ EBUL_UPDATE:    ld   a,(EBUL_LIVE)
                 pop  hl
                 jr   z,.kill
 
+                ld   a,(BUL_PHASE)          ; the frame they hold still on -
+                dec  a                      ; see bullets.asm
+                jr   z,.skip
                 push hl
                 inc  hl
                 ld   a,(hl)                 ; x
@@ -939,11 +962,32 @@ EBUL_HITS_HER:  push hl
                 jr   c,.miss
                 cp   KARA_BOX_H
                 jr   nc,.miss
+                ; AND SHE IS SHORTER WHEN SHE CROUCHES. The pose is the
+                ; roll's first cel and the artist draws it from line 23
+                ; of the box where she stands from line 6, so a box that
+                ; stayed 64 lines tall would take hits on a head that is
+                ; not there. Her FEET do not move, so only the top of
+                ; the box does - see KARA_CROUCH_TOP in action.asm.
+                ;
+                ; B IS THE CALLER'S LOOP COUNTER. EBUL_UPDATE holds the
+                ; slot count in it across this call and finishes with
+                ; DJNZ, so the obvious two-register form of this test
+                ; walked the pool for ever and wrote over the core.
+                ld   c,a                    ; C = the line inside her box
+                ld   a,(KARA_STATE)
+                cp   KST_CROUCH
+                jr   nz,.body
+                ld   a,c
+                cp   KARA_CROUCH_TOP
+                jr   c,.miss                ; over her head, and she ducked
+.body:
                 ld   a,(PLAYER_HP)
                 sub  EBUL_DAMAGE
                 jr   nc,.alive
                 xor  a
 .alive:         ld   (PLAYER_HP),a
+                ld   a,HURT_FRAMES          ; and the border says so, because
+                ld   (HURT_FLASH),a         ; there is no HUD yet (main.asm)
                 pop  hl
                 scf
                 ret
@@ -1042,8 +1086,50 @@ ENEMY_WOUND:    ld   a,(ix + ES_HP)
                 ld   a,(hl)
                 or   EF_TAKEN
                 ld   (hl),a
+                ; AND IT FALLS OUT OF THE SKY BEFORE IT GOES. A drone
+                ; that simply vanished on its last hit read as a bug -
+                ; the shot that killed it and the frame it disappeared
+                ; on are the same one, so nothing on screen says which
+                ; of them did it. It keeps its slot for EN_DIE_FRAMES
+                ; more frames instead, falling and flashing, and
+                ; ENEMY_PICK above keeps picking it while it does.
+                ld   (ix + ES_DIE),EN_DIE_FRAMES
                 scf
                 ret
+
+; ---------------------------------------------------------------------
+; ENEMY_DYING - it is dead and on its way down. IX = the slot.
+;
+; No patrol, no gun, no animation: it falls, gathering speed, and
+; ENEMY_REFRESH flashes it on and off around this counter. When the
+; counter runs out the slot goes quiet and the next refresh lifts its
+; pixels off for good.
+;
+; THE FALL IS NOT THE PHYSICS. There is no ground under a drone hovering
+; over a roof gap or a street, and a death that had to land somewhere
+; would need a probe per frame for something nobody is going to watch.
+; It falls for as long as the counter lasts and then it is gone.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+ENEMY_DYING:    ld   a,(ix + ES_DIE)
+                dec  a
+                ld   (ix + ES_DIE),a
+                ld   b,a
+                ld   a,EN_DIE_FRAMES
+                sub  b                      ; frames since the hit
+                srl  a
+                srl  a                      ; ... a pixel more every four
+                inc  a
+                cp   EN_DIE_VY_MAX + 1
+                jr   c,.vy
+                ld   a,EN_DIE_VY_MAX
+.vy:            add  a,(ix + ES_Y)
+                jr   c,.gone                ; off the bottom of the world
+                ld   (ix + ES_Y),a
+                jp   EBUL_UPDATE
+
+.gone:          ld   (ix + ES_DIE),0        ; the refresh lifts it off next
+                jp   EBUL_UPDATE
 
 ; ---------------------------------------------------------------------
 ; ENEMY_REFRESH - lift the enemy off the screen and put it back down
@@ -1080,6 +1166,29 @@ ENEMY_WOUND:    ld   a,(ix + ES_HP)
 ;      (ENEMY_DREW)     non-zero while its pixels are on the screen
 ;      destroys AF,BC,DE,HL,IX,B',C'
 ; ---------------------------------------------------------------------
+; ---------------------------------------------------------------------
+; ENEMY_ROOM - Z if this frame can afford to DRAW one, NZ if not.
+;
+; A citydrone's draw is 15,520 T and a frame with the incoming column in
+; it has between 5,300 and 14,600 left by the time the refresh is
+; reached. Two things say which: the interrupt tick - 5 on the roomy
+; frames, 6 on the tight ones, with nothing in between - and whether
+; ENT_UPDATE swept the pickups this frame, which is worth 2,800 T and
+; alternates on FRAME_COUNT's bottom bit.        destroys AF,HL
+; ---------------------------------------------------------------------
+ENEMY_ROOM:     ld   a,(FRAME_COUNT)
+                rra
+                jr   nc,.no                 ; the sweep's frame: not this one
+                ld   a,(IRQ_TICKS)
+                ld   hl,FRAME_TICK0
+                sub  (hl)
+                cp   EN_DRAW_TICK + 1
+                jr   nc,.no
+                xor  a                      ; Z: there is room
+                ret
+.no:            or   1
+                ret
+
 ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 ; The budget gate below may postpone the sprite's
                 ; ANIMATION and its patrol. Whether it is on the screen
@@ -1114,6 +1223,17 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 ld   a,(ENEMY_VIS)          ; near zone
                 or   a
                 jr   z,.afford
+                ; A DYING ONE IS FALLING, so its pixels are wrong every
+                ; frame and .optional's "the screen is already right"
+                ; does not hold. It takes the budget gate instead: as
+                ; often as the frame can afford, which is about 25 Hz
+                ; while she walks and every frame while she does not.
+                ld   hl,(ENEMY_CUR)
+                push hl
+                pop  ix
+                ld   a,(ix + ES_DIE)
+                or   a
+                jr   nz,.budget
                 jr   .optional
 
                 ; ---- NOTHING ON THE SCREEN: SHOULD THERE BE? -------
@@ -1156,15 +1276,8 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 ; WITH the sweep has 15,280 - 240 short, which is a
                 ; dropped frame for the sake of a quarter of a
                 ; scanline.
-                ld   a,(FRAME_COUNT)
-                rra
-                jr   nc,.wait               ; the sweep's frame: not this one
-                ld   a,(IRQ_TICKS)
-                ld   hl,FRAME_TICK0
-                sub  (hl)
-                cp   EN_DRAW_TICK + 1
-                jr   c,.settle              ; room for it: draw it now
-.wait:
+.budget:        call ENEMY_ROOM
+                jr   z,.settle              ; room for it: draw it now
                 ld   hl,ENEMY_DEFER
                 inc  (hl)
                 ld   a,(hl)
@@ -1236,8 +1349,15 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 pop  ix
                 ld   a,(ix + ES_HP)
                 or   a
+                jr   nz,.living
+                ; DEAD AND STILL COMING DOWN: it flashes. The erase above
+                ; has already lifted it off, so a refresh that draws
+                ; nothing IS the dark half of the flash - four frames of
+                ; the dying counter on and four off, for nothing.
+                ld   a,(ix + ES_DIE)
+                and  4
                 ret  z
-                ld   a,(ENEMY_VIS)
+.living:        ld   a,(ENEMY_VIS)
                 or   a
                 ret  z                      ; near, but its box does not fit
                 inc  a

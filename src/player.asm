@@ -95,6 +95,9 @@ PLAYER_UPDATE:  ld   a,(KARA_STATE)
                 ld   a,(KARA_CLIMB)
                 or   a
                 jp   nz,PLAYER_CLIMB        ; a ladder suspends both of them
+                ld   a,(KARA_HANG)
+                or   a
+                jp   nz,PLAYER_HANG         ; ... and so does a ledge
 
                 call PLAYER_X
                 ; A LADDER BEATS A JUMP, so the grab is tested before
@@ -104,6 +107,10 @@ PLAYER_UPDATE:  ld   a,(KARA_STATE)
                 ; ladder and holding UP hopped on the spot for ever.
                 call CLIMB_ENTER
                 ld   a,(KARA_CLIMB)
+                or   a
+                ret  nz
+                call EDGE_ENTER             ; DOWN at a lip: crouch, then hang
+                ld   a,(KARA_HANG)
                 or   a
                 ret  nz
                 jp   PLAYER_Y
@@ -628,6 +635,152 @@ CLIMB_LEAVE:    xor  a
                 ld   (KARA_FELL),a
                 ret
 
+; =====================================================================
+; THE LEDGE: DOWN at the lip of a floor, and the 40 frames after it
+;
+; A ladder is the way down a level gives you. This is the one the floor
+; gives you: press DOWN facing the edge and she crouches, takes hold of
+; the lip and hangs off it - the `hang` tag, which the artist redrew for
+; exactly this (CLAUDE.md 7.1): the hands grip an edge in FRONT of her
+; and above her, the body hangs below alongside the wall.
+;
+; WHICH WAY SHE FACES IS THE WALL, NOT THE DROP. The art is drawn with
+; the building to her right, so hanging off a RIGHT-hand lip is the
+; mirrored cel - she turns her back on the drop, which is what a person
+; climbing down does. The grip is at column 11 of the 24-pixel box and
+; the wall from column 12, so the snap below puts the lip's last solid
+; byte under sprite byte 5 (mirrored) or its first under sprite byte 6.
+;
+; AND THEN IT IS A QUESTION. Let DOWN up and she waits HANG_HOLD frames
+; and climbs back; press it again inside them and she lets go, which is
+; a `drop` and not a jump. Holding DOWN forever holds her there forever:
+; the count only starts when the key comes up.
+; =====================================================================
+HANG_BEAT       equ 10          ; frames of crouch before she takes hold
+HANG_DROP       equ 58          ; lines she drops when she does. Standing,
+                                ; her feet are on the floor's top line and
+                                ; the box's last line is the one above it;
+                                ; hanging, the art puts that same floor
+                                ; line on line 6 of the box. 64 - 6 = 58
+HANG_HOLD       equ 40          ; frames to make up her mind in
+
+; ---------------------------------------------------------------------
+; EDGE_ENTER - DOWN, on her feet, at the lip of the floor she faces.
+;
+; Called after CLIMB_ENTER, so a ladder under her takes it first: DOWN
+; on a rung is a climb and DOWN at a lip is a hang, and a ladder that
+; runs down the face of a building is both places at once.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+EDGE_ENTER:     ld   a,(KARA_GROUND)
+                or   a
+                ret  z
+                ld   a,(INPUT_PRESSED)      ; a PRESS, not the key's state:
+                and  IN_DOWN                ; walking to the edge with DOWN
+                ret  z                      ; held would grab it on arrival
+
+                ; ---- is the floor gone, just past the edge she faces?
+                ld   a,(KARA_FACING)
+                or   a
+                ld   hl,(KARA_WX)
+                jr   nz,.look_l
+                ld   de,KARA_BOX_W          ; the byte just past her box
+                add  hl,de
+                jr   .probe
+.look_l:        dec  hl
+.probe:         push hl
+                ld   a,(KARA_WY)
+                add  a,KARA_BOX_H           ; the line under her feet
+                call MAP_ATTR
+                pop  hl
+                and  TA_BLOCK
+                ret  nz                     ; still floor: DOWN is a crouch
+
+                ; ---- the lip is that byte's TILE boundary -----------
+                ld   a,l
+                and  &FC                    ; HL = the open tile's first byte
+                ld   l,a
+                ld   a,(KARA_FACING)
+                or   a
+                jr   nz,.grab_l
+                ld   de,-3                  ; a right-hand lip: the wall's
+                add  hl,de                  ; last byte is sprite byte 5 of
+                ld   a,1                    ; the MIRRORED cel
+                jr   .grab
+.grab_l:        inc  hl                     ; a left-hand one: its first byte
+                xor  a                      ; is sprite byte 6 of the cel as
+.grab:          ld   (KARA_FACING),a        ; drawn
+                ld   (KARA_WX),hl
+                ld   a,HANG_BEAT
+                ld   (KARA_HANG_T),a
+                ld   a,1                    ; 1 = crouching, about to take hold
+                ld   (KARA_HANG),a
+                ret
+
+; ---------------------------------------------------------------------
+; PLAYER_HANG - the crouch, the hold, and the 40 frames after it.
+;
+; Gravity does not run while this does: PLAYER_UPDATE comes straight
+; here. Nothing else moves her either - the cel is drawn hanging off a
+; fixed lip and a hand that slides along it is not a hand.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+PLAYER_HANG:    ld   a,(KARA_HANG)
+                dec  a
+                jr   nz,.holding
+
+                ; ---- the crouch, and then she takes hold ------------
+                ld   hl,KARA_HANG_T
+                dec  (hl)
+                ret  nz
+                ld   a,(KARA_WY)
+                add  a,HANG_DROP
+                ld   (KARA_WY),a
+                ld   a,2
+                ld   (KARA_HANG),a
+                xor  a
+                ld   (KARA_HANG_T),a        ; 0 = DOWN is still down
+                ld   (KARA_GROUND),a
+                ld   (KARA_VY),a
+                ld   (KARA_FELL),a
+                ret
+
+.holding:       ld   a,(KARA_HANG_T)
+                or   a
+                jr   nz,.counting
+                ld   a,(INPUT_NOW)          ; still holding the key she
+                and  IN_DOWN                ; grabbed with: she hangs on
+                ret  nz
+                ld   a,HANG_HOLD
+                ld   (KARA_HANG_T),a
+                ret
+
+.counting:      ld   a,(INPUT_PRESSED)
+                and  IN_DOWN
+                jr   nz,.let_go             ; asked again: she drops
+                ld   hl,KARA_HANG_T
+                dec  (hl)
+                ret  nz
+
+                ; ---- nobody said drop, so she pulls herself back up -
+                xor  a
+                ld   (KARA_HANG),a
+                ld   a,(KARA_WY)
+                sub  HANG_DROP
+                ld   (KARA_WY),a
+                ld   a,1
+                ld   (KARA_GROUND),a
+                ret
+
+.let_go:        xor  a
+                ld   (KARA_HANG),a
+                ld   (KARA_HANG_T),a
+                ld   (KARA_VY),a
+                ld   (KARA_GROUND),a
+                inc  a
+                ld   (KARA_FELL),a          ; letting go is a DROP
+                ret
+
 ; ---------------------------------------------------------------------
 ; CAMERA_DECIDE - Kara drives the scroll engine, one frame ahead.
 ;
@@ -841,5 +994,7 @@ KARA_VY:        db 0
 KARA_GROUND:    db 0
 KARA_CLIMB:     db 0   ; non-zero while she is on a ladder
 KARA_COYOTE:    db 0   ; frames of edge left to jump from, see PLAYER_Y
+KARA_HANG:      db 0   ; 0 = no, 1 = the crouch before the grab, 2 = holding
+KARA_HANG_T:    db 0   ; the beat, then the 40 frames after DOWN comes up
 KARA_FELL:      db 0   ; non-zero while she is in the air WITHOUT having
                        ; jumped - which is `drop` and not `jump` (8.4)

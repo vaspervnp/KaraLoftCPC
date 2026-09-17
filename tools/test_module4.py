@@ -593,12 +593,10 @@ def main():
     machine.insert_disc(os.path.abspath(os.path.join(ROOT, "build", "kara.dsk")))
     machine.type_text('RUN"DISC\n')
     machine.run_frames(400)
-    check("Module 1-3 screen is running", machine.mode == 0, f"mode={machine.mode}")
+    check("the game is running", machine.mode == 0, f"mode={machine.mode}")
 
-    # Cut the Module 1-3 phase short rather than waiting out DEMO_TIMER,
-    # then give DRAW_PLAYFIELD its ~18 frames to paint all 40 columns.
-    machine.poke(sym["DEMO_TIMER"], 2)
-    machine.poke(sym["DEMO_TIMER"] + 1, 0)
+    # THERE IS NO INTRO TO CUT SHORT ANY MORE. RUN"DISC goes straight to
+    # the rooftop, so all that is left to wait for is the level itself.
     # The scrolling demo now LOADS LEVEL 1 OFF THE DISC before it paints
     # anything - four banks of ZX0, about 72 frames (CLAUDE.md 7.5) -
     # and then DRAW_PLAYFIELD wants its ~18 to fill all 40 columns, and

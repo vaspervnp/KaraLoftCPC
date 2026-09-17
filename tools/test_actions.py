@@ -388,8 +388,17 @@ def main():
         m.poke(sym["MAG_LEFT"], 7)
         m.poke(sym["MAG_RIGHT"], 7)
         m.poke(sym["RELOAD_TIMER"], 0)
+        # THE ROUNDS HOLD STILL ONE FRAME IN THREE (CLAUDE.md 8.5) and
+        # the counter that says which frame belongs to the main loop,
+        # which is not running under a DI stub. Drive it here the way
+        # the loop does, and call UPDATE_BULLETS a whole phase's worth,
+        # so the answer does not depend on which frame it was parked on.
+        phase = sym["BUL_SLOW"]
         for r in (sym["FIRE_BULLET"], sym["UPDATE_BULLETS"],
-                  sym["UPDATE_BULLETS"]):
+                  sym["UPDATE_BULLETS"], sym["UPDATE_BULLETS"]):
+            if r != sym["FIRE_BULLET"]:
+                m.poke(sym["BUL_PHASE"], phase)
+                phase = phase - 1 or sym["BUL_SLOW"]
             code = bytes([0xF3, 0xCD, r & 0xFF, r >> 8, 0x18, 0xFE])
             m.write_ram(STUB, code)
             m.set_pc(STUB)
@@ -406,8 +415,8 @@ def main():
 
     rx0, rx1 = shoot(0)
     lx0, lx1 = shoot(1)
-    print(f"    facing right (0): spawned at byte {rx0}, two frames on {rx1}")
-    print(f"    facing left  (1): spawned at byte {lx0}, two frames on {lx1}")
+    print(f"    facing right (0): spawned at byte {rx0}, three frames on {rx1}")
+    print(f"    facing left  (1): spawned at byte {lx0}, three frames on {lx1}")
     check("facing right, the round travels right", rx1 > rx0,
           f"{rx0} -> {rx1}")
     check("facing left, the round travels left", lx1 < lx0, f"{lx0} -> {lx1}")
@@ -425,8 +434,6 @@ def main():
     m2.insert_disc(os.path.abspath(os.path.join(ROOT, "build", "kara.dsk")))
     m2.type_text('RUN"DISC\n')
     m2.run_frames(400)
-    m2.poke(sym["DEMO_TIMER"], 2)
-    m2.poke(sym["DEMO_TIMER"] + 1, 0)
     m2.run_frames(150)
 
     def held(key, frames=8):

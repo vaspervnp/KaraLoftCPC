@@ -18,15 +18,17 @@ Kara drawn over it from keyboard or joystick input, walking, jumping and
 colliding with the tiles, and the camera following her. The loop holds 50 Hz on
 every path (§9).
 
-**`RUN"DISC` starts on the rooftop.** There is no longer an
-introduction: the core boots, self-tests its banks and goes straight to
-the city. The Module 1-3 acceptance screen — colour bars, the bank
-verdict, the stripes and the 16x48 placeholder blitter — is kept as a
-DEVELOPMENT screen at `INTRO_SCREEN`, which `tools/test_module3.py` and
-`tools/test_module1.py` jump into; nothing else reaches it. It puts the
-CRTC, the start address, her position, the bullet pool and the map back
-the way it needs them, because the level it is entered from has moved
-all five.
+**`RUN"DISC` starts on the rooftop, and that is the only screen there
+is.** The core boots, self-tests its banks and goes straight to the
+city. **The Module 1-3 acceptance screen has been deleted** — colour
+bars, the bank verdict, the stripes, the liveness lamps and the 16x48
+placeholder blitter that drew a stand-in heroine over them. It was the
+only caller of `sprite.asm`'s masked blitter, of the sheet
+`png2sprite.py` exported and of the coloured border bands, and all of
+that has gone with it: 4,625 bytes of core image, two tools and two
+suites. What it proved is still checked, in the game rather than on a
+screen of its own — `tools/test_module1.py` reads `BANK_TEST`'s own
+verdict bytes instead of five green blocks.
 
 The scrolling demo loads level
 1 off the disc at start-up, scrolls the drawn 8x16 city tiles, draws
@@ -60,6 +62,22 @@ reach — and it is put where no other suite's walk goes, because a hole
 in front of a scrolling test turns it into a falling test without
 failing it (§8.8).
 
+**The border flashes red for four frames when she is hit**, because
+there is no HUD yet and a static one over a scrolling screen needs a
+raster split the frame cannot pay for — §9 has the measurement and §8.3
+the plan.
+
+**And there is a third way off the roof.** DOWN at the lip and she
+crouches, takes hold of it and hangs off it on the `hang` cels; let the
+key up and she pulls herself back in 40 frames, press it again inside
+them and she lets go (§8.8).
+
+**She can crouch**: DOWN on its own, on her feet, plays the roll's
+first cel and holds it — and takes 23 lines off the top of her hitbox,
+so a drone's shot goes over her (§8.4). **And a drone she kills falls
+out of the sky flashing** instead of vanishing on the frame the shot
+landed (§8.7).
+
 **And she can jump it.** `P_COYOTE` gives her six frames of edge after
 the ground has gone, which takes the take-off window from 8 frames to
 14 and is the difference between a gap and a wall with a longer
@@ -74,9 +92,9 @@ belong to the development screen (§9). **A drone coming into view no
 longer costs her a frame**, which on this loop is not a stutter but a
 frame with no heroine in it (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all sixteen
+`./tools/run_tests.sh` runs every acceptance suite and **all fourteen
 pass**, including the frame budget: a scrolling frame on Kara's
-heaviest animation frame is 75,932 T of 79,872, with the span blitter
+heaviest animation frame is 76,324 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
 incoming ROW is painted in four pieces rather than two, because the
 action sheet's cels are heavier than the gun's and a half row no longer
@@ -88,7 +106,8 @@ src/config.asm    ports and memory map constants
 src/bank.asm      bank switching (must stay outside &4000-&7FFF)
 src/screen.asm    Mode 0 addressing, block fill, palette, vsync
 src/palette.asm   the 16 pens + solid-pen byte table
-src/sprite.asm    scroll-aware masked blitter, save-under restore
+src/sprite.asm    where a pixel IS: the address model and the line
+                  stepping every blitter shares
 src/bullets.asm   dual pistols, 14-round pool, reloading
 src/spanblit.asm  the span-compressed blitter and its erase script
 src/unpack.asm    ZX0 into a bank, and LEVEL_LOAD
@@ -110,7 +129,6 @@ disc/disc.bas     ASCII BASIC loader
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
-tools/png2sprite.py        sprite sheet  -> data+mask binary (the placeholder)
 tools/aseprite2spans.py    Aseprite sheet+JSON -> span-compressed bank
 tools/spawns.py            projectile spawn points -> build/spawns.inc
 tools/pack.py              ZX0 for everything that goes on the disc
@@ -121,10 +139,9 @@ tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
 tools/blender_title.py     the title scene and its CPC render settings
-tools/make_placeholder_sprites.py
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
-tools/test_*.py            acceptance suites, sixteen of them
+tools/test_*.py            acceptance suites, fourteen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -518,8 +535,8 @@ shooting lives:
 | `drop` | 2 | y=320 | 100 each | loops | yes |
 | `die` | 6 | y=384 | 90,120,130,160,110,600 | once, then **holds** | yes |
 
-**`hang` IS A LEDGE, NOT A LADDER, AND NOTHING PLAYS IT YET.** It was
-the state for standing still on a ladder and that was wrong twice over.
+**`hang` IS A LEDGE, NOT A LADDER, AND NOW IT HAS ONE.** It was the
+state for standing still on a ladder and that was wrong twice over.
 The old cels were SIDE ON in the middle of a back view, so she stopped
 climbing and turned to face the player without moving a pixel — the
 same cut `climb_turn` exists to avoid. And the artist has since redrawn
@@ -527,8 +544,9 @@ them as what the tag is actually for: **the hands grip an edge in FRONT
 of her and above her, in the direction she faces, and the body hangs
 below it alongside the wall** — a roof edge or a ledge, not a rung. The
 two cels are the body swaying while the hands stay put. So stopping on
-a ladder freezes the `climb` cel she stopped on (§8.4) and `hang` waits
-for the mechanic it was drawn for.
+a ladder freezes the `climb` cel she stopped on (§8.4), and `hang` is
+what DOWN at the lip of a floor plays — §8.8's ledge, which is the
+mechanic it was drawn for.
 
 **Its anchor is written down here because a ledge-grab will have to line
 up with it**, and because it is now identical in both cels — the half
@@ -544,8 +562,11 @@ frame's left:
 | the body | columns 1..12, not centred, because the arms reach forward |
 
 Mirrored like every other side-on cel: column c becomes 23 − c, so the
-grip is column 12 and the wall runs left from column 11. Letting go is
-`drop`; climbing over the edge is whatever the climb-up turns out to be.
+grip is column 12 and the wall runs left from column 11 — **which is
+why hanging off a RIGHT-hand lip is the mirrored cel**: the building is
+to her left there, and she turns her back on the drop. Letting go is
+`drop`; climbing back over the edge is the same 58 lines in reverse
+(§8.8).
 
 **`drop` was redrawn in the same box** — a thinner braid, in an arc, and
 the body one Mode 0 pixel further right inside the frame. The artist
@@ -764,9 +785,11 @@ line 1:  ...
 ld a,(de) : and (hl) : inc hl : or (hl) : inc hl : ld (de),a : inc de
 ```
 
-Produced by `tools/png2sprite.py`, emitted for `INCBIN`, with a generated `.inc` of
-frame count and sizes. Sprites are quantised against the pens in `src/palette.asm`,
-not against their own image, so they match the level they are drawn over.
+**That convention is the SPAN format's** (above) — `png2sprite.py`, the
+full-box exporter that also wrote it, went with the Module 1-3 screen
+it fed. Sprites are quantised against the pens in `src/palette.asm`,
+not against their own image, so they match the level they are drawn
+over.
 
 **Pens 1 and 5 were given to the art.** They were Bright Blue and Bright
 Magenta, and nothing — tiles, HUD or sprite — used either. They are now
@@ -839,9 +862,10 @@ table.
 plan.md assumed an Aseprite MCP server and §3 records that there is no
 Aseprite on this machine. That is still true and no longer matters: the
 art arrives as an **exported sheet plus its JSON**, which is the same
-thing the MCP server would have produced. `png2sprite.py` reads the
+thing the MCP server would have produced. `aseprite2spans.py` reads the
 JSON for the frame boxes and the tags rather than assuming a grid, so
-re-exporting with different frame counts needs no code change.
+re-exporting with different frame counts needs no code change — and
+`meta.frameTags` is what it reads, never the filename.
 
 ### 7.3 Tiles — the transparency contract
 
@@ -1385,6 +1409,8 @@ the frame counts in §7.1 rather than inferred at each call site.
 | `RUN` | `run` 8 | **SHIFT + left/right** | SHIFT or the direction goes |
 | `JUMP` | `jump` 6 | UP pressed while grounded, **or within `P_COYOTE` frames of walking off** | she lands |
 | `ROLL` | `roll` 8 | **DOWN + left or right**, on the ground | the 8 frames are done |
+| `CROUCH` | `roll` cel 0, held | **DOWN alone**, on the ground, with no ladder under her and the trigger up | DOWN is released |
+| `HANG` | `hang` 2 | **DOWN at the lip of a floor**, after `HANG_BEAT` frames of the crouch | she climbs back, or lets go |
 | `AIM` | `shoot_draw` 2 then hold | **SPACE held** | SPACE released |
 | `FIRE` | `shoot` 4 | **SPACE released** from `AIM` | the 4 frames are done |
 | `CLIMB` | `climb` 4 | on a ladder — the cycle runs while UP or DOWN is held and **freezes on the cel she stopped on** when neither is | she steps off it |
@@ -1481,6 +1507,23 @@ pattern, so re-timing the tap re-derives the expectation rather than
 invalidating it — and a dropped frame still shows, because a dropped
 frame is ground lost on a frame she was NOT aiming.
 
+**DOWN ON ITS OWN IS A CROUCH, AND IT IS THE LAST THING DOWN MEANS.**
+The roll's first cel is her on one knee, so the pose is drawn and ships
+already; what it is FOR is their rounds. `EBUL_HITS_HER` takes
+`KARA_CROUCH_TOP` = 23 lines off the top of her box while it is up —
+measured off the sheet, where the crouch is drawn from line 23 of the
+64-line box and standing from line 6 — and her feet do not move, so
+only the top of the box does. Measured in front of a drone over 400
+frames: **standing she takes 6 hits and goes from 100 to 52; crouching
+she takes none.**
+
+Everything else DOWN can mean is tested first: a ladder under her feet
+(`player.asm` has already put her on the shaft by the time
+`ACT_UPDATE` runs), DOWN with a direction (the roll), and the gun — so
+a player holding DOWN can still shoot back rather than pressing a
+trigger that does nothing. She stands up to aim; ducking is not cover
+she can fire from.
+
 **Three states are committed**: a roll runs its 8 frames whatever the
 input does, which is what makes it a dodge and not a nudge; the shot
 runs its 4, which is what stops a tapped trigger playing one frame of a
@@ -1566,7 +1609,14 @@ AMMO_RESERVE bytes    clips add 14
 ```
 
 14 bullets in flight max, one pool entry per round: `{active, x, y, direction, life}`.
-Bullets move 4 pixels/frame. Reload is manual (Down+Fire) or
+**Bullets move 4 pixels on two frames in three.** A round steps whole
+BYTES, so a third off the speed is not a smaller step, it is a step it
+does not take: `BUL_PHASE` counts 3, 2, 1 in the main loop and both
+pools hold still at 1. The loop owns the counter because
+`UPDATE_BULLETS` returns early on an empty pool, and their rounds would
+otherwise run at a speed that depended on whether she was firing. The
+lives went up by half — 60 → 90 frames and 70 → 105 — so the slower
+round still reaches as far. Reload is manual (Down+Fire) or
 automatic when both magazines hit 0; during reload the player is slowed or frozen.
 
 **A round dies on a solid tile, and the probe is a coordinate
@@ -1861,6 +1911,32 @@ two doubled frames three frames apart. `tools/test_enemies.py` reports
 **200 loop iterations in 200 hardware frames on all five input paths**;
 two of them were 199 and are the transients §9 used to name.
 
+#### A drone that is killed falls out of the sky, flashing
+
+It used to vanish on the frame the last round landed, which reads as a
+bug rather than a kill: the shot and the disappearance are the same
+frame, so nothing on screen says one caused the other. `ES_DIE` is a
+counter in the slot's spare byte and `ENEMY_WOUND` sets it to
+`EN_DIE_FRAMES` = 40 instead of letting the slot go quiet:
+
+* `ENEMY_PICK` keeps picking a slot whose hit points are 0 while that
+  counter runs;
+* `ENEMY_DYING` takes it away from the patrol and the gun and drops it
+  a pixel a frame more every four, to `EN_DIE_VY_MAX` = 6. **The fall
+  is not physics** — there is no ground under a drone over a roof gap,
+  and a death that had to land somewhere would cost a probe a frame for
+  something nobody watches;
+* the refresh draws it on four frames of that counter and not on the
+  next four, and the erase it does anyway IS the dark half — a flash
+  costs nothing but the draws it skips;
+* at zero the slot goes quiet and the next refresh lifts it off.
+
+Measured from the kill: it falls from world y 98 to 229 over 40 frames,
+drawn four frames on and four off, and is gone. The draws go through
+`ENEMY_ROOM` (below) like the entry draw does, so the death animates at
+about 25 Hz while she walks and every frame while she does not, and
+never on a frame that cannot pay for it.
+
 #### What an enemy costs, and how it is paid for
 
 | | draw | erase | both |
@@ -1908,6 +1984,17 @@ to the cell a taken pickup leaves behind, which is why `ENT_SETTLE`
 queues the repaint rather than doing it (`ENT_REPAINT_DUE`): done in
 the logic phase it put the new tiles down and her erase put the pickup
 straight back over the twelve bytes she overlapped.
+
+**AND IT HAS TO BE ON THE SCREEN BEFORE IT CAN SHOOT.** Live and drawn
+are a few frames apart now — it has to clear the drawable edge by
+`EN_HYST` and then wait for a frame with room for its draw — so it
+could open fire from a screen the player cannot see it on. Rounds
+arriving out of nowhere are not a difficulty setting: `ENEMY_DREW` is
+the honest test, and the sight test is what it costs.
+`tools/test_enemies.py` holds its pixels off the screen for 260 frames
+in its sights and watches nothing leave the gun, then lets go of
+`ENEMY_DREW` and watches it fire — which is what keeps the first half
+from passing on a dead gun.
 
 **Their fire is a separate pool** — four rounds, a different pen, and a
 solid two-line block like hers rather than the `citydroneshot` art,
@@ -2054,6 +2141,42 @@ make — the window is 14 frames now, measured, with a control at each
 end. Jumping too early still lands her in the hole, which is what makes
 it a gap.
 
+#### And the third way off it: over the edge, hand over hand
+
+A ladder is the way down the level gives you and the gap is the one it
+does not. **The ledge is the one the floor gives you**: DOWN pressed at
+the lip of the roof and she crouches, takes hold of it and hangs off it
+on the `hang` cels §7.1 describes. `EDGE_ENTER` and `PLAYER_HANG` in
+`player.asm` are the whole of it, and three things in them are the
+art's rather than the code's:
+
+* **which way she faces is the WALL, not the drop.** The cel is drawn
+  with the building to her right, so a right-hand lip is the mirrored
+  one — she turns her back on the drop, which is what a person climbing
+  down does;
+* **where she snaps to is the grip.** The art puts the hand at column
+  11 of the 24-pixel box and the wall from column 12, so the lip's last
+  solid byte goes under sprite byte 5 (mirrored) or its first under
+  sprite byte 6. A hand gripping two bytes of air is the whole reason
+  the anchor is written down;
+* **how far she drops is `HANG_DROP` = 58 lines**, which is 64 − 6:
+  standing, her feet are on the floor's top line; hanging, the same
+  line is line 6 of the box.
+
+**AND THEN IT IS A QUESTION.** Let DOWN up and she waits `HANG_HOLD` =
+40 frames and pulls herself back up; press it again inside them and she
+lets go, which is a `drop` and not a jump. Holding DOWN holds her there
+for ever — the count only starts when the key comes up, so nothing
+happens to a player who is thinking about it. Gravity does not run
+while she hangs and nothing moves her: the cel is drawn on a fixed lip
+and a hand that slides along it is not a hand.
+
+The probe is one byte past the edge she faces, at the line under her
+feet, and it is a PRESS and not the key's state — walking to the edge
+with DOWN held would otherwise grab it on arrival. `tools/test_climb.py`
+drives both answers and carries the control that matters: **DOWN in the
+middle of the roof is a crouch and nothing more.**
+
 **The fall outruns the camera and that is not a fault.** She reaches
 `P_VY_MAX` in a few frames and covers the 128 pixels in 25; `CAMERA_V`
 asks for one character row at a time and a row takes `V_PARTS` frames,
@@ -2154,12 +2277,24 @@ of them is standing, so none of them measures the box.
 
 A frame is **79,872 T-states**.
 
-**THE GAME'S BORDER IS BLACK.** The coloured bands are a DEVELOPMENT
-instrument and they belong to the Module 1-3 screen, which
-`tools/test_module3.py` profiles from; down in the city they were eight
+**THE GAME'S BORDER IS BLACK, EXCEPT WHEN SHE IS HIT.** The coloured
+profiling bands were a DEVELOPMENT instrument and they went with the
+Module 1-3 screen they belonged to; down in the city they were eight
 colour changes a frame flickering down the left edge of a night-time
-skyline, and they cost about 560 T a frame. `SCROLL_DEMO` sets the
-border once and never touches it again.
+skyline, and they cost about 560 T a frame.
+
+What the border does now is the one thing there is no HUD for yet:
+**four frames of red when her health goes down**. A static HUD over a
+screen the CRTC is scrolling needs a raster split, and the split needs
+a frame this one has not got — §8.3 puts it in module 6 with the 20x11
+play area, where the 16-line HUD is already designed. Measured, the
+alternatives were a 16-line HUD costing 8,704 T of raster wait in the
+interrupt handler (which the budget cannot pay and which would push her
+draw into the beam) or a 40-line one that lands free on interrupt tick
+3 and takes a fifth of the picture. The border costs two OUTs on the
+frames it changes and nothing on the rest, and **it cannot be confused
+with the sprite** the way flashing HER could — a heroine who blinks is
+the bug this section spent the day removing.
 
 **Do not use border bands to profile.** The dev screen still paints them, and
 they are useful for *seeing* where time goes, but they under-report: the emulator
@@ -2231,9 +2366,12 @@ and prints the reason beside them, because the transient is affordable
 and not impossible — a level whose frames are all tight will see it
 again.
 
-A scrolling frame on her heaviest cel is **75,932 T of the 79,872
-available — 3,940 to spare**, measured by summing every call the loop
-makes. The three biggest pieces are the span blitter's draw 40,196, the
+A scrolling frame on her heaviest cel is **76,324 T of the 79,872
+available — 3,548 to spare**, measured by summing every call the loop
+makes. (It was 75,932 with 3,940; the artist's redrawn `drop` cels are
+heavier than the ones they replace, which is where the difference went
+— `tools/test_spanblit.py` re-derives the number from the routines the
+loop actually calls rather than from this paragraph.) The three biggest pieces are the span blitter's draw 40,196, the
 column 16,536 across its two halves, and the erase 13,380.
 
 **It was 160 to spare and the 3,780 came out of three places, none of
@@ -2246,7 +2384,7 @@ is black, which is eight `BORDER_SET` calls a frame gone (~560 T).
 authority.** It adds the worst placement of the heaviest cel to the
 worst of everything else, and those do not co-occur; the loop counted
 against interrupt ticks holds 50 Hz on every path in the table above,
-climbing and street included. 3,940 T is the first real headroom this
+climbing and street included. 3,548 T is the first real headroom this
 module has had, and §11's Module 6 has a masked tile path and a real X
 clip to spend it on.
 
@@ -2334,7 +2472,22 @@ anything that must be **behind** it against the late one.
    and the beam overtook her from the waist down.
 2. **The incoming column is split across two frames** so it never competes with
    her for the border. See §8.2.
-3. **`KARA_ERASE` must stay behind the beam**, and still finish before the next
+3. **THE ROUNDS GO DOWN BEFORE SHE DOES.** They were drawn over her —
+   she fires past herself — and her draw is 32,000-40,000 T, so
+   `BUL_DRAW` was reached 10,200 µs into the frame with the beam already
+   at display line 98. A round leaving her muzzle **on the roof** is at
+   line 43-49, which the beam passed at 6,980 µs: written to video RAM
+   behind the beam and lifted off again at 13,400, so it was never
+   displayed at all. Down **on the street** the same round is at line
+   113, the beam gets there at 11,076, and it shows. That is exactly how
+   it was reported — *"I only see the bullets at street level"* — and the
+   fix is the order: drawn first they are 300 µs in, ahead of the beam
+   everywhere. The price is her lead, `BUL_DRAW` being 1,876 T with a
+   full pool and nothing at all with an empty one, and the erase order
+   is reversed to match (she goes down OVER the rounds, so her
+   save-under holds their pixels and has to put them back before they
+   restore the background).
+4. **`KARA_ERASE` must stay behind the beam**, and still finish before the next
    VSYNC. The IM 1 interrupt is the only raster clock the CPC offers — the 6845
    exposes no scanline register — so the gate is a **whole tick** picked from
    her Y: tick 4 up to Y=38, tick 5 up to 90, tick 6 up to 142. Ticks measured
@@ -2346,13 +2499,37 @@ anything that must be **behind** it against the late one.
 
    The first lands after only 532 T, not a full 52-line period.
 
+   **AND THE GATE IS HER FIRST LINE, NOT HER LAST.** Both walk
+   downwards and the erase is FASTER — about 97 T a line plus 24 a span
+   byte, against the raster's 256 — so it closes on the beam and the
+   line that binds really is the last one. But "the beam has passed her
+   last line" is not what that requires: the erase needs its whole run
+   to REACH that line, so what it actually needs is
+
+   ```
+   start >= beam(her first line) + max over k of (256k - C(k))
+   ```
+
+   where `C(k)` is what the erase has spent by its k-th line. Computed
+   over all 59 shipped cels from their span widths, the worst that
+   maximum comes to is **17.8 scanlines**; `KARA_ERASE_LEAD` is 24.
+   Waiting for the beam to clear her last line waits 62, and **that is
+   what the fall cost**: low in the picture with the camera stepping
+   under her, the erase started in her own frame's last third and ran
+   past the vblank. **Four dropped frames down the fall**, and a dropped
+   frame here is not a stutter, it is a frame with no heroine in it —
+   she has been erased and the next draw waits for the vblank after
+   next. *"A little flicker on the fall."* With the measured lead it is
+   **0 dropped frames**, and the worst frame in the whole fall is 74,584
+   T of 79,872.
+
    **A finer gate than one tick does not work, and the failure is instructive.**
    A delay loop after the tick can only measure from the moment it is entered,
    so a second one in the same frame adds its whole wait on top of whatever ran
    between them. Splitting the erase into halves gated that way put the lower
    half 13,600 T late and dropped a frame on 12 scrolling frames out of 58 —
    visible on hardware as the sprite flickering while the screen moves.
-4. **`RASTER_WAIT` must credit the time already spent.** Its delay can
+5. **`RASTER_WAIT` must credit the time already spent.** Its delay can
    only count from the moment it is entered, so a caller that arrives a
    whole tick after the one it asked for used to wait the remaining
    50-odd scanlines *on top of* however long it took to get there. That
@@ -2362,7 +2539,7 @@ anything that must be **behind** it against the late one.
    frames in 200 while scrolling** - the whole `ACT_UPDATE` is 724 T,
    so the cost was never the new code. Each whole tick late is 52
    scanlines already owed, and subtracting them is four instructions.
-5. **`FRAME_TICK0` is stamped by the interrupt handler, not by the main loop.**
+6. **`FRAME_TICK0` is stamped by the interrupt handler, not by the main loop.**
    The handler reads PPI port B and, on the tick that lands inside the VSYNC
    pulse, records the count. `WAIT_VSYNC` tests the level rather than an edge,
    so a frame whose work overran into the 16-scanline pulse starts late on the
@@ -2578,6 +2755,14 @@ frame, so this only helps a standing player on a still screen.
 * Labels `SCREAMING_SNAKE`, local labels `.dotted`.
 * Prefer `EXX` / shadow registers over push/pop in inner loops; document which shadow
   set a routine clobbers, since the interrupt handler uses them too.
+* **`B` IS A LOOP COUNTER SOMEWHERE ABOVE YOU.** `EBUL_HITS_HER` was
+  given a second register for the crouch's shorter hitbox and took `B`;
+  its caller holds the pool's slot count there and finishes with `DJNZ`,
+  so one round landing on her walked the pool 256 times and wrote zeros
+  across the core. **On real hardware that is a reset on the second hit
+  you take**, which is how it was reported, and it is the entry below
+  with a different register. The test to apply is not "is this register
+  free here" but "is it free at every call site".
 * **Write the clobber list in the header comment of every routine, and check it at
   every call site.** The worst bug in Module 3 was not in the blitter — it was a
   helper that scratched `DE` while the caller was holding the screen address there,
@@ -2642,7 +2827,7 @@ the next one starts.
 
 1. ~~**Memory architecture + build pipeline**~~ — done: bootstrap/relocator, bank
    switching, `build.sh`, BASIC loader, `.dsk` generation, `tools/test_module1.py`.
-2. ~~**Asset exporters**~~ — done: `cpclib.py`, `png2sprite.py`, `png2screen.py`,
+2. ~~**Asset exporters**~~ — done: `cpclib.py`, `aseprite2spans.py`, `png2screen.py`,
    `blender_title.py`, wired into `build.sh`, with round-trip and on-hardware tests.
 3. ~~**Sprite blitter + dual-pistol bullet pool**~~ — done: one-pass masked draw
    with save-under, LDI restore, 14-round pool, alternating magazines, reloading,
@@ -2677,8 +2862,9 @@ the next one starts.
       the rest to `SPAN_DRAW`; the loop calls it and `SPAN_ERASE`, and
       `SCROLL_DEMO` loads level 1 off the disc first. `tools/test_kara.py`
       checks 296 placements against an independent v-model. Four bugs
-      came out of it, all in §9's new entry. `png2sprite.py` and the
-      16x48 path still serve the Module 1-3 screen;
+      came out of it, all in §9's new entry. (`png2sprite.py` and the
+      16x48 path served the Module 1-3 screen until step 15 deleted
+      both);
    6. ~~the action state machine and its controls~~ - done:
       `src/action.asm`, seven states from one table, cel timing out of
       the art's own duration tables, the gun's two pistols driven by
@@ -2761,7 +2947,37 @@ the next one starts.
       five of `test_enemies.py`'s input paths are 200 of 200 now
       (§8.7). `tools/test_climb.py` grew the jump window and the street
       walk, with a control at each end of both;
-   14. `tools/test_module5.py` — started, with the bullet/tile checks
+   14. ~~what the THIRD round of play-tests found~~ — done, and two of
+      the four were the raster rather than the code: **the rounds were
+      only visible at street level**, because her draw put `BUL_DRAW`
+      behind the beam (§9); **the fall flickered**, because the erase
+      waited for the beam to clear her LAST line when it only ever
+      needed her first plus 24 (§9); **DOWN alone is a crouch** that
+      their rounds go over (§8.4); and **a killed drone falls out of the
+      sky flashing** instead of vanishing on the frame it was hit
+      (§8.7). One regression came out of it and is written down in §10:
+      `B` is a loop counter somewhere above you;
+   15. ~~delete the Module 1-3 acceptance screen~~ — done. Colour bars,
+      the bank verdict, the stripes, the liveness lamps, `GAME_LOGIC`'s
+      stand-in walk and the 16x48 masked blitter that drew the
+      placeholder heroine over them, plus `png2sprite.py`,
+      `make_placeholder_sprites.py` and the two suites whose subject
+      they were. 4,625 bytes of core image; the build writes no preview
+      PNGs any more either. What module 1 proved is checked in the game
+      instead: `tools/test_module1.py` reads `BANK_TEST`'s verdict bytes,
+      `IRQ_TICKS` and `FRAME_COUNT`;
+   16. ~~the ledge, and three more play-test answers~~ — done: **DOWN
+      at the lip of a floor** crouches her, takes hold and hangs her off
+      it, with 40 frames to decide between climbing back and letting go
+      (§8.8) — which is what the redrawn `hang` tag was for; **a drone
+      shoots only once its pixels are on the screen**, because live and
+      drawn are a few frames apart now (§8.7); **every round is a third
+      slower**, which is a frame in three it does not move rather than a
+      step it cannot take (§8.5); and **the border flashes red for four
+      frames when she is hit**, because there is no HUD yet. The HUD
+      itself is a raster split and the split is module 6's, with the
+      measurement in §9;
+   17. `tools/test_module5.py` — started, with the bullet/tile checks
       and what firing costs her in it. It still owes the rest of the
       module.
 

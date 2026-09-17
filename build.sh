@@ -16,11 +16,14 @@ rm -f "$BUILD/$DSK" "$BUILD/game.bin"
 
 # --- assets -----------------------------------------------------------
 # Regenerated every build so the binaries can never drift from the art.
-# main.asm INCBINs the sprites and the level; Module 6 links the title.
-python3 "$ROOT/tools/png2sprite.py" "$ROOT/assets/placeholder/kara_sheet.png" \
-        -o "$BUILD/kara_sprites.bin" \
-        --inc "$BUILD/kara_sprites.inc" \
-        --preview "$BUILD/kara_preview.png"
+# main.asm INCBINs the level's map; Module 6 links the title.
+#
+# THE PLACEHOLDER SHEET IS NOT EXPORTED ANY MORE. png2sprite.py made a
+# 16x48 masked sprite for the Module 1-3 acceptance screen, and both the
+# screen and the blitter that drew it are gone; the game draws her out
+# of the span blobs build_levels.py exports below. Nor does anything
+# here write preview PNGs: the build makes the disc, and a picture of
+# the game comes from running it.
 
 # ALL THE SPRITE ART, one directory per level plus a shared set.
 # tools/build_levels.py walks the artists' manifest.json files, exports
@@ -38,7 +41,7 @@ python3 "$ROOT/tools/spawns.py"
 python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         -o "$BUILD/overscan.bin" \
         --inc "$BUILD/title_palette.asm" \
-        --preview "$BUILD/title_preview.png" --dither
+        --dither
 
 # Where the level streams will sit on the disc. The layout comes from
 # their sizes alone, so the include can be written before RASM runs and

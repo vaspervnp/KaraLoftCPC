@@ -30,7 +30,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 LEV = os.path.join(ROOT, "build", "levels")
 EK_ENEMY, EF_ACTIVE, EF_TAKEN = 2, 1, 2
 ES = dict(REC=0, X=2, Y=4, TYPE=5, FACE=6, CEL=7, TIMER=8, FIRE=9, HP=10,
-          HOME=11, SPAN=13, DIR=14)
+          HOME=11, SPAN=13, DIR=14, DIE=15)
 ES_STRIDE = 16
 EN_T = dict(BANK=0, RIGHT=1, BANK_L=3, LEFT=4, MOVE_F=6, MOVE_N=7,
             FIRE_F=8, FIRE_N=9, W=10, H=11, SPEED=12, PERIOD=13, HP=14,
@@ -195,6 +195,43 @@ def main():
     hurt = hp0 - m.peek(sym["PLAYER_HP"])
     check("its shots take health off her", hurt > 0, f"{hp0} -> "
           f"{m.peek(sym['PLAYER_HP'])}, {hurt} a hit")
+    # THE BORDER IS THE HUD FOR NOW (CLAUDE.md 9). A static one over a
+    # scrolling screen needs a raster split the frame cannot pay for, so
+    # until module 6 the player is told by four frames of red.
+    check("... and the border says so", m.peek(sym["HURT_FLASH"]) > 0,
+          f"HURT_FLASH {m.peek(sym['HURT_FLASH'])} of "
+          f"{sym['HURT_FRAMES']} frames")
+    for _ in range(sym["HURT_FRAMES"] + 2):
+        m.run_frames(1)
+        m.poke(sym["PLAYER_HP"], 100)       # not hit again
+    check("... and it goes out again", m.peek(sym["HURT_FLASH"]) == 0,
+          "black once the frames are up, so it is the hit and not a "
+          "border that is red from now on")
+
+    # ---- IT HAS TO BE ON THE SCREEN BEFORE IT CAN SHOOT ------------
+    # Live and drawn are a few frames apart: it has to clear the
+    # drawable edge by EN_HYST and then wait for a frame with room for
+    # its draw (CLAUDE.md 8.7). Rounds out of an empty screen are not a
+    # difficulty setting.
+    print("\n  and it shoots only once the player can see it:")
+    m = to_drone(sym)
+    m.poke(sym["PLAYER_HP"], 100)
+    for _ in range(260):                # its pixels held off the screen
+        m.poke(sym["ENEMY_DREW"], 0)
+        m.run_frames(1)
+        m.poke(sym["PLAYER_HP"], 100)
+    check("nothing leaves its gun while its pixels are not up",
+          m.peek(sym["EBUL_LIVE"]) == 0 and m.peek(sym["PLAYER_HP"]) == 100,
+          f"EBUL_LIVE {m.peek(sym['EBUL_LIVE'])}, her HP "
+          f"{m.peek(sym['PLAYER_HP'])} over 260 frames in its sights")
+    fired = 0
+    for _ in range(260):                # ... and now let it be drawn
+        m.run_frames(1)
+        m.poke(sym["PLAYER_HP"], 100)
+        fired = max(fired, m.peek(sym["EBUL_LIVE"]))
+    check("... and it does the moment they are", fired > 0,
+          f"{fired} of its rounds in the air once ENEMY_DREW is left alone - "
+          f"so the check above is the gate and not a dead gun")
 
     m = to_drone(sym)
     hp_want = m.peek(T + EN_T_STRIDE + EN_T["HP"])
@@ -219,8 +256,27 @@ def main():
     rec = word(m, sym["ENEMIES"] + ES["REC"])
     check("the RECORD is marked killed, not just the slot",
           m.peek(rec + 5) & EF_TAKEN != 0, f"flags &{m.peek(rec + 5):02X}")
-    check("a dead one is never picked again",
-          word(m, sym["ENEMY_CUR"]) == 0)
+
+    # ---- and it falls out of the sky before it goes ----------------
+    # A drone that vanished on the frame the last round landed read as
+    # a bug: the shot and the disappearance are the same frame, so
+    # nothing on screen says one caused the other. It keeps its slot
+    # for ES_DIE more frames, falling and flashing (CLAUDE.md 8.7).
+    y0 = slot(m, sym, 0, "Y")
+    seen, ys = set(), []
+    for _ in range(sym["EN_DIE_FRAMES"] + 12):
+        m.run_frames(1)
+        seen.add(m.peek(sym["ENEMY_DREW"]) != 0)
+        ys.append(slot(m, sym, 0, "Y"))
+    check("it falls", ys[-1] > y0 + 40, f"world y {y0} -> {ys[-1]}")
+    check("... and flashes on the way down", seen == {True, False},
+          "drawn on some of those frames and not on others, which is what "
+          "the refresh's erase already costs it")
+    check("... and then it is gone for good",
+          slot(m, sym, 0, "DIE") == 0 and word(m, sym["ENEMY_CUR"]) == 0
+          and m.peek(sym["ENEMY_DREW"]) == 0,
+          f"ES_DIE {slot(m, sym, 0, 'DIE')}, ENEMY_CUR "
+          f"&{word(m, sym['ENEMY_CUR']):04X}, its pixels lifted off")
 
     # ---- the persistent sprite -------------------------------------
     print("\n  it is a PERSISTENT sprite, not a per-frame one:")
