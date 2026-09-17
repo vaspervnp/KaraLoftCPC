@@ -2976,7 +2976,12 @@ the next one starts.
       step it cannot take (§8.5); and **the border flashes red for four
       frames when she is hit**, because there is no HUD yet. The HUD
       itself is a raster split and the split is module 6's, with the
-      measurement in §9;
+      measurement in §9.
+
+      **Steps 12-16 are confirmed on Retro Virtual Machine**, which is
+      the only witness that counts for the raster: every one of them
+      came out of a play-test report and was played back on the same
+      machine. The suites are necessary and the hardware is sufficient;
    17. `tools/test_module5.py` — started, with the bullet/tile checks
       and what firing costs her in it. It still owes the rest of the
       module.
