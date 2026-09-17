@@ -33,6 +33,24 @@ rm -f "$BUILD/$DSK" "$BUILD/game.bin"
 # CLAUDE.md 6.2, 7.1 and 7.4.
 rm -rf "$BUILD/levels"
 python3 "$ROOT/tools/build_levels.py"
+
+# The City map, over the DRAWN 8x16 tiles. The tiles themselves are no
+# longer generated or linked: build_levels.py exported them into the
+# level's bank and LEVEL_LOAD unpacks them there, so only the map rides
+# in the core image. Must run AFTER build_levels.py - it reads that
+# export's sidecar to check the tile numbering has not shifted - and
+# BEFORE level_banks.py, because it appends the baked overlay tiles to
+# the level's tile blob (CLAUDE.md 7.3) and the banking has to see them.
+# It re-packs that blob's .zx0 itself, since build_levels.py packed it
+# before there was anything appended.
+python3 "$ROOT/tools/make_city_map.py"
+
+# ... and then the same bytes in the EDITOR's format. make_level.py is
+# the reference implementation of docs/editor.md 9.2 and the engine's
+# LEVEL_PARSE reads what it writes, so the format has a golden file and
+# a level that is played on real hardware before the editor exists.
+python3 "$ROOT/tools/make_level.py"
+
 python3 "$ROOT/tools/level_banks.py"
 
 # Where a shot leaves each firing frame, against the BLOB's numbering.
@@ -49,18 +67,6 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
 python3 "$ROOT/tools/dskdata.py" --inc
 
 # --- code -------------------------------------------------------------
-# The City map, over the DRAWN 8x16 tiles. The tiles themselves are no
-# longer generated or linked: build_levels.py exported them into the
-# level's bank and LEVEL_LOAD unpacks them there, so only the map rides
-# in the core image. Must run AFTER build_levels.py - it reads that
-# export's sidecar to check the tile numbering has not shifted.
-python3 "$ROOT/tools/make_city_map.py"
-
-# ... and then the same bytes in the EDITOR's format. make_level.py is
-# the reference implementation of docs/editor.md 9.2 and the engine's
-# LEVEL_PARSE reads what it writes, so the format has a golden file and
-# a level that is played on real hardware before the editor exists.
-python3 "$ROOT/tools/make_level.py"
 
 # ZX0 for everything that goes on the disc. It is the best cruncher RASM
 # ships on BOTH ratio and depack speed - see tools/pack.py for the nine

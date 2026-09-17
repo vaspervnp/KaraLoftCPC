@@ -7,8 +7,11 @@ corrections and why.
 
 ## 1. Status
 
-**Modules 1-4 done; Module 5 in progress, and the playfield is the
-drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
+**Modules 1-4 done, Module 5 all but its last test, and Module 6
+started: the engine reads `level_1.lvl` and `tileflags_level1_city.bin`
+off the disc (6a) and the level's overlay tiles are composited into the
+tileset at build time rather than masked at run time (6b, §7.3). The
+playfield is the drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
 of the level. `./build.sh` regenerates the assets,
 assembles, and produces `build/kara.dsk`. It boots, relocates, passes its bank
 self-test, runs Kara walking and firing over a striped background with full
@@ -92,7 +95,7 @@ belong to the development screen (§9). **A drone coming into view no
 longer costs her a frame**, which on this loop is not a stutter but a
 frame with no heroine in it (§8.7).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all fourteen
+`./tools/run_tests.sh` runs every acceptance suite and **all fifteen
 pass**, including the frame budget: a scrolling frame on Kara's
 heaviest animation frame is 76,324 T of 79,872, with the span blitter
 at its floor and `DRAW_COLUMN` rewritten from 71 T a byte to 43. The
@@ -137,11 +140,16 @@ tools/build_levels.py      the level art packages -> blobs, and which of
 tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
 tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
-tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles
+tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
+                           and the build-time bake of its overlay tiles
+tools/make_level.py        that map + the entity table -> level_1.lvl,
+                           the reference implementation of editor.md 9.2
 tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
-tools/test_*.py            acceptance suites, fourteen of them
+tools/test_format.py       the level file, the engine's reading of it,
+                           and the overlay bake
+tools/test_*.py            acceptance suites, fifteen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -959,32 +967,84 @@ that has not needed it yet. `station_tiles` is the other case and the
 one to be careful about: 9 of its tiles carry pen 0, every one of them
 `opaque`, and `bg_far_1` is at 126 of 128.
 
-#### THIS ENGINE HAS NO MASKED TILE PATH, AND IT ALREADY SHOWS
+**The mask column is what a masked path WOULD store, and nothing
+stores it.** Level 1 spends 640 bytes on 10 composited tiles instead of
+704 on masks, and pays nothing per frame for them — the next section.
+The number to watch is not the mask size but how many distinct
+(overlay, background) PAIRS a level places: the masks are per tile and
+the composites are per pair, so a lamp post down a whole wall of four
+different bricks is four tiles, not one.
 
-`DRAW_COLUMN`, `DRAW_ROW` and `DRAW_CELL` are plain copies, and
-`tools/make_city_map.py` places all eleven of level 1's overlay tiles as
-ordinary map cells. So their pen 0 is painted black, and what that
-looks like depends entirely on what it lands on:
+#### THE ENGINE HAS NO MASKED TILE PATH AND IS NOT GETTING ONE — THE OVERLAYS ARE BAKED AT BUILD TIME
 
-* the roof props — `ac_unit`, `chimney`, `antenna` — sit on
-  `far_fill`, which is black, so they come out right **by accident**;
-* the water tank's top row lands on the skyline row and punches a black
-  hole in `far_tower`/`far_block`;
-* `lamp_top` and `lamp_pole` are on brick, and their 78 and 84
-  transparent pixels paint **an 8x32 black rectangle out of the wall** —
-  rendered from the shipped tiles and the generated map, not predicted.
+`DRAW_COLUMN`, `DRAW_ROW` and `DRAW_CELL` are plain copies and they
+stay that way. The masked path was Module 6's job on paper; measured
+against what it would buy, it is the wrong trade:
 
-**And the cost argument in the table does not transfer unchanged.**
-"Once a room, not every frame" assumes a room-at-a-time renderer; this
-one scrolls, and repaints a 384-byte column every character step (§9).
-An overlay tile in that column is 32 of those bytes at 2-3x, every step
-— which is affordable for the eleven decorations level 1 has and is a
-number to check before a level puts overlays down a whole wall.
+| | |
+|---|---:|
+| `DRAW_COLUMN`, one character cell of the incoming column | **669 T** |
+| the same cell masked, at the 2-3x this section's table quotes | 1,338-2,007 T |
+| a scrolling frame's headroom (§9) | **3,548 T** |
 
-The masked path belongs to Module 6's tilemap rewrite (§11), with the
-map format saying which layer a cell is on. Until then the rule for
-`make_city_map.py` is the one the picture already enforces: **an overlay
-tile may only be placed over black.**
+So two overlay cells in one column is the whole budget, and the column
+is repainted every character step. **The composite does not change
+between frames** — an overlay tile and the tile under it are both
+scenery — so it is done ONCE, at build time, exactly like the pickups
+of §8.6 and for the same reason.
+
+`tools/make_city_map.py` routes every overlay placement through
+`put_overlay(x, y, over, under)`, which records the pair; `bake_overlays()`
+then composites each distinct pair out of the artist's sheet — the
+overlay's pens where they are not 0, the background's where they are —
+appends the result to `citytiles.bin` as a new tile, and remaps the map
+cells to it. The baked tile inherits the BACKGROUND's tile flags, because
+what the cell does is what it did before something was drawn on it.
+`build/city_baked.json` is the record, and `tools/test_format.py`
+recomposites every pair independently and compares the blob byte for
+byte.
+
+| | |
+|---|---:|
+| pairs placed in level 1 | 11 |
+| baked into new tiles | **10**, 640 bytes of bank C4 |
+| dropped — the composite came out byte for byte the overlay | 1 (`tank_10`) |
+| per frame, for ever after | **0** |
+
+**`far_fill` IS NOT ALL BLACK, so the roof props were not right by
+accident after all.** It carries 4 lit pixels of its 128, and this
+section used to say the props over it "come out right". Composited,
+`ac_unit` recovers 3 of them, `chimney` 4 and `antenna` 3 — small, and
+the point is that the old rule ("an overlay may only be placed over
+black") was being satisfied by a tile nobody had counted. What the bake
+recovers, per pair, measured:
+
+| pair | pixels of 128 |
+|---|---:|
+| `lamp_pole` over `brick` | **84** |
+| `lamp_top` over `brick_win_lit` | **64** |
+| `tank_00` over `far_step` | 42 |
+| `tank_01` over `far_block` | 40 |
+| `tank_21` over `ac_unit_on_far_fill` | 35 |
+| the three roof props over `far_fill` | 3, 4, 3 |
+| `tank_11`, `tank_20` over `far_fill` | 2, 2 |
+| | **279** |
+
+**An overlay can stand on a BAKED tile**, which is the water tank's
+top-right corner over the air-conditioning unit: the pair's `under` is
+another composite, so the bake resolves recursively and so does the
+test. That is also why the sidecar records `under` after the remap and
+not before.
+
+**What this does NOT solve is the format question.** The map still
+carries one byte a cell and that byte is now the composite's index, so
+`level_<n>.lvl` still has nowhere to say "this cell is an overlay over
+that one" — the pairing lives in the generator and dies there. A level
+editor that lets a designer drop a lamp on a wall has to either write
+the composite itself or grow the format a layer (§11 step 7). The
+engine's rule is unchanged and now enforced by construction rather than
+by care: **a map cell is a finished tile; nothing is drawn over
+anything at run time.**
 
 ### 7.4 Compression — ZX0, and it is not close
 
@@ -1333,10 +1393,10 @@ and 4 will not be so kind; Module 6 needs a real clip.
 
 Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
 
-**Every tile blitter here is a plain copy**, which is correct for the 30
-opaque tiles of level 1 and wrong for its 11 overlays — see §7.3 for
-what that already costs the picture, and §11's Module 6 for where the
-masked path goes.
+**Every tile blitter here is a plain copy and stays one.** Level 1's 11
+overlays are composited into new tiles at build time instead, because a
+masked cell is 2-3x a copy against a frame with 3,548 T in it — §7.3
+has the numbers and what the bake recovers.
 
 ### 8.3 The level format, and the editor that writes it
 
@@ -1413,8 +1473,9 @@ open.** The tile flag byte is settled above and `param0`/`param1` are in
 does.** A tile is **4 bytes × 16 lines**, so it spans 2 CRTC character
 columns and 2 character rows, and the City's map is 128×16 of them.
 `tilemap.asm` and `collide.asm` were rewritten around it when the drawn
-art arrived; what is left of Module 6 is the play area, the masked tile
-path and the X clip.
+art arrived; what is left of Module 6 is the play area with its HUD
+(6c) and the X clip (6d) — the masked path is not coming, the overlays
+are baked at build time instead (§7.3).
 
 **2. The play area is 20×11 tiles and the HUD is 16 lines, not 24.**
 editor.md §2.1 asks for 176 lines of play plus a 24-line HUD = 200
@@ -2423,8 +2484,11 @@ authority.** It adds the worst placement of the heaviest cel to the
 worst of everything else, and those do not co-occur; the loop counted
 against interrupt ticks holds 50 Hz on every path in the table above,
 climbing and street included. 3,548 T is the first real headroom this
-module has had, and §11's Module 6 has a masked tile path and a real X
-clip to spend it on.
+module has had. **The masked tile path was the first claim on it and
+did not survive the measurement** — 669 T a cell copied against
+1,338-2,007 masked, so two overlay cells in one column would be all of
+it; the overlays are composited at build time instead (§7.3) and the
+3,548 T is still there for Module 6's HUD split and its X clip.
 
 **The logic is 5,416 T now, not the 7,080 this section used to
 record**, and that is `ENEMY_PICK`'s reject and its type lookup moving
@@ -3037,12 +3101,26 @@ the next one starts.
    area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
    `collide.asm`'s probes, then a reader for `level_<n>.lvl` and
    `tileflags_<level>.bin`, then one hand-built level played end to
-   end. **The masked tile path of §7.3 belongs here too**, with whatever
-   the map format grows to say which cell is an overlay over which — the
-   art has 34 overlay tiles across three levels and the engine has no
-   way to draw one. `tools/make_level.py` writes the same bytes the editor will, so
-   the format gets a reference implementation and a golden file before
-   anything else is built against it.
+   end. **The masked tile path is not part of it** — §7.3 measured it
+   at 1,338-2,007 T a cell against 3,548 T of frame and bakes the
+   overlays into new tiles at build time instead, 10 pairs and 640
+   bytes for level 1. What is still open is the FORMAT half: a map cell
+   is one byte and there is nowhere to say it is an overlay over
+   another, so the pairing lives in `make_city_map.py` and an editor
+   would have to bake it itself. `tools/make_level.py` writes the same
+   bytes the editor will, so the format gets a reference implementation
+   and a golden file before anything else is built against it, and
+   `tools/test_format.py` reads it back through the engine.
+
+   Its slices: **6a** the format reader (done — `MAP_INSTALL` parses
+   `level_1.lvl`, `TILE_ATTR` comes out of `tileflags_level1_city.bin`,
+   and the hand-written attribute table is gone); **6b** the overlays
+   (done — the bake above); **6c** the 20x11 play area and the 16-line
+   HUD, which is a raster split and therefore **only RVM can witness
+   it** (§8.2's note on `SCROLL_APPLY`: a real 6845 takes a new start
+   address at the next character row and the headless emulator only
+   reloads at vtotal); **6d** a real X clip for sprites at the screen
+   edges (§8.2).
 7. **The level editor** — [docs/editor.md](docs/editor.md), a C# /
    ASP.NET Core MVC web application. **It comes here and not earlier,
    and the reason is the golden file.** The editor's whole output is

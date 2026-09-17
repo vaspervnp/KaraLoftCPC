@@ -24,6 +24,7 @@ What it checks:
        - take TA_CLIMB off the ladder IN THE FILE and the table in RAM
          loses it too, which is what says the flags come from the file
 """
+import json
 import os
 import sys
 
@@ -112,6 +113,106 @@ def main():
           set(attr[len(flags):]) == {0},
           f"a map byte is an index, so all {sym['TILE_ATTR_N']} of them have "
           f"to be there")
+
+    # ---- 2b. the baked overlay tiles --------------------------------
+    # CLAUDE.md 7.3: 34 tiles across three levels are drawn with pen 0
+    # meaning TRANSPARENT and every tile blitter is a plain copy, so an
+    # overlay placed as an ordinary cell paints its transparent pixels
+    # BLACK - a lamp on a brick wall punches an 8x32 hole in it. They
+    # are composited into new tiles at build time instead, which costs
+    # 64 bytes of bank a pair and nothing per frame.
+    print("\n  the overlays, baked onto what they cover:")
+    import cpclib                                              # noqa: E402
+    from aseprite2spans import game_palette                    # noqa: E402
+    from PIL import Image                                      # noqa: E402
+    art = os.path.join(ROOT, "assets", "sprites", "level1_city")
+    sheet = Image.open(os.path.join(
+        art, "city_tiles_cpc_mode0_sheet.png")).convert("RGBA")
+    boxes = json.load(open(os.path.join(
+        art, "city_tiles_cpc_mode0_sheet.json")))["frames"]
+    if isinstance(boxes, dict):
+        boxes = [boxes[k] for k in boxes]
+    palette = game_palette(os.path.join(ROOT, "src", "palette.asm"))
+    blob = open(os.path.join(BUILD, "levels", "level1_city",
+                             "citytiles.bin"), "rb").read()
+    names = city.tile_names()[1]
+    per = 64                            # 4 bytes x 16 lines
+
+    # WHAT THE BUILD BAKED, from the build's own record: BAKED is filled
+    # while the map is generated, so importing the generator gets an
+    # empty dict and a loop over it passes without looking at anything.
+    baked = json.load(open(os.path.join(BUILD, "city_baked.json")))
+    # ONLY THE ONES THAT WERE ACTUALLY BAKED RESOLVE. A pair whose
+    # composite came out byte for byte the overlay itself keeps the
+    # overlay's index (the background was black everywhere it showed),
+    # so it is its own tile and not a recipe.
+    by_index = {b["index"]: b for b in baked if b["baked"]}
+
+    def pens_of(i):
+        if i not in by_index:
+            b = boxes[i]["frame"]
+            return cpclib.quantise(sheet.crop(
+                (b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"])), palette)
+        top, bottom = pens_of(by_index[i]["over"]), pens_of(by_index[i]["under"])
+        return [[top[y][x] or bottom[y][x] for x in range(8)]
+                for y in range(16)]
+
+    def encode(pens):
+        out = bytearray()
+        for col in range(2):
+            for y in range(16):
+                for x in (col * 4, col * 4 + 2):
+                    out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
+        return bytes(out)
+
+    check("the build baked something at all", len(baked) > 0,
+          f"{len(baked)} pairs in build/city_baked.json - the checks below "
+          f"iterate it, so an empty one is a failure and not a pass")
+    wrong, hid = [], []
+    for b in [b for b in baked if b["baked"]]:
+        index, over = b["index"], b["over"]
+        if encode(pens_of(index)) != blob[index * per:(index + 1) * per]:
+            wrong.append(b["name"])
+        # ... and it has to differ from the overlay ALONE, or the
+        # background did not come through and the bake did nothing.
+        if blob[index * per:(index + 1) * per] == blob[over * per:(over + 1) * per]:
+            hid.append(b["name"])
+    check("every baked tile is the two it was made from", not wrong,
+          f"{len(by_index)} of {len(baked)} pairs, composited independently "
+          f"here from the artist's sheet and compared byte for byte"
+          if not wrong else f"wrong: {wrong}")
+    check("... and none of them is just the overlay again", not hid,
+          "the background shows through where the overlay's pen 0 is, which "
+          "is the hole this replaces" if not hid else f"flat: {hid}")
+    # An overlay whose pair was DROPPED is placed raw and is meant to
+    # be: the composite came out byte for byte the overlay, so there is
+    # nothing under it to lose. Only an overlay that has a bake of its
+    # own may not appear on its own.
+    kept = {b["index"] for b in baked if not b["baked"]}
+    raw_overlays = {b["over"] for b in by_index.values()} - kept
+    check("the map places the baked tile, never the raw overlay",
+          not (set(lvl["map"]) & raw_overlays),
+          f"{len(set(lvl['map']))} distinct tiles in the map and none of the "
+          f"{len(raw_overlays)} baked-away overlays among them"
+          if not (set(lvl["map"]) & raw_overlays)
+          else f"raw in the map: {sorted(set(lvl['map']) & raw_overlays)}")
+
+    # THE NEGATIVE CONTROL FOR THE BAKE: composite the pair the other
+    # way round - the background's pens over the overlay's - and the
+    # bytes must stop matching. Without it "every baked tile is the two
+    # it was made from" would pass for any tile made of the same two.
+    flat = []
+    for b in by_index.values():
+        top, bottom = pens_of(b["over"]), pens_of(b["under"])
+        wrong_way = [[bottom[y][x] or top[y][x] for x in range(8)]
+                     for y in range(16)]
+        if encode(wrong_way) == blob[b["index"] * per:(b["index"] + 1) * per]:
+            flat.append(b["name"])
+    check("... and the two are not interchangeable",
+          len(flat) < len(by_index),
+          f"{len(by_index) - len(flat)} of {len(by_index)} change when the "
+          f"background is painted over the overlay instead - the other "
+          f"{len(flat)} are tiles whose overlay covers everything it stands on")
 
     # ---- 3. the controls --------------------------------------------
     print("\n  the controls - it really is reading the file:")

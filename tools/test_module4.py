@@ -50,7 +50,12 @@ TILE_W_BYTES = 4                 # 8 pixels
 TILE_BYTES = TILE_W_BYTES * 16   # 64 - column-major, 2 char columns of 32
 COL_HEAD = 14                    # rows of the incoming column painted behind
                                  # the beam; tilemap.asm derives it
-N_TILES = 41                     # the City sheet
+# HOW MANY TILES THE LEVEL HAS, OFF THE SHIPPED BLOB. It was 41, the
+# City sheet's own frame count, and then make_city_map.py started
+# appending composited overlay tiles to it (CLAUDE.md 7.3) - so a map
+# byte that is a perfectly good baked tile read as a corrupt index.
+N_TILES = os.path.getsize(os.path.join(
+    ROOT, "build", "levels", "level1_city", "citytiles.bin")) // 64
 MAP_ADDR = 0xA000              # base RAM: bank C4 belongs to the art
 # The map is a section of level_1.lvl now, not an incbin of its own:
 # docs/editor.md 9.2's header is 21 bytes and the map follows it.

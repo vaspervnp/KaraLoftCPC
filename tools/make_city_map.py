@@ -73,6 +73,11 @@ the same time as the roof: reaching it IS a vertical scroll.
 """
 import json
 import os
+import sys
+
+from PIL import Image
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
@@ -133,9 +138,124 @@ TILE_FLAGS = {
 }
 
 
+# ---------------------------------------------------------------------
+# AN OVERLAY TILE IS BAKED ONTO WHAT IT COVERS, at build time, and the
+# map gets the composited tile. CLAUDE.md 7.3 has the problem: 34 tiles
+# across three levels are drawn with pen 0 meaning TRANSPARENT, and
+# every blitter in tilemap.asm is a plain copy - so a lamp on a brick
+# wall paints an 8x32 black rectangle out of it.
+#
+# THE ALTERNATIVE WAS MEASURED AND IT IS THE FRAME THAT REFUSES IT. A
+# masked cell is 2-3x a copy (7.3) and DRAW_COLUMN spends 669 T on each
+# of the 24 it paints every character step, so a column with two
+# overlays in it is +1,300 to +2,700 T against the 3,548 the frame has
+# spare (9) - and level 3's cave has overlay tiles running down a whole
+# wall. Baking costs 64 bytes of bank per distinct PAIR and nothing per
+# frame, which is the same trade ENT_BAKE already makes for the pickups
+# (8.6).
+#
+# Only the pairs that need it are baked, and which those are is
+# MEASURED rather than reasoned: a pair whose composite comes out byte
+# for byte the overlay is dropped, because there was nothing under it
+# to lose. Of level 1's eleven, exactly one is - and 7.3's old claim
+# that the roof props over `far_fill` were "correct by accident" was
+# wrong: far_fill carries 4 lit pixels of its 128 and the props were
+# painting them black.
+BAKED = {}                      # (overlay tile, tile under it) -> new index
+
+
+def put_overlay(g, names, y, x, name):
+    """Place an overlay tile, baking it onto whatever it covers."""
+    over, under = names.index(name), g[y][x]
+    key = (over, under)
+    if key not in BAKED:
+        BAKED[key] = len(names) + len(BAKED)
+    g[y][x] = BAKED[key]
+
+
 def tile_flags(names):
     """One byte a tile, in the artist's frame order."""
     return bytes(TILE_FLAGS.get(n, 0) for n in names)
+
+
+def name_of(names, extra, index):
+    """A tile's name, baked or not, for the report and the flags."""
+    return names[index] if index < len(names) else extra[index - len(names)]
+
+
+def bake_overlays(names):
+    """Composite every (overlay, background) pair into a new tile.
+
+    Returns (extra tile bytes, extra names). The pixels come from the
+    artist's own sheet, quantised against src/palette.asm exactly as
+    tools/aseprite2spans.py does it, and go out in the same
+    COLUMN-MAJOR order the tile blitters read (see encode_tiles there).
+    An overlay's pen 0 is the transparent one (CLAUDE.md 7.3); every
+    other pen wins over what is underneath.
+    """
+    import cpclib
+    from aseprite2spans import game_palette
+    art = os.path.join(ROOT, "assets", "sprites", "level1_city")
+    sheet = Image.open(os.path.join(
+        art, "city_tiles_cpc_mode0_sheet.png")).convert("RGBA")
+    js = json.load(open(os.path.join(art, "city_tiles_cpc_mode0_sheet.json")))
+    frames = js["frames"]
+    if isinstance(frames, dict):
+        frames = [frames[k] for k in frames]
+    palette = game_palette(os.path.join(ROOT, "src", "palette.asm"))
+
+    w, h = frames[0]["frame"]["w"], frames[0]["frame"]["h"]
+    cache = {}
+
+    def pens_of(i):
+        """An original tile's pens, or a baked one's - AND A BAKED ONE
+        CAN BE UNDER ANOTHER. The lamp's pole hangs under its head and
+        the tank's cells sit on top of the roof props, so a pair can
+        name a tile that is itself a pair. Every baked index is higher
+        than the two it was made from, so resolving in index order
+        terminates."""
+        if i in cache:
+            return cache[i]
+        if i < len(names):
+            b = frames[i]["frame"]
+            crop = sheet.crop((b["x"], b["y"],
+                               b["x"] + b["w"], b["y"] + b["h"]))
+            cache[i] = cpclib.quantise(crop, palette)
+        else:
+            over, under = next(k for k, v in BAKED.items() if v == i)
+            top, bottom = pens_of(over), pens_of(under)
+            cache[i] = [[top[y][x] or bottom[y][x] for x in range(w)]
+                        for y in range(h)]
+        return cache[i]
+
+    def encode(pens):
+        out = bytearray()
+        for col in range(w // 4):               # 4 pixels a character
+            for y in range(h):
+                for x in (col * 4, col * 4 + 2):
+                    out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
+        return bytes(out)
+
+    # AND A PAIR THAT COMPOSITES TO THE OVERLAY ITSELF IS NOT BAKED.
+    # Where the background is black in every pixel the overlay's
+    # transparent pen 0 already comes out black, so the composite is
+    # byte for byte the tile the artist drew and a copy of it would be
+    # 64 bytes of bank for nothing. This is the one place that question
+    # is ANSWERED rather than assumed, and the answer was a surprise:
+    # `far_fill` is not all black (4 lit pixels of 128), so the three
+    # roof props on it are baked like everything else and only
+    # `tank_10` is dropped.
+    blob, extra, remap, same = bytearray(), [], {}, {}
+    for (over, under), index in sorted(BAKED.items(), key=lambda kv: kv[1]):
+        bytes_ = encode(pens_of(index))
+        if bytes_ == encode(pens_of(over)):
+            remap[index] = over
+            same[index] = name_of(names, extra, under)
+            continue
+        remap[index] = len(names) + len(extra)
+        extra.append(f"{names[over]}_on_{name_of(names, extra, under)}")
+        blob += bytes_
+    return bytes(blob), extra, remap, same
 
 
 def tile_names():
@@ -320,21 +440,25 @@ def main():
 
     for x in range(5, MAP_W, 16):
         if free(x):
-            g[ROW_ROOFLINE][x] = T["ac_unit"]
+            put_overlay(g, names, ROW_ROOFLINE, x, "ac_unit")
     for x in range(9, MAP_W, 16):
         if free(x):
-            g[ROW_ROOFLINE][x] = T["chimney"]
+            put_overlay(g, names, ROW_ROOFLINE, x, "chimney")
     for x in range(13, MAP_W, 32):
         if free(x):
-            g[ROW_ROOFLINE][x] = T["antenna"]
+            put_overlay(g, names, ROW_ROOFLINE, x, "antenna")
 
     # ---- the water tank: a 2 wide x 3 tall group, tank_RC row-major --
+    # ITS TOP ROW IS THE ONE THAT SHOWED. The tank stands two rows into
+    # the skyline, so tank_00 and tank_01 are over far_tower and
+    # far_block rather than over the black fill, and their transparent
+    # pixels used to punch a hole in the towers behind them.
     for x0 in range(20, MAP_W, 48):
         for r in range(3):
             for c in range(2):
                 y = ROW_ROOFLINE - 2 + r
                 if free(x0 + c):
-                    g[y][x0 + c] = T[f"tank_{r}{c}"]
+                    put_overlay(g, names, y, x0 + c, f"tank_{r}{c}")
 
     # ---- a lamp, hung on the wall above the pavement -----------------
     # NOT standing IN the pavement row, which is where it used to be:
@@ -342,8 +466,8 @@ def main():
     # hole she fell through on her way along the street.
     for x in range(6, MAP_W, 24):
         if free(x):
-            g[ROW_PAVEMENT - 2][x] = T["lamp_top"]
-            g[ROW_PAVEMENT - 1][x] = T["lamp_pole"]
+            put_overlay(g, names, ROW_PAVEMENT - 2, x, "lamp_top")
+            put_overlay(g, names, ROW_PAVEMENT - 1, x, "lamp_pole")
 
     # ---- the garage: 4 wide x 5 tall, closed, down at street level ---
     # manifest: row0 jamb_l sign_p lock_(red|green) jamb_r; rows 1-3 two
@@ -383,12 +507,70 @@ def main():
             assert g[y][x] == T["far_fill"], (
                 f"tile ({x},{y}) is in the gap and is not open air")
 
+    # ---- the overlays, composited onto what they cover --------------
+    # The map holds the BAKED tile, so every blitter stays a plain copy
+    # and the frame pays nothing. See the note by put_overlay().
+    extra_bytes, extra_names, remap, flat = bake_overlays(names)
+    for row in g:                       # the provisional ids become the
+        for x in range(MAP_W):          # real ones, or the overlay again
+            if row[x] in remap:
+                row[x] = remap[row[x]]
+    tiles_bin = os.path.join(ROOT, "build", "levels", "level1_city",
+                             "citytiles.bin")
+    # A TILE'S SIZE COMES FROM THE SIDECAR AND THE BLOB IS TRUNCATED TO
+    # THE SHEET'S OWN TILES FIRST, so running this twice bakes the same
+    # eleven pairs rather than stacking a second copy on the first.
+    per = exported["box"][0] * exported["box"][1]
+    base = open(tiles_bin, "rb").read()[:per * len(names)]
+    assert len(base) == per * len(names), "the tile blob is short"
+    if len(extra_names):
+        assert len(extra_bytes) == per * len(extra_names)
+        open(tiles_bin, "wb").write(base + extra_bytes)
+    # AND ITS ZX0 GOES WITH IT. build_levels.py packed the blob as it
+    # exported it, which was before this appended anything; the stale
+    # stream is what tools/test_spans.py depacks on the emulator, and
+    # it reported "wrong bytes" rather than "stale".
+    from build_levels import zx0
+    zx0(tiles_bin)
+    names = names + extra_names
+    # WHAT EACH BAKED TILE STANDS ON, AFTER THE REMAP. The `under` a
+    # pair was recorded with may itself be a provisional id - the water
+    # tank's top corner sits on an air-conditioning unit that is a bake
+    # of its own - so it has to be resolved the same way the map cells
+    # were, or the flags are read out of a tile index that no longer
+    # exists. Sorted, because resolving a chain needs the tile under a
+    # tile to have been resolved first, and a bake's index is always
+    # higher than both of the tiles it was made from.
+    under_of = {remap[index]: remap.get(under, under)
+                for (_, under), index in sorted(BAKED.items(),
+                                                key=lambda kv: kv[1])
+                if remap[index] >= len(names) - len(extra_names)}
+    print(f"-> citytiles.bin   {len(base)} + {len(extra_bytes)} bytes: "
+          f"{len(extra_names)} baked of {len(BAKED)} pairs placed, "
+          f"{len(flat)} of them already right over black")
+    for i in range(len(names) - len(extra_names), len(names)):
+        print(f"     {i:3d}  {names[i]}")
+    # WHAT WAS BAKED, WRITTEN DOWN. tools/test_format.py composites each
+    # pair again from the artist's sheet and compares - which it cannot
+    # do from an empty dict, and a test that iterates nothing passes.
+    json.dump([{"index": remap[i], "over": o, "under": remap.get(u, u),
+                "name": names[remap[i]], "baked": remap[i] != o}
+               for (o, u), i in sorted(BAKED.items(), key=lambda kv: kv[1])],
+              open(os.path.join(ROOT, "build", "city_baked.json"), "w"),
+              indent=1)
+
     blob = bytes(b for row in g for b in row)
     assert len(blob) == MAP_W * MAP_H
     assert max(blob) < len(names), "a tile index ran past the sheet"
     out = os.path.join(ROOT, "build", "city_map.bin")
     open(out, "wb").write(blob)
-    flags = tile_flags(names)
+    # A BAKED TILE DOES WHAT THE ONE UNDERNEATH DOES. What she stands
+    # on, walks into or climbs is the background; the overlay is the
+    # decoration that was drawn over it.
+    flags = bytearray(tile_flags(names))
+    for index, under in under_of.items():
+        flags[index] = flags[under]
+    flags = bytes(flags)
     open(os.path.join(ROOT, "build", "tileflags_level1_city.bin"),
          "wb").write(flags)   # one byte a tile, and the loader clears
                               # the rest of the 256 the engine indexes
