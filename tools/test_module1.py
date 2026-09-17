@@ -72,6 +72,14 @@ for i, nm in enumerate(names):
                                      else "never written"))
 
 print("\nthe interrupt and the loop:")
+# LET HER LAND FIRST. She spawns above the roof and falls onto it, and a
+# fall is the vertical camera: every row step repaints the bottom row's
+# fourteen HUD characters from the tilemap on the frame the CRTC latches
+# - 13,200 T, more than that frame has (CLAUDE.md 7.8). Measured from
+# the boot frame this reads 48 of 50 and what it is measuring is the
+# spawn, not the loop; tools/test_climb.py is where the cost of a climb
+# is asserted, with the number in it.
+c.run_frames(90)
 t0 = c.peek(sym["IRQ_TICKS"])
 f0 = c.peek(sym["FRAME_COUNT"])
 c.run_frames(50)

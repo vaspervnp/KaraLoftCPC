@@ -11,16 +11,19 @@ corrections and why.
 started: the engine reads `level_1.lvl` and `tileflags_level1_city.bin`
 off the disc (6a), the level's overlay tiles are composited into the
 tileset at build time rather than masked at run time (6b, §7.3), and
-her health is on the screen — six cells at the bottom left, rewritten
-wherever the view goes (6c, §7.8). The playfield is the drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
+her health is on the screen — six cells at the bottom left, her fourteen
+rounds straight after them and a digit for the spare magazines,
+rewritten wherever the view goes (6c, §7.8). The playfield is the drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
 of the level. `./build.sh` regenerates the assets,
 assembles, and produces `build/kara.dsk`. It boots, relocates, passes its bank
 self-test, runs Kara walking and firing over a striped background with full
 save-under restore, and then hands over to the scrolling city: a tilemap in bank
 C4 moved by the CRTC start address, horizontally and both ways vertically, with
 Kara drawn over it from keyboard or joystick input, walking, jumping and
-colliding with the tiles, and the camera following her. The loop holds 50 Hz on
-every path (§9).
+colliding with the tiles, and the camera following her. **The loop holds
+50 Hz standing, walking and on the street, and drops frames where §9's
+table says it does** — firing past a drone, climbing, and running, which
+is the fastest thing the frame can carry.
 
 **`RUN"DISC` opens on the title picture and then starts on the
 rooftop.** The core boots, self-tests its banks, puts the artist's
@@ -108,14 +111,35 @@ while she moves now drops frames where it did not, and every floor in
 measurement with the reason beside it. §9 has the table and the one
 lever that would buy it back.
 
+**AND THEN THE WALK WAS HALVED AND THE REDRAW WAS PAID FOR.** She
+covered 2 Mode 0 pixels a frame and crossed the display in a second and
+a half; the artist's walk cycle is 40 frames and plants her feet 18
+pixels of ground apart, so the engine was carrying her 80 and she skated
+four fifths of every step. She steps a byte on one frame in two now, the
+cycle is halved to match (§8.4's `KARA_RATE`), and because the camera
+then steps on one frame in four instead of one in two **every loop count
+in §9 came back**: firing past a drone 173 → 194 of 200, jumping and
+firing 158 → 191.
+
+**SHIFT RUNS HER, AND UNTIL NOW IT COULD NOT.** `input.asm` read row 2
+bit 6, which is `\`, where SHIFT is bit 5 — so the run state, its cels
+in `kextra` and its step existed and nothing in the game could reach
+them. A run is a byte a frame, twice the walk; it is **not** the CRTC's
+whole character, because a column of tilemap every frame is 107 loop
+iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
+**The roof's gap is a run-jump now**: the 15-frame arc carries 15 bytes
+at a run and 7 at a walk, against a 12-byte hole (§8.8).
+
 `./tools/run_tests.sh` runs every acceptance suite and **all seventeen
 pass**, the frame budget among them — but the budget is asserted where
 it can be measured now, and that is a change worth knowing about. The
-pessimistic sum of every call the loop makes is **84,544 T of 79,872 on
-her heaviest cel**, over by 4,672, because it adds worsts that do not
-co-occur; what says the loop holds 50 Hz is the count of loop
-iterations against interrupt ticks, and it does on every path
-`tools/test_enemies.py` and `tools/test_climb.py` drive. The span
+pessimistic sum of every call the loop makes is **87,328 T of 79,872 on
+her heaviest cel**, over by 7,456, because it adds worsts that do not
+co-occur; what says whether a frame holds is the count of loop
+iterations against interrupt ticks, and every path
+`tools/test_enemies.py` and `tools/test_climb.py` drive carries its own
+floor with the reason beside it — 201 standing, 198 walking, 183 firing
+past a drone, 193 climbing and 151 running. The span
 blitter is at its floor and `DRAW_COLUMN` was rewritten from 71 T a byte
 to 43; the incoming ROW is painted in four pieces rather than two,
 because the action sheet's cels are heavier than the gun's. The numbers
@@ -544,7 +568,8 @@ sheet has 40 frames and **nine of them are deliberately not shipped**:
 `build.sh` passes the list to the exporter as `--drop tag=n,n`.
 **A dropped frame's hold time is added to the frame before it**, so a
 thinned cycle gets coarser and not faster — which matters for the walk,
-where the feet have to keep up with the two pixels a frame she travels.
+where the feet have to keep up with the ground she covers — see
+§8.4's `KARA_RATE`, which is the other half of that.
 `build/kara_core_frames.json` records which sheet frames actually went
 in, and `test_spans.py` reads it rather than re-deriving the list.
 
@@ -1372,7 +1397,7 @@ she is drawn and erased inside one frame (8.7), so at the `WAIT_VSYNC`
 the erase has put the background back in RAM while the framebuffer still
 holds the frame she was in.
 
-### 7.8 The HUD is a bar, and the band it is not is a hardware answer
+### 7.8 The HUD is fourteen characters of one row, and the band it is not is a hardware answer
 
 `assets/sprites/common/mockup_hud.png` is what the artist drew: a
 **full-width 16-line strip** — heart, health, ammo, coins, key, oxygen.
@@ -1406,10 +1431,18 @@ buy a 40-line HUD and a 19-row play area. And none of it can be checked
 here: **cpcemu cannot witness a split**, so the whole thing would ship on
 RVM's word alone.
 
-**So the HUD is what the frame can pay for.** Six of the artist's own
-`hud_bars` cells, **24x8 Mode 0 pixels**, at the BOTTOM LEFT of the
-picture — screen character row 23, columns 0-5, word `HUD_BASE` = 920
-into the view.
+**So the HUD is what the frame can pay for.** A strip along the BOTTOM
+LEFT of the picture — screen character row 23, **columns 0-13**, word
+`HUD_BASE` = 920 into the view — and it is three things in one run:
+
+| | columns | what it is |
+|---|---|---|
+| health | 0-5 | six of the artist's own `hud_bars` cells, 24x8 Mode 0 pixels |
+| ammo | 6-12 | fourteen pips, two to a cell — the rounds in her two magazines |
+| magazines | 13 | one of the artist's digits — what `AMMO_RESERVE` is worth |
+
+**They are one strip because two adjacent runs vacate into each other**
+— the rest of this section is what that buys and what it still costs.
 
 **THE BOTTOM IS WHY IT CAN GO AFTER HER.** At the top it had to be
 written BEFORE her — the beam reaches display line 0 at 18,432 T and her
@@ -1425,16 +1458,17 @@ with 15,000 to spare, and her draw is not touched at all.
 `HUD_SERVICE` is called once a frame and does nothing unless the view or
 her health has moved:
 
-| | T |
-|---|---:|
-| the view is still and her health has not moved | **136** |
-| the view stepped one character RIGHT — the level's own direction | **1,188** |
-| ... one character LEFT | 2,688 |
-| the view stepped one row DOWN — a climb, or a fall | **9,208** |
-| ... one row UP | 2,780 |
-| `HUD_ALL`, the twelve bytes a line | 2,348 |
-| `HUD_LEVEL` when the same cells stay lit | 348 |
-| ... and when they do not | 5,684 |
+| | bar only | + the rounds | **+ the digit** |
+|---|---:|---:|---:|
+| the view is still and nothing has moved | 136 | 400 | **504** |
+| the view stepped one character RIGHT — the level's own direction | 1,188 | 2,704 | **3,568** |
+| ... one character LEFT | 2,688 | 5,284 | **6,148** |
+| the view stepped one row DOWN — a climb, or a fall | 9,208 | 22,292 | **23,856** |
+| ... one row UP | 2,780 | 9,996 | **10,860** |
+| `HUD_ALL`, the twelve bytes a line | 2,348 | |
+| `HUD_PUT`, one cell of either run | 796 | 868 |
+| `HUD_LEVEL` when the same cells stay lit | 348 | |
+| ... and when they do not | 5,684 | |
 
 **A HIT IS NOT THE SAME EVENT AS A CELL GOING OUT.** Six cells over 100
 points is 16.67 apiece and a drone's round takes `EBUL_DAMAGE` off her,
@@ -1446,6 +1480,123 @@ frames to 201 — the land sheet's redraw has since taken it to 198 (§9)
 — and the frame a cell DOES go out on is still one of the two the
 drone's own refresh is paid on.
 
+#### And the rounds she is carrying, straight after the bar
+
+**Fourteen pips at the bottom left, going out from the LEFT as she
+fires** — screen character row 23, columns 6-12, immediately after the
+health bar's six, one per round in her two magazines
+(`MAG_LEFT + MAG_RIGHT`, §8.5) — **and then one digit at column 13:
+how many spare magazines the reserve is worth.** A reload takes
+`BUL_MAX` = 14 rounds out of `AMMO_RESERVE` (§8.5), so the reserve IS a
+number of magazines and the digit is that number, capped at 9 because
+one character is what the row can pay for. The digits are the artist's
+own `hud_digits`. The whole strip is **fourteen characters, columns
+0-13**. A round is one pixel of
+bullet and one of gap, so a 4-pixel cell holds two of them and her
+fourteen are seven characters; a cell is FULL, HALF or EMPTY, and
+because the rounds go out from the left there is at most one half-spent
+cell in the row.
+
+**The bullet is the artist's own**, cut out of `hud_icons`' `ammo` by
+`tools/make_hud.py` — the icon is three of them, one pixel wide with an
+orange tip and a yellow body, which is exactly the two-pixel pitch a
+Mode 0 byte holds. There is no ammo cell in `hud_bars`; the sheet has
+health and oxygen. **A spent round is the same silhouette in the dark**,
+which is the convention the bars already use: `(128,128,0)` quantises to
+pen 12 against the bullet's pen 11, so a spent round is the dark of its
+own colour and not a hole in the row. The artist's mockup draws the ammo
+as that icon and a two-digit number, which is the RESERVE; what is on
+the screen is what is in the guns, because those are the rounds that go
+out one at a time as she shoots.
+
+**THEY SIT NEXT TO THE BAR BECAUSE TWO ADJACENT RUNS VACATE INTO EACH
+OTHER.** A run leaves the word just past its LEFT end whichever way the
+view goes (`HUD_VACATE`), so:
+
+| | a step RIGHT leaves | a step LEFT leaves |
+|---|---|---|
+| the bar, columns 0-5 | the last column of row 22 — **free**, `H_TAIL` has just painted it | column 6, the rounds' first cell and one they write on every step left — **free** |
+| the rounds, columns 6-12 | column 5, the bar's own last cell and one it writes on every step right — **free** | column 13, the digit, which is written on every move — **free** |
+| the digit, column 13 | column 12, the rounds' last cell and one they write on every step right — **free** | column 14 — one `DRAW_COLUMN` |
+
+so the bottom row costs **nothing at all** to erase on a step right,
+which is the step level 1 makes, and one `DRAW_COLUMN` stepping left.
+**The digit is the one element with no neighbour's content to inherit**
+— it is one cell — so it is rewritten on every frame the view moves,
+864 T.
+And a row step is ONE run of thirteen cells through `DRAW_ROW`, with
+one map lookup instead of two.
+
+**AT THE OTHER END OF THE ROW IT WAS THE MIRROR AND THE TWO DID NOT
+CANCEL**, which is what put them here. With the rounds at columns 33-39
+the bar was free stepping right and the rounds free stepping left, so
+the row cost a `DRAW_COLUMN` every step whichever way she walked, and
+two `DRAW_ROW`s on every row step. Measured over the same 200 frames:
+walking 196 against **198**, firing 178 against **184**, running 148
+against **161**.
+
+**A SHOT IS ONE PIP AND AT MOST TWO CELLS.** The seam is `spent / 2` and
+one round moves it by nought or one, so the window from
+`min(old, new)` to `max(old, new)` holds every cell whose picture is now
+wrong — and **a shift widens that window by one on the side it shifts
+from**, because every cell then holds its neighbour's picture. Written
+once for both directions it left a cell of stale pips walking LEFT, and
+`tools/test_hud.py` caught it: 24 wrong pixels of 224, which is exactly
+one cell. A reload puts fourteen rounds back at once and lays out the
+whole row.
+
+**Seven `HUD_PUT`s and not a buffer, and it was written both ways.** A
+112-byte buffer copies the row in 2,668 T against 6,744 for the puts —
+but it has to be KEPT, and one cell of it is 1,056 T to lay out, which
+is paid on every shot. Measured in play, the buffer was **192** loop
+iterations in 200 walking and **175** firing against **198** and **182**
+for the puts: the cheap paths are the common ones, and all-seven is the
+rare one.
+
+**And what it costs in play is not nothing**, measured over the same
+200 frames as §9's table:
+
+| | bar only | + the rounds | **+ the digit** | the rounds at the RIGHT end |
+|---|---:|---:|---:|---:|
+| walking right, a drone in view | 199 | 198 | **198** | 196 |
+| walking right and FIRING, past a drone | 194 | 184 | **183** | 178 |
+| running right | 172 | 161 | **151** | 148 |
+| turning round, walking left into it | 193 | 192 | **191** | 192 |
+
+The firing path is where it lands, and for the reason §9 gives for
+everything else on that frame: a firing frame already carries the
+heaviest cel in the game, a round in the air and a drone, and the rounds
+change on it as well. The RUN pays twice over, because it steps the
+camera on every other frame.
+
+#### AND THE WHOLE OF THE VERTICAL COST IS THE ERASE, MEASURED
+
+A downward row step is 23,856 T and that is about 10,000 more than the
+latch frame has. Driven by a vertical step every frame — which is
+`tools/test_module4.py`'s driver, and harsher than the camera, which
+asks for one row every five frames — the loop is **180 iterations in
+200**; with `HUD_VACATE` poked to `RET` and everything else left in, it
+is **201**. The redraws are not the cost:
+
+| | loops / 200 |
+|---|---:|
+| as it is | 180 |
+| the rounds' redraw off | 182 |
+| the rounds' and the digit's redraw off | 181 |
+| **`HUD_VACATE` off** | **201** |
+
+**Fourteen characters of tilemap repainted one row up, at ~950 T a
+cell.** `DRAW_ROW` hoists the map lookup across the run and still costs
+~59 T a byte, where an `LDI` from a save-under would be 20 — so the one
+lever left on it is to keep what was under the strip and put it back
+instead of re-rendering it, which is 224 bytes of RAM and a rotating
+ring of per-cell captures (one horizontal step covers one new word).
+That is **not** written: it is the next thing to do if the fall's frames
+matter more than the code does. What it costs today is measured, in
+`tools/test_climb.py` (climbing down) and in `tools/test_module4.py`,
+whose raster sweep scores the frames either side of a latch and prints
+how many it skipped.
+
 **THE BAR IS A PERSISTENT SPRITE AND `HUD_VACATE` IS ITS ERASE.** Its
 pixels sit in the ring at `HUD_LAST..+5`; when the start address moves,
 the words it used to own are still on the screen somewhere else, and the
@@ -1455,8 +1606,8 @@ over is a property of the step, and there are only four steps:
 | step | the word it leaves | |
 |---|---|---|
 | **1** right | `HUD_BASE-1` — the LAST column of row 22 | **free** — see below |
-| **1023** left | `HUD_BASE+6` — row 23 column 6 | |
-| **40** down | the whole bar, row 22 columns 0-5 | the dear one |
+| **1023** left | `HUD_BASE+14` — row 23 column 14 | one `DRAW_COLUMN` |
+| **40** down | the whole strip, row 22 columns 0-13 | the dear one |
 | **984** up | row 24 — off the bottom of the display | free |
 
 **The step is taken modulo the 1024-word ring, not as a signed
@@ -1467,7 +1618,7 @@ general path once every 1024 words of scroll.
 
 **And the general path was 17,836 T.** It finds each leftover word by
 arithmetic — which is right, and is what stops a test's bigger jump
-smearing the bar down every row — but it divides the word index by 40
+smearing the strip down every row — but it divides the word index by 40
 with repeated subtraction (22 iterations for row 22) and then paints
 each cell with `DRAW_COLUMN` at 1,148 T. Six of those on the frame the
 CRTC latches a downward row step **dropped 23 frames in 200 climbing
@@ -1484,40 +1635,47 @@ single-cell case is the walking one — paid on every frame the camera
 moves — so it is worth the second path.
 
 **AND THE STEP RIGHT COSTS NOTHING AT ALL, BECAUSE `H_TAIL` HAS ALREADY
-DONE IT.** The word the bar leaves behind on a step right is the last
+DONE IT.** The word the strip leaves behind on a step right is the last
 column of row 22 — and the incoming column of a step right IS column 39,
 painted rows `COL_HEAD`..23 by `H_TAIL` four instructions before
 `HUD_SERVICE` is called. The step LEFT has no such luck: its incoming
-column is 0, so the word left over is column 6 of the bar's own row and
-has to come back off the tilemap. **That is what decides which corner
-the bar goes in**: at the bottom RIGHT it would be the mirror — the step
-left free and the step right 1,148 T — and level 1 scrolls left to
-right. The pan after a turn is where it is dearest either way, and
-`tools/test_enemies.py` carries the number: walking left into a drone is
-190 loop iterations per 200 hardware frames with the bar and 194 without,
-against 199 either way walking right.
+column is 0, so the word left over is column 14, one past the strip's
+own end, and has to come back off the tilemap. **That is what decides
+which corner the strip goes in**: at the bottom RIGHT it would be the
+mirror — the step left free and the step right 1,148 T — and level 1
+scrolls left to right. The pan after a turn is where it is dearest
+either way, and `tools/test_enemies.py` carries the number: walking left
+into a drone is 191 loop iterations per 200 hardware frames against 198
+walking right.
 
-#### The 9,208 T that is left is 11 lines of her raster margin
+#### What is left of it is lines off the top of her picture
 
-A tilemap repaint is ~66 T a byte and the bar's six cells are 96 of
-them; `HUD_ALL` puts the bar back at 24 T a byte. There is no third
-source for the pixels under the bar, so a downward row step costs
-6,332 + 2,348 T on the frame the CRTC latches — and that frame runs
-over. **The next frame then starts late, and she loses ~320 T of lead a
-line**, so every 320 T of overrun is a line off the top of the picture:
+A tilemap repaint is ~59 T a byte and the strip's fourteen cells are 224
+of them; the strip puts itself back at 24 T a byte. There is no third
+source for the pixels under it, so a downward row step costs ~13,300 T
+of `DRAW_ROW` plus ~9,300 of write-back on the frame the CRTC latches —
+and that frame runs over. **The next frame then starts late, and she
+loses ~320 T of lead a line**, so every 320 T of overrun is a line off
+the top of the picture:
 
 | | she is drawn intact from |
 |---|---:|
-| no bar at all | every line the driver can reach |
-| the bar at the bottom | **line 21** |
+| no strip at all | every line the driver can reach |
 | the bar at the top | line 29 |
+| six cells at the bottom | line 21 |
+| ... and then the land sheet was redrawn (§9) | **line 43** |
 | the camera's own limit (§8.8) | `KARA_Y` >= 32 |
 
 `tools/test_module4.py` measures it rather than assuming it, and
-`KARA_RASTER_SAFE` carries the number. **A save-under would not buy the
-lines back**: restoring 96 bytes with `LDI` is 2,348 T instead of 6,332,
-but the capture costs the same 2,348 on the same frame, so the latch
-frame lands at 7,044 — about seven lines, not sixteen.
+`KARA_RASTER_SAFE` carries the number. **A save-under WOULD buy these
+back now, and it did not when the strip was six cells** — which is the
+one thing the second element changed about this argument. Restoring 224
+bytes with `LDI` is ~4,500 T against ~13,300, but a capture taken on the
+same frame costs the same again and the latch frame gains nothing. What
+makes it pay is that the capture does NOT have to be taken then: a
+horizontal step uncovers exactly ONE new word, so a ring of per-cell
+captures kept up as the view moves leaves the latch frame with nothing
+but the restore. That is 224 bytes of RAM and it is not written.
 
 **And the erase CANNOT be made free by shortening the play area**, which
 is the one arrangement that would do it. If the playfield were 23
@@ -1529,28 +1687,40 @@ whole row; and a full-width strip that stays still is 640 bytes rewritten
 at every scroll step, which is 15,360 T. That is the band again, by
 another road.
 
-**The 96 bytes ARE the cost, and they are not optional.** Anything
+**The 224 bytes ARE the cost, and they are not optional.** Anything
 screen-fixed on a hardware-scrolled display has to be rewritten every
 time the start address changes, because the address it lives at is the
 one the CRTC is about to show somewhere else. `tools/test_hud.py`'s
 negative control is exactly that: with `HUD_SERVICE` returning at once
-the bar is still drawn, and 108 of its 192 pixels are wrong within
-90 frames of walking.
+the strip is still drawn, and 108 of the bar's 192 pixels are wrong
+within 90 frames of walking.
 
 Three more things about it are load-bearing:
 
 * **It is drawn LAST**, with `ENT_REPAINT_DUE` and `ENEMY_REFRESH`,
   because it is BACKGROUND. She never overlaps it — the camera keeps her
   middle between 64 and 112 (§8.8), so her box ends at line 144 at the
-  very lowest and the bar starts at 184 — but `ENT_REPAINT_DUE` can
-  paint over it, and `entity.asm` forces the bar to be written again on
-  the next frame so the damage is never displayed.
+  very lowest and the strip starts at 184 — but `ENT_REPAINT_DUE` can
+  paint over it, and `entity.asm` forces it to be written again on the
+  next frame so the damage is never displayed. **Forcing it is
+  disowning the LAYOUT, not the health**: `HUD_HP = &FF` on its own
+  changed nothing, because `HUD_LEVEL` compares the number of cells LIT
+  and &FF lights the same six as 100 does. `HUD_LIT` and
+  `HUD_AMMO_SPENT` are stamped with it too, so what `HUD_SERVICE` finds
+  is a layout nobody owns and it lays the whole strip out again.
 * **ONE CHARACTER OF MOVEMENT ONLY CHANGES TWO OF THE SIX CELLS.** The
   bar is `c[0..5]` with `c[i]` full while `i < lit`, so a shift of one
   character leaves every cell holding its NEIGHBOUR'S content — the same
   content everywhere except where the run of full cells ends. 1,512 T for
   the two against 2,348 for all six, and it matters because a camera PAN
   moves the view on every frame for about twenty of them (§8.2).
+* **AND THE SAME IS TRUE OF THE PIPS, WITH ONE MIRROR IN IT.** The ammo
+  is a run of full cells too, so a shift moves its window by one and the
+  window has to WIDEN on the side the shift comes from — right:
+  `e-1 .. e`, left: `e .. e+1`, where `e` is the seam `spent / 2`. It
+  was written once for both directions and `tools/test_hud.py` caught
+  what that leaves: 24 wrong pixels of 224 walking left, which is
+  exactly one cell of stale pips.
 * **Six characters wide crosses the 1024-word seam at six of the ring's
   1024 positions**, where the run folds back to the top of its own 2 KB
   block (§6.4). The common case is twelve unrolled `LDI`s a line (20 T a
@@ -1558,7 +1728,10 @@ Three more things about it are load-bearing:
   **That path was written wrong and the test caught it** — the fold count
   was doubled as if it were characters when it was already bytes — which
   is why the suite drives all six positions and keeps word 1018, the last
-  that does NOT fold, as their control.
+  that does NOT fold, as their control. **The ammo and the digit need no
+  such lane at all**, and it is not care that spares them: they are
+  written a CELL at a time, a cell is one word, and one word cannot
+  straddle a boundary between words. Only a run can fold.
 
 **The old ammo HUD is gone.** `HUD_UPDATE` and `HUD_ROW` drew two rows of
 seven round indicators for the Module 1-3 acceptance screen; that screen
@@ -1645,8 +1818,8 @@ is the whole class of bug §8.10 is about.
 
 **Turning round therefore PANS.** She is 20 bytes from the new mark, so
 the camera scrolls a whole character every frame while she walks her
-own byte and she drifts across the picture at 1 byte a frame, arriving
-in 20. A pan is exactly a run's frame cost — a column every frame — and
+own byte and she drifts across the picture as she covers it, arriving
+in about 40 frames at a walk and 20 at a run. A pan is exactly a run's frame cost — a column every frame — and
 it is the one thing that makes the loop drop a frame or two (§9).
 `CAM_BAND` is what tells "the camera is following her" from "the camera
 is panning to catch up": only the first gets the lock-step below, and
@@ -1654,16 +1827,45 @@ without it she would freeze at whatever column she turned round on
 while the camera panned for ever.
 
 **The walk speed and the scroll step are the same number or the picture
-doubles.** The CRTC scrolls a whole character — 2 bytes — and Kara walks 1 byte
-a frame, so inside the camera's push zone the camera can only fire every other
-frame. Let her keep walking a byte a frame there and the column the blitter
+doubles.** The CRTC scrolls a whole character — 2 bytes — so inside the camera's
+push zone the camera can only fire on the frames she covers two. Let her keep
+walking her own distance there and the column the blitter
 draws her at goes 54, 55, 54, 55 at 25 Hz: every frame is drawn and erased
 correctly, every RAM check passes, and on a real monitor there are two Karas a
 character apart for as long as the screen moves. `PLAYER_X` therefore moves her
-`P_PUSH` = 2 bytes on the camera's frame and nothing on the frame between, so
-her screen column never changes while the world goes by. Mid-screen she still
-walks 1 byte at 50 Hz. `test_module4.py` asserts the property directly: on
+`P_PUSH` = 2 bytes on the camera's frame and nothing on the frames between, so
+her screen column never changes while the world goes by.
+`test_module4.py` asserts the property directly: on
 every frame where the view moved, `KARA_X` must not have.
+
+**A STEP IS A WHOLE BYTE AND A SPEED IS HOW MANY FRAMES APART THE STEPS
+ARE.** `KARA_X` is a byte column and a Mode 0 pixel is half of one, so
+there is no smaller step to give her: half speed is a step she does not
+take. `PLAYER_BEAT` is the mask — `FRAME_COUNT AND beat` must be 0 —
+and `PUSH_PHASE` doubles it for the push zone, where the step is the
+CRTC's two bytes:
+
+| | free zone | in the push zone | pixels a frame |
+|---|---|---|---:|
+| **walk** | 1 byte on one frame in **two** | 2 bytes on one frame in **four** | 1 |
+| **run**, SHIFT | 1 byte **every** frame | 2 bytes on one frame in two | 2 |
+
+**The walk was 2 pixels a frame and it is 1**, which is the artist's
+own answer: her walk cycle is 40 frames and her feet are 9 pixels apart
+at full stride, so a cycle plants them 18 pixels of ground apart and
+the engine was carrying her 80. See §8.4 for what the other half of
+that fix was.
+
+**And the run is a byte a frame, not the CRTC's whole character, because
+the frame cannot pay for a column every frame.** Two bytes a frame is
+exactly one scroll step a frame, which puts `H_HEAD` and `H_TAIL` on
+the same frame — §9's pessimistic sum, 87,328 T of 79,872 — and a frame
+that overruns waits for the next VSYNC. Measured over 200 hardware
+frames holding SHIFT and RIGHT: **107 loop iterations**, which is 25 Hz,
+a character of scroll every other frame and Kara on the screen for one
+frame in two. At a byte a frame the camera steps every other frame,
+which is the load the old walk carried and the whole of §9 measures as
+locked.
 
 Getting any of this backwards does not crash and does not corrupt video RAM —
 it puts a 4-pixel column of the wrong tile down one edge of every frame. That
@@ -1831,7 +2033,7 @@ the frame counts in §7.1 rather than inferred at each call site.
 | `CROUCH` | `roll` cel 0, held | **DOWN alone**, on the ground, with no ladder under her and the trigger up | DOWN is released |
 | `HANG` | `hang` 2 | **DOWN at the lip of a floor**, after `HANG_BEAT` frames of the crouch | she climbs back, or lets go |
 | `AIM` | `shoot_draw` 2 then hold | **SPACE held** | SPACE released |
-| `FIRE` | `shoot` 4 | **SPACE released** from `AIM` | the 4 frames are done |
+| `FIRE` | `shoot` 4 | **SPACE released** from `AIM`, with a round in a magazine | the 4 frames are done |
 | `CLIMB` | `climb` 4 | on a ladder — the cycle runs while UP or DOWN is held and **freezes on the cel she stopped on** when neither is | she steps off it |
 | `TURN` | `climb_turn` 1 | grabbing a ladder, or stepping off one onto a floor | the cel's own 120 ms |
 | `DROP` | `drop` 2 | off the ground **without having jumped** | she lands |
@@ -1850,7 +2052,7 @@ arrives back on it (`.jump`, `.land`, `CLIMB_LAND`).
 
 **SHE CAN STILL JUMP FOR `P_COYOTE` = 6 FRAMES AFTER THE GROUND GOES
 AWAY**, and the roof's gap is the measurement that set the number. Her
-arc is 15 frames and she covers about a byte a frame; the hole is 12
+arc is 15 frames and a RUN covers about a byte a frame; the hole is 12
 bytes and she has to be 7 past its far lip for `BOX_SOLID_V` to find
 anything under her, so the only take-off that clears it is one of the
 ten bytes before the edge. A press one frame later did nothing at all
@@ -1906,7 +2108,10 @@ game over yet** — that is §11 step 8's, and this is the hook it needs.
 
 **The gun is draw-hold-release, not a trigger.** SPACE going down plays
 `shoot_draw` and then holds its last frame; SPACE coming up plays
-`shoot` and fires on its first frame. That is what the two-frame
+`shoot` and fires on its first frame — **unless both magazines are dry
+or she is reloading**, in which case the release plays nothing at all
+and starts the reload instead: the `shoot` cels carry the muzzle flash
+and an empty gun must not show one (§8.5). That is what the two-frame
 `shoot_draw` tag is for, and its `draw_offset_x=4` in the JSON is the
 muzzle's X inside the box — the bullet spawns there, not at the edge of
 the sprite.
@@ -1958,9 +2163,28 @@ table - the milliseconds Aseprite held each cel for, rounded to 50 Hz
 frames - and nine cels of the drawn sheet are not shipped, with each
 dropped one's time added to the cel before it (§7.1). Running the
 animation at a fixed rate instead makes the thinned walk cycle faster
-than it was drawn and out of step with the two bytes a frame she
-travels. So `ACT_ANIMATE` reloads its timer from that table, and the
-test compares every cel's dwell against it.
+than it was drawn and out of step with itself. So `ACT_ANIMATE` reloads
+its timer from that table, and the test compares every cel's dwell
+against it.
+
+**AND THE RATE THE WHOLE CYCLE RUNS AT IS THE ENGINE'S, BECAUSE THAT IS
+THE ONE THING ASEPRITE CANNOT KNOW: HOW MUCH FLOOR GOES UNDER HER WHILE
+IT PLAYS.** `KARA_RATE` is one right shift of the art's dwell per state.
+It is 1 for the two states that carry her along the ground and 0 for the
+other eleven, and both are measured off her feet on the shipped sheet:
+
+| state | cels | cycle | stride | she covers | skate |
+|---|---|---:|---:|---|---:|
+| `walk` | 10,10,10,5,5 | 40 fr | 18 px | 40 fr @ 1 px | 2.2x → **20 fr, 1.1x** |
+| `run` | 7,7,7,4,4 | 29 fr | 29 px | 29 fr @ 2 px | 2.0x → **13 fr, 0.9x** |
+
+"Stride" is twice the distance between her two feet on the cel they are
+furthest apart — 9 px walking, 14.5 running — because a cycle is two
+steps. **The shift is the most halvings that still leave her covering at
+least the stride**: a second one takes the walk to 10 frames and 10
+pixels of ground against 18 of feet, which is skating backwards.
+Before the walk was halved (§8.2) it carried her 80 pixels through an
+18-pixel cycle, which is four fifths of every step skated.
 
 **ENTERING A STATE LEAVES THE CEL INDEX AT 255, NOT 0.** The animator
 runs the timer down and steps in the same call, so a state entered at
@@ -2013,9 +2237,21 @@ Z was `IN_ACTION`, a second interact key alongside RETURN, then the
 roll, and is now bound to nothing. Interact is `UP` alone, which is what
 plan.md §5.2 asked for in the first place ("αν πατηθεί UP").
 
-`RUN` moves her 2 bytes a frame, which is exactly the CRTC's scroll
-step, so inside the camera's push zone a run scrolls every frame and a
-walk every other one — see §8.2.
+`RUN` steps her a byte on every frame and a walk steps the same byte on
+one frame in two, so inside the camera's push zone a run scrolls every
+other frame and a walk every fourth one — see §8.2 for the table and for
+why the run is not the CRTC's whole character.
+
+**AND SHIFT WAS NEVER SCANNED.** `input.asm` read row 2 **bit 6**, which
+is `\`, where SHIFT is bit 5 — so the run state, its two banks of cels
+and its step were all reachable, by a key nobody would ever press.
+Nothing failed and nothing looked wrong; what found it was a play-test
+report that SHIFT did not run. Measured on the machine by holding one
+key at a time and reading `INPUT_NOW`: `\` set `IN_RUN` and SHIFT did
+not, and with the bit moved it is the other way round. **The lesson is
+in §10** — the CPC's key matrix is usually tabulated bit 7 first and
+this engine numbers from bit 0, so every binding in that macro is one
+the table has to be read backwards for.
 
 ### 8.5 Dual pistols
 
@@ -2028,6 +2264,15 @@ AMMO_RESERVE bytes    clips add 14
 ```
 
 14 bullets in flight max, one pool entry per round: `{active, x, y, direction, life}`.
+
+**AN EMPTY GUN HAS NO RECOIL TO PLAY.** The four `shoot` cels are drawn
+WITH the muzzle flash in them — it is the pen her skin nearly shared
+(§7.1) — so a release on two dry magazines showed a shot that never
+left, which is what a play-test reported. `GUN_HAS_ROUND` is
+`FIRE_BULLET`'s own first two tests in one place, and `ACT_UPDATE` asks
+it before it enters `FIRE` (§8.4): no round, no cels, no flash. The
+release still starts the reload, which is what a trigger pull on an
+empty gun is for.
 **Bullets move 4 pixels on two frames in three.** A round steps whole
 BYTES, so a third off the speed is not a smaller step, it is a step it
 does not take: `BUL_PHASE` counts 3, 2, 1 in the main loop and both
@@ -2391,7 +2636,17 @@ this and skipping a draw-and-erase pair. Two frames do not pay:
 | | |
 |---|---|
 | the picture is moving | `VIEW_STEP`, set by `H_REQUEST` and counted down. The enemy is redrawn 25 Hz while she walks and not at all while she runs; it stays put and stays correct. |
-| `ENT_UPDATE`'s touch sweep is due | they alternate on `FRAME_COUNT` bit 0. Together they are 80,248 T of a 79,872 T frame — over by 376 — and neither loses anything: she cannot cross a 4-byte pickup in the 2 bytes a frame she can travel. The INTERACT pass still runs every frame, because a keypress lasts one. |
+| `ENT_UPDATE`'s touch sweep is due | they alternate on `FRAME_COUNT` bit 0. Together they are 80,248 T of a 79,872 T frame — over by 376 — and neither loses anything: she cannot cross a 4-byte pickup in the byte a frame she can travel. The INTERACT pass still runs every frame, because a keypress lasts one. |
+
+**AND THE PHASE IS NOT ARBITRARY ANY MORE: THE SWEEP TAKES THE ODD
+FRAMES, WHICH ARE THE ONES THE COLUMN'S HEAD IS NOT ON.** She steps on
+even frames and `CAMERA_DECIDE` asks for the scroll there, so `H_HEAD`
+paints fourteen rows of the incoming column on that frame and `H_TAIL`'s
+six land on the next — 13,872 T against 4,920, and the sweep belongs
+with the cheaper half. It was the even ones, which is the head's own
+frame; moving it is worth **3 loop iterations in 200 walking and 7
+running** (§9). `tools/test_entities.py` drives both parities and its
+default is the sweep's own.
 
 **The refresh is the LAST thing in the frame**, after every sprite has
 been erased. It cannot go before her draw: she is 560 T a line against
@@ -2542,7 +2797,7 @@ attributes of every tile under her box, and her box is 6 bytes against
 a 4-byte tile — two of them, three when it is not aligned — so a
 two-tile gap has positions where she is still standing across solid
 roof. Three gives seven byte positions where every tile under her is
-open, which she reaches whether she is moving 1 byte a frame or 2.
+open, which she reaches whether she is walking or running.
 
 **And it is at tile 95 because the longest walk any suite makes along
 this roof reaches tile 83** — measured by holding the joystick right
@@ -2552,13 +2807,22 @@ of those walks would turn every one of them from a test of the scroll
 into a test of the fall, silently, which is the same failure its header
 warns about for a step UP in the roof line.
 
-**AND SHE CAN JUMP IT.** A gap you can only fall into is a wall with a
-longer animation, and this one was very nearly that: the take-off
-window was the ten bytes before the lip and a press one frame later did
-nothing at all. `P_COYOTE` (§8.4) is what makes it a jump a player can
-make — the window is 14 frames now, measured, with a control at each
-end. Jumping too early still lands her in the hole, which is what makes
-it a gap.
+**AND SHE CAN JUMP IT — AT A RUN.** A gap you can only fall into is a
+wall with a longer animation, and this one was very nearly that: the
+take-off window was the ten bytes before the lip and a press one frame
+later did nothing at all. `P_COYOTE` (§8.4) is what makes it a jump a
+player can make — the window is 14 frames, measured, with a control at
+each end. Jumping too early still lands her in the hole, which is what
+makes it a gap.
+
+**Every one of those measurements is a RUN's now.** The arc is the same
+15 frames whatever she is doing and what changed is how far they carry
+her: a run covers a byte a frame and clears the 12-byte hole exactly as
+the window was derived, and the half-speed walk (§8.2) covers 7 bytes
+and does not. That is a design fact and not a defect — **the gap is what
+the run is for** — and `tools/test_climb.py` carries it as a third
+control beside the two ends of the window: the same press off the same
+lip, walking, lands her on the street.
 
 #### And the third way off it: over the edge, hand over hand
 
@@ -2745,7 +3009,7 @@ while m.pc != STUB + 4: m.run_us(1)      # 1 us = 4 T
 | `KARA_ERASE` | 13,584 | **11,592** | a whole row unrolled: 8 `LDI` + 24 T a line |
 | `BUL_DRAW` / `BUL_ERASE` | | 1,876 / 1,192 | |
 | `INPUT_SCAN` / `PLAYER_UPDATE` / `CAMERA_DECIDE` | | 784 / 1,248 / 548 | the ledge, the crouch and the hang |
-| `HUD_SERVICE` (§7.8), the view still | | **136** | 1,188 on a step right, 9,208 down a row |
+| `HUD_SERVICE` (§7.8), the view still | | **504** | 3,568 on a step right, 23,856 down a row - the bar, the rounds and the digit |
 
 `H_HEAD` is 18 of those rows (13,872 T) and `H_TAIL` the other 6
 (4,920 T — the `.skip` loop is gone, replaced by arithmetic).
@@ -2762,44 +3026,95 @@ with 18,568 µs and invites a fix for a bug that is not there. Count **loop
 iterations against interrupt ticks** instead — the gate array delivers exactly
 6 per 50 Hz frame, so 200 iterations per 1,200 ticks is a hard lock:
 
-**THE ENERGY BAR IS IN EVERY ROW OF THIS TABLE NOW**, and the pair of
-numbers is what tells what it costs from what the path costs anyway:
-measured against the same run with `HUD_SERVICE` poked to `RET`.
+**EVERY COLUMN OF THIS TABLE IS THE SAME BUILD WITH ONE THING CHANGED**,
+in the order the changes happened, so what a row costs can be read off
+against what put it there: the bar poked to `RET`, the bar running, the
+artist's redrawn land sheet, the walk at half speed (with SHIFT to run —
+§8.4), the fourteen pips beside the bar, and the magazine digit after
+them. **The last column is what the suites assert**; the run paths did
+not exist before the fourth, because SHIFT was bound to a key nobody
+presses (§8.4).
 
-**THE ENERGY BAR IS IN EVERY ROW OF THIS TABLE NOW, AND SO IS THE
-REDRAWN LAND SHEET.** The three columns are the same build measured
-three ways — with `HUD_SERVICE` poked to `RET`, with it running, and
-with it running over the artist's redraw:
+| Loop | no bar, old art | + the bar | + the redraw | + the half-speed walk | + the rounds | **+ the digit** |
+|---|---:|---:|---:|---:|---:|---:|
+| standing still, under fire | 201 | 199 | 198 | 201 | 201 | **201** |
+| walking right with a drone in view | 199 | 199 | 198 | 199 | 198 | **198** |
+| turning round, walking left into it | 194 | 190 | 186 | 193 | 192 | **191** |
+| walking right and FIRING, past a drone | 196 | 195 | 173 | 194 | 184 | **183** |
+| jumping and firing, scrolling | 195 | 193 | 158 | 191 | | **174** |
+| climbing down the ladder | 200 | 200 | 200 | 200 | | **193** |
+| standing on the street | 201 | 201 | 201 | 201 | 201 | **201** |
+| walking the street | 201 | 201 | 201 | 201 | 201 | **200** |
+| **running right, scrolling** | — | — | — | 172 | 161 | **151** |
+| **running right and firing** | — | — | — | 185 | | **151** |
 
-| Loop | no bar, old art | + the bar | + the redraw |
-|---|---:|---:|---:|
-| standing still, under fire | 201 | 199 | 198 |
-| walking right with a drone in view | 199 | 199 | 198 |
-| turning round, walking left into it | 194 | 190 | **186** |
-| walking right and FIRING, past a drone | 196 | 195 | **173** |
-| jumping and firing, scrolling | 195 | 193 | **158** |
-| climbing down the ladder | 200 | 200 | 200 |
-| standing on the street | 201 | 201 | 201 |
-| walking the street | 201 | 201 | 201 |
+**THE TWO RUN ROWS AND THE CLIMB ARE WHERE THE STRIP LANDS, AND THE
+REASON IS THE ERASE AND NOT THE PIPS.** The strip is fourteen characters
+and a camera step leaves a word of it on the screen to be fetched back
+off the TILEMAP at ~59 T a byte against the 24 it is written at (§7.8).
+A run steps the camera on every OTHER frame where a walk steps it every
+fourth, and a climb steps a whole ROW — fourteen cells of `DRAW_ROW`,
+~13,300 T, on the frame the CRTC latches. Measured with `HUD_VACATE`
+poked to `RET`, a saturated vertical driver is **201 of 200; with it,
+180**. The lever is written down in §7.8 and it is a save-under ring,
+not a cheaper redraw.
 
 **THE REDRAW IS THE DEARER OF THE TWO AND IT LANDS ON THE GUN.** Her
 heaviest `kcore` cel went from 284 span bytes to **323** — 39 bytes at
 the composite's 72 T floor is 2,808 T, and drawn plus erased the cel
 went 54,820 to **57,524**. A firing frame already carries the heaviest
 cel in the game, a round in the air and a drone, so that is where the
-frames go: 42 of the 200 while jumping and firing. In play it is ground
-she does not cover — `tools/test_module5.py` measures **119 bytes where
-the aiming alone accounts for 131**.
+frames went: 42 of the 200 while jumping and firing.
 
-**It was accepted deliberately.** The alternative was the entry at the
-bottom of this section — dropping the mask on the 74% of her span bytes
+**AND HALVING THE WALK GAVE IT BACK, WHICH NOTHING IN THE BLITTER
+COULD.** The walk is a byte every other frame now (§8.2), so the camera
+steps on one frame in four instead of one in two and the incoming
+column's two halves land on half as many frames. Nothing was made
+faster: the work is on fewer frames. Measured on the same build, only
+the beat changed — 173 → **194** firing past a drone, 158 → **191**
+jumping and firing, 186 → **193** turning round. The logic moved with
+it as well, because `PLAYER_X` returns without probing anything on the
+frames she does not step on.
+
+**AND THE ROUNDS NEXT TO THE BAR TOOK SOME OF IT BACK OFF AGAIN, AND
+THEN THE DIGIT TOOK A LITTLE MORE.** Fourteen pips are seven more
+characters of screen-fixed pixels on the bottom row and the magazine
+count is a fourteenth, and a firing frame changes the pips as well as
+everything else it carries. A step right is 1,188 T with the bar alone,
+**2,704** with the pips and **3,568** with the digit — the erase is
+still free, because adjacent runs vacate into each other (§7.8).
+Measured, firing past a drone went 194 → 184 → **183** and the run
+172 → 161 → **151**. At the RIGHT-hand end of the same row, where the
+erase is not free, the first two were 178 and 148.
+
+**THE DIGIT COSTS TEN FRAMES OF THE RUN AND ONE OF EVERYTHING ELSE**,
+which is the same fact as the run's own row: it is the one element with
+no neighbour's content to inherit, so it is written on every frame the
+view moves — 864 T — and a run moves the view twice as often as a walk.
+
+**THE RUN IS THE ONE PATH THAT DROPS FRAMES NOW, AND ITS CELS ARE WHY.**
+`kextra`'s run cels are **351 span bytes** against the 324 of her worst
+`kcore` cel — the heaviest in the game — which is about 4,000 T more on
+the frames they land on, and a run steps every frame so the camera steps
+every other one. 172 of 200 before the bottom row grew, **151** with it,
+and what overruns is measured: the heavy
+cel meeting the column's HEAD. Two things were tried and are recorded
+because neither is free: at **two** bytes a frame, which is what `P_RUN`
+said for as long as SHIFT was unreachable, it is **107 of 200** — a
+character of scroll every frame puts `H_HEAD` and `H_TAIL` together and
+nothing fits; and moving `ENT_UPDATE`'s touch sweep off the head's frame
+(§8.7) is worth **3 iterations walking and 7 running**, which is taken.
+What is left is the entry at the bottom of this section.
+
+**It was accepted deliberately.** The alternative was that entry —
+dropping the mask on the 74% of her span bytes
 that are fully opaque, 56 T a byte against 72, measured at **3,952 T on
 this cel** and ~3,900 bytes a facing off the blob. That is a format, an
 exporter and a blitter, and it is still on the table; the floors in
 `tools/test_enemies.py` are the measurement of what was chosen instead.
 
-**FIRING PAST A DRONE IS THE ONE PATH THAT STILL DROPS FRAMES, AND IT
-IS THE ENCOUNTER.** Tap-firing while the screen scrolls is 200 of 200
+**FIRING PAST A DRONE IS THE PATH THAT USED TO DROP FRAMES, AND IT WAS
+THE ENCOUNTER.** (It is 194 of 200 now — the half-speed walk, above.) Tap-firing while the screen scrolls is 200 of 200
 with the level's drones taken off and 196-200 with them on, tracking how
 many of the 200 frames the drone was on screen for — measured over four
 starting phases, with the drone-off run as the control, so the cost is
@@ -2826,15 +3141,18 @@ and prints the reason beside them, because the transient is affordable
 and not impossible — a level whose frames are all tight will see it
 again.
 
-A scrolling frame on her heaviest cel is **84,544 T of the 79,872
-available — over by 4,672**, measured by summing every call the loop
+A scrolling frame on her heaviest cel is **87,328 T of the 79,872
+available — over by 7,456**, measured by summing every call the loop
 makes. It was 76,324 with 3,548 to spare: the ledge, the crouch and the
 hang took `PLAYER_UPDATE` from 704 to 1,248 and `CAMERA_DECIDE` from 108
-to 548, the energy bar is 1,188 more, and the land sheet's redraw is
-2,704 of it. `tools/test_spanblit.py` re-derives all of it from the
-routines the loop actually calls rather than from this paragraph. The
-three biggest pieces are the span blitter's draw 43,688, the column
-16,536 across its two halves, and the erase 13,836.
+to 548, the land sheet's redraw is 2,704 of it, and the bottom row is
+3,568 more — the walk halving gave some of that back, because
+`PLAYER_X` stops probing anything on the frames she does not step on.
+The logic is **13,268 T** of the sum. `tools/test_spanblit.py`
+re-derives all of it from the routines the loop actually calls rather
+than from this paragraph. The three biggest pieces are the span
+blitter's draw 43,688, the column 16,536 across its two halves, and the
+erase 13,836.
 
 **It was 160 to spare and the 3,780 came out of three places, none of
 them the drawing:** `ENEMY_PICK` no longer looks a type row up for an
@@ -2848,22 +3166,23 @@ placement of the heaviest cel to the worst of everything else AND to
 both halves of the incoming column — and `H_HEAD` and `H_TAIL` only
 land on the same frame when she RUNS, which is a step every frame
 instead of every other one. Those do not co-occur. The loop counted
-against interrupt ticks is what says whether the frame holds, and it
-does on every path in the table above, climbing and street included.
-`tools/test_spanblit.py` asserts the LIGHTEST cel closes (10,224 to
-spare) and that the heaviest's overrun does not grow past the 1,968 it
-was measured at; the 50 Hz assertions live where they can be measured,
-in `tools/test_enemies.py` and `tools/test_climb.py`.
+against interrupt ticks is what says whether the frame holds, and the
+table above is where it holds and where it does not. `tools/test_spanblit.py`
+asserts the LIGHTEST cel closes (4,100 to spare) and that the heaviest's
+overrun does not grow past the **7,456** it was measured at; the 50 Hz
+assertions live where they can be measured, in `tools/test_enemies.py`
+and `tools/test_climb.py`.
 
 **The masked tile path was the first claim on the headroom and did not
 survive the measurement** — 669 T a cell copied against 1,338-2,007
 masked, so two overlay cells in one column would be all of it; the
 overlays are composited at build time instead (§7.3).
 
-**The logic is 10,484 T now, not the 5,416 this section used to
-record.** `ENT_UPDATE` at 3,288 is still the biggest single piece;
+**The logic is 13,268 T now, not the 5,416 this section used to
+record.** `HUD_SERVICE` on a step right is the biggest single piece of
+it and `ENT_UPDATE` at 3,288 the next;
 `PLAYER_UPDATE` went 704 -> 1,248 and `CAMERA_DECIDE` 108 -> 548 for the
-ledge, the crouch and the hang, and `HUD_SERVICE` is 1,188 of it on a
+ledge, the crouch and the hang, and `HUD_SERVICE` is 3,568 of it on a
 step right.
 
 The ladder, the street and the vertical camera cost **672 T** of it
@@ -3258,6 +3577,15 @@ frame, so this only helps a standing player on a still screen.
 * Labels `SCREAMING_SNAKE`, local labels `.dotted`.
 * Prefer `EXX` / shadow registers over push/pop in inner loops; document which shadow
   set a routine clobbers, since the interrupt handler uses them too.
+* **THE CPC'S KEY MATRIX IS USUALLY TABULATED BIT 7 FIRST AND THIS
+  ENGINE NUMBERS FROM BIT 0.** `KEYBIT` takes the bit as the hardware
+  delivers it — row 0 bit 0 is cursor UP — so every published table has
+  to be read backwards before it is used. Row 2 read the other way up is
+  `CLR, [, RETURN, ], f4, SHIFT, \, CONTROL`, and SHIFT is **bit 5**;
+  the engine bound **bit 6** and therefore ran on backslash. Nothing
+  failed, nothing looked wrong, and the run state was simply unreachable
+  for as long as it existed (§8.4). The check is one line in the
+  emulator: hold one key and read `INPUT_NOW`.
 * **`B` IS A LOOP COUNTER SOMEWHERE ABOVE YOU.** `EBUL_HITS_HER` was
   given a second register for the crouch's shorter hitbox and took `B`;
   its caller holds the pool's slot count there and finishes with `DJNZ`,
@@ -3485,7 +3813,22 @@ the next one starts.
       the only witness that counts for the raster: every one of them
       came out of a play-test report and was played back on the same
       machine. The suites are necessary and the hardware is sufficient;
-   17. `tools/test_module5.py` — started, with the bullet/tile checks
+   17. ~~the walk, the run, and the key that was never scanned~~ —
+      done, out of a play-test report that the walk was too fast and
+      that SHIFT did not run: **the walk is half of what it was** and
+      her cycle is halved with it, because the artist's 40-frame cycle
+      plants her feet 18 pixels apart and the engine was carrying her 80
+      (§8.2, §8.4); **SHIFT was bound to backslash** — row 2 bit 6
+      against SHIFT's bit 5 — so the run state was unreachable for as
+      long as it had existed (§10); and **the run is a byte a frame**,
+      not the CRTC's whole character, because a column every frame is
+      25 Hz (§9). The half-speed walk paid the land sheet's redraw back
+      in full: the two firing paths of `tools/test_enemies.py` went 173
+      to 194 and 158 to 191 of 200, and the suite has two run paths in
+      it now. The roof's gap is a run-jump (§8.8), which
+      `tools/test_climb.py` drives with the walking press as a third
+      control. **Not confirmed on RVM yet** — this one is a play-test;
+   18. `tools/test_module5.py` — started, with the bullet/tile checks
       and what firing costs her in it. It still owes the rest of the
       module.
 
@@ -3519,8 +3862,10 @@ the next one starts.
    (done — the bake above); **6c** the HUD (done, and **not** as the
    20x11 play area and 16-line band §8.3 asks for — that is a raster
    split and the frame has not got the 8,700 T it costs, §7.8. What
-   shipped is six health cells at the bottom left, rewritten wherever
-   the view goes, for 136 T standing still and 1,188 on a step right);
+   shipped is fourteen characters of the bottom row — six health cells,
+   her fourteen rounds and a digit for the spare magazines — rewritten
+   wherever the view goes, for 504 T standing still, 3,568 on a step
+   right and 23,856 down a row, which is the one that hurts);
    **6d** a real X clip for sprites at the screen edges (§8.2).
 
    **The band is still the right answer and it is still unaffordable**,

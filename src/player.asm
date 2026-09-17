@@ -28,20 +28,52 @@
 ;
 ; WALKING AND SCROLLING DO NOT SHARE A STEP SIZE, AND THAT IS A BUG
 ; UNLESS IT IS HANDLED. The CRTC scrolls in whole characters, 2 bytes,
-; and Kara walks 1 byte a frame, so inside the push zone at either
-; screen edge CAMERA_DECIDE can only fire every other frame. Let her
-; keep walking 1 byte a frame there and her SCREEN column - the one the
-; blitter draws at - goes 54, 55, 54, 55 ... at 25 Hz: every frame is
-; drawn and erased correctly, every RAM check passes, and on a monitor
-; there are two Karas a character apart for as long as the screen
-; moves. So in the push zone she moves the way the camera does: P_PUSH
-; bytes on the camera's frame, nothing on the frame between, and her
-; screen column never changes while the world goes by. Mid-screen she
-; still walks 1 byte at 50 Hz.
+; so inside the push zone at either screen edge CAMERA_DECIDE can only
+; fire on the frames she covers two. Let her walk her own distance there
+; and her SCREEN column - the one the blitter draws at - goes 54, 55,
+; 54, 55 ... at 25 Hz: every frame is drawn and erased correctly, every
+; RAM check passes, and on a monitor there are two Karas a character
+; apart for as long as the screen moves. So in the push zone she moves
+; the way the camera does: P_PUSH bytes on the camera's frame, nothing
+; on the frames between, and her screen column never changes while the
+; world goes by.
+;
+; AND THE WALK IS HALF THE SPEED IT WAS, WHICH IS WHAT THE ART ASKS FOR.
+; It was 1 byte - 2 Mode 0 pixels - every frame, 100 pixels a second,
+; and it crossed the 160-pixel display in a second and a half. The
+; artist's walk cycle is 40 frames long and her feet are 9 pixels apart
+; at full stride, so a cycle plants them 18 pixels of ground apart and
+; the engine was carrying her 80: she skated four fifths of every step.
+; At P_WALK_BEAT she covers 1 pixel a frame, and with the cycle halved
+; in action.asm (KARA_RATE) the two agree to a pixel.
+;
+; A BYTE IS THE SMALLEST STEP THERE IS - KARA_X is a byte column and a
+; Mode 0 pixel is half of one - so half speed is not a smaller step, it
+; is a step she does not take: P_WALK on one frame in two, and in the
+; push zone P_PUSH on one frame in four, which is the same ground.
+;
+; AND THE RUN IS A BYTE A FRAME, NOT THE CRTC'S WHOLE CHARACTER, BECAUSE
+; THE FRAME CANNOT PAY FOR A COLUMN EVERY FRAME. Two bytes a frame is
+; exactly one scroll step a frame, which puts H_HEAD and H_TAIL on the
+; SAME frame - the pessimistic sum of CLAUDE.md 9, 84,544 T of 79,872 -
+; and a frame that overruns waits for the next VSYNC. Measured over 200
+; hardware frames, holding SHIFT and RIGHT: 107 loop iterations, which
+; is 25 Hz, a character of scroll every other frame and Kara drawn on
+; one frame in two. At a byte a frame the camera steps every other frame
+; - which is the load the old walk carried and the whole of CLAUDE.md 9
+; measures as locked - and it is 197 of 200.
+;
+; So the run is what the walk used to be and the walk is half of it.
+; That also leaves the roof's gap where its measurements put it: the
+; take-off window of 8.4 was derived at a byte a frame, so it is the RUN
+; that clears it now and a walking jump that falls in.
 ; =====================================================================
 
-P_WALK          equ 1           ; byte columns per frame = 2 pixels
-P_RUN           equ 2           ; SHIFT: one CRTC character a frame
+P_WALK          equ 1           ; byte columns per step = 2 pixels
+P_WALK_BEAT     equ 1           ; ... and she steps on the frames where
+                                ; FRAME_COUNT AND this is 0: one in two
+P_RUN           equ 1           ; SHIFT: the same step ...
+P_RUN_BEAT      equ 0           ; ... on every frame
 P_PUSH          equ 2           ; bytes per camera step: one CRTC character
 P_GRAVITY       equ 1
 P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
@@ -138,15 +170,18 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 and  IN_LEFT + IN_RIGHT
                 ret  z                      ; nothing held: she stays put
 
-                ; SHIFT is two bytes a frame, which is exactly the
-                ; CRTC's scroll step - so in the camera's push zone a
-                ; run scrolls every frame and a walk every other one.
+                ; THE BEAT TRAVELS WITH THE SPEED, because every step
+                ; in this routine is a whole byte and what tells a walk
+                ; from a run is how many frames apart they are. In the
+                ; camera's push zone a run scrolls every other frame and
+                ; a walk every fourth one.
                 ld   a,c
                 and  IN_RUN
-                ld   a,P_WALK
+                ld   a,P_WALK_BEAT
                 jr   z,.speed
-                ld   a,P_RUN
-.speed:         ld   (PLAYER_SPEED),a
+                ld   a,P_RUN_BEAT
+.speed:         ld   (PLAYER_BEAT),a        ; ... and the step itself is the
+                                            ; same P_WALK byte either way
                 ld   a,c
                 and  IN_LEFT
                 jr   nz,.left
@@ -156,21 +191,24 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   (KARA_FACING),a        ; 0 = right
                 call AIM_ROOTS_HER
                 ret  nz
+                call WALK_BEAT              ; SHE TURNS ON ANY FRAME AND
+                ret  nz                     ; STEPS ON HER OWN - the facing
+                                            ; is set above this and the step
+                                            ; below it, so a walk still faces
+                                            ; the way it is pushed on the
+                                            ; frames between its steps
                 call PLAYER_SCREEN_X
                 inc  a                      ; her screen column after 1 byte
                 sub  CAM_TRAIL              ; how far past the mark - and it
                 cp   CAM_BAND               ; underflows to 255 short of it,
-                ld   a,(PLAYER_SPEED)       ; which reads as "not at the mark"
-                ld   e,a                    ; exactly as it should
+                ld   e,P_WALK               ; which reads as "not at the mark"
+                                            ; exactly as it should
                 jr   nc,.step_r             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
                 jr   nc,.step_r             ; camera at the map's end: walk on
-                ld   a,(PLAYER_SPEED)
-                cp   P_RUN
-                jr   z,.push_r              ; running: the camera steps every
-                call PUSH_PHASE             ; frame, so she may too
-                ret  z                      ; walking, the camera's off frame
+                call PUSH_PHASE
+                ret  nz                     ; the camera's off frame
 .push_r:        ld   e,P_PUSH               ; its on frame: move as far as it
 .step_r:        ld   d,0
                 ld   hl,(KARA_WX)
@@ -207,23 +245,21 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   (KARA_FACING),a        ; 1 = left
                 call AIM_ROOTS_HER
                 ret  nz
+                call WALK_BEAT              ; ... and the same beat
+                ret  nz
                 call PLAYER_SCREEN_X
                 dec  a                      ; her screen column after 1 byte
                 ld   c,a
                 ld   a,CAM_LEAD
                 sub  c                      ; how far short of the mark
                 cp   CAM_BAND
-                ld   a,(PLAYER_SPEED)
-                ld   e,a
+                ld   e,P_WALK
                 jr   nc,.step_l             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 or   a
                 jr   z,.step_l              ; camera at the map's start
-                ld   a,(PLAYER_SPEED)
-                cp   P_RUN
-                jr   z,.push_l
                 call PUSH_PHASE
-                ret  z
+                ret  nz
 .push_l:        ld   e,P_PUSH
 .step_l:        ld   d,0
                 ld   hl,(KARA_WX)
@@ -270,16 +306,47 @@ AIM_ROOTS_HER:  ld   a,c
                 ret
 
 ; ---------------------------------------------------------------------
-; PUSH_PHASE - Z on the frames the camera sits still.
+; WALK_BEAT - NZ on the frames a WALK spends between its steps.
+;
+; A run is Z on every frame - its mask is 0 - because a byte a frame is
+; as fast as the frame can carry the scroll (see the note at the top).
+; A walk is half of that and a byte is the smallest step there is, so
+; what it gets is a step on one frame in two.
+;
+; IT IS CALLED AFTER THE FACING AND BEFORE THE STEP, which is the same
+; place AIM_ROOTS_HER sits and for the same reason: a player who taps
+; left on one of her still frames must still turn round.
+;                                        destroys AF
+; ---------------------------------------------------------------------
+WALK_BEAT:      ld   hl,PLAYER_BEAT
+                ld   a,(FRAME_COUNT)
+                and  (hl)                   ; a run's mask is 0: every frame
+                ret
+
+; ---------------------------------------------------------------------
+; PUSH_PHASE - NZ on the frames a pushing WALK sits still.
 ;
 ; The camera is decided at the top of the NEXT frame from the position
 ; this frame leaves behind, so "the frame she moves P_PUSH" and "the
-; frame the camera steps" are one frame apart, and the parity of
-; FRAME_COUNT (incremented right after PLAYER_UPDATE) is a clock both
-; halves agree on.                       destroys AF
+; frame the camera steps" are one frame apart, and the low bits of
+; FRAME_COUNT (incremented right after PLAYER_UPDATE) are a clock both
+; halves agree on.
+;
+; THE PUSH STEP IS TWICE THE FREE ONE, so its beat is twice as long:
+; mask = PLAYER_BEAT * 2 + 1, which is 1 for a run - a character every
+; other frame, the load CLAUDE.md 9 measures as locked - and 3 for a
+; walk, of which WALK_BEAT has already taken bit 0. Either way it is the
+; same ground she covers in the open. CAMERA_DECIDE asks for nothing on
+; the frames between, because she is behind the mark on every one of
+; them: it reads her column, not this clock.
+;                                        destroys AF,B
 ; ---------------------------------------------------------------------
-PUSH_PHASE:     ld   a,(FRAME_COUNT)
-                and  1
+PUSH_PHASE:     ld   a,(PLAYER_BEAT)
+                add  a,a
+                inc  a
+                ld   b,a
+                ld   a,(FRAME_COUNT)
+                and  b
                 ret
 
 ; ---------------------------------------------------------------------
@@ -981,7 +1048,9 @@ PLAYER_TO_SCREEN:
                 ld   (KARA_Y),a
                 ret
 
-PLAYER_SPEED:   db P_WALK       ; this frame's step, walk or run
+PLAYER_BEAT:    db P_WALK_BEAT  ; how many frames apart her steps are:
+                                ; FRAME_COUNT AND this must be 0 for her to
+                                ; take one. 0 is a run, 1 a walk.
 KARA_WX:        dw 43           ; her BOX - the sprite's left edge is 40
 KARA_WY:        db 16           ; starts in the air and falls onto the roof.
                                 ; HIGH ENOUGH THAT HER FEET START ABOVE IT:

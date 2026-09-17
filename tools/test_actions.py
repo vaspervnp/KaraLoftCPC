@@ -210,6 +210,33 @@ def main():
     check("...and not from standing still", d["st"] == ST["IDLE"],
           "a release that never drew must not fire")
 
+    # AND AN EMPTY GUN HAS NO RECOIL TO PLAY. The four `shoot` cels are
+    # drawn WITH the muzzle flash in them, so a release on two dry
+    # magazines used to show a shot that never left - reported from a
+    # play-test. The release still starts the reload, which is what a
+    # trigger pull on an empty gun is for.
+    full = (m.peek(sym["MAG_LEFT"]), m.peek(sym["MAG_RIGHT"]),
+            m.peek(sym["RELOAD_TIMER"]))
+    for mags, reload_, want, why in (
+            ((7, 7), 0, ST["FIRE"], "both magazines full"),
+            ((0, 1), 0, ST["FIRE"], "one round in the right-hand gun"),
+            ((0, 0), 0, ST["IDLE"], "both dry: no cels, no flash"),
+            ((7, 7), 30, ST["IDLE"], "reloading: the rounds are not in it yet")):
+        m.poke(sym["MAG_LEFT"], mags[0])
+        m.poke(sym["MAG_RIGHT"], mags[1])
+        m.poke(sym["RELOAD_TIMER"], reload_)
+        sim.force(ST["IDLE"])
+        sim.step(now=IN_FIRE)
+        got = sim.step(now=0)
+        check(f"a release {'fires' if want == ST['FIRE'] else 'plays nothing'}"
+              f" with {why}", got["st"] == want,
+              f"KARA_STATE {got['st']}, want {want}"
+              + (f" - and RELOAD_TIMER is {m.peek(sym['RELOAD_TIMER'])}"
+                 if want != ST["FIRE"] else ""))
+    m.poke(sym["MAG_LEFT"], full[0])
+    m.poke(sym["MAG_RIGHT"], full[1])
+    m.poke(sym["RELOAD_TIMER"], full[2])
+
     # -----------------------------------------------------------------
     # 2. The committed states: nothing interrupts them.
     # -----------------------------------------------------------------
@@ -241,30 +268,43 @@ def main():
         check(f"{name} ends by itself", seen[-1] != ST[name])
 
     # -----------------------------------------------------------------
-    # 3. The cel rate is the ART's, not a constant.
+    # 3. The cel rate is the ART's, and the RATE THE CYCLE RUNS AT is
+    #    the engine's - KARA_RATE, one right shift per state.
+    #
+    # The shift is written down here rather than read out of the engine,
+    # because a test that fetched the table would pass whatever was in
+    # it. The rule it states is the one in action.asm: only the two
+    # states that carry her along the floor are halved, and they are
+    # halved because the artist's cycle and the ground she covers have
+    # to agree - 40 frames of walk cycle against 18 pixels of stride,
+    # and she covers 1 pixel a frame (CLAUDE.md 8.4).
     # -----------------------------------------------------------------
+    RATE = {"IDLE": 0, "WALK": 1, "RUN": 1}
     print("\n  cel timing against the durations Aseprite recorded:")
     bad = 0
     for name in ("IDLE", "WALK", "RUN"):
         s, first, count, _ = SPEC[name]
         dur = K[("KCORE", "KEXTRA")[s] + "_DURATION"]
+        rate = RATE[name]
+        paced = [max(dur[first + i] >> rate, 1) for i in range(count)]
         sim.force(ST[name])
         inp = dict(IDLE=dict(), WALK=dict(now=IN_RIGHT),
                    RUN=dict(now=IN_RIGHT | IN_RUN))[name]
         held = {}
-        for _ in range(sum(dur[first:first + count]) * 2):
+        for _ in range(sum(paced) * 2):
             g = sim.step(**inp)
             held[g["frame"]] = held.get(g["frame"], 0) + 1
-        want = {first + i: dur[first + i] * 2 for i in range(count)}
+        want = {first + i: paced[i] * 2 for i in range(count)}
         got = {k: v for k, v in sorted(held.items())}
         same = got == want
         bad += not same
         print(f"    {name:<5} frames held {list(got.values())}, "
-              f"art says {[dur[first + i] for i in range(count)]} x2")
+              f"art says {[dur[first + i] for i in range(count)]}"
+              f"{' >> ' + str(rate) if rate else ''} x2")
         if not same:
             print(f"          want {want}")
-    check("each cel is held for exactly the frames the art asks", bad == 0,
-          f"{bad} of 3 states wrong")
+    check("each cel is held for exactly the frames the art asks, at the "
+          "state's own rate", bad == 0, f"{bad} of 3 states wrong")
 
     # a state that loops comes back to its first cel
     s, first, count, _ = SPEC["WALK"]
@@ -306,7 +346,12 @@ def main():
           f"{bad} wrong")
 
     # -----------------------------------------------------------------
-    # 4b. RUN is two bytes a frame, which is the CRTC's scroll step.
+    # 4b. A RUN is a byte a frame and a WALK is a byte every other one.
+    #
+    # Every step in PLAYER_X is a whole byte - KARA_X is a byte column
+    # and a Mode 0 pixel is half of one - so what tells the two apart is
+    # how many frames apart the steps are, which is PLAYER_BEAT. Eight
+    # frames therefore carry a run eight bytes and a walk four.
     #
     # Driven through PLAYER_UPDATE with the input poked, for the same
     # reason as everything above: there is no key code for SHIFT here,
@@ -349,22 +394,25 @@ def main():
     left = travel(IN_LEFT)
     print(f"    free zone, 8 frames: walking {walked} bytes, running "
           f"{ran}, still {still}, left {left}")
-    check("a walk is one byte a frame", walked == 8, f"{walked} in 8 frames")
-    check("SHIFT doubles it to the CRTC's scroll step", ran == 16,
-          f"{ran} in 8 frames, want 16")
+    check("a walk is one byte every other frame", walked == 4,
+          f"{walked} in 8 frames, want 4")
+    check("SHIFT doubles it to a byte a frame", ran == 8,
+          f"{ran} in 8 frames, want 8")
     check("no direction, no movement", still == 0, f"{still}")
-    check("left goes left", left == -8, f"{left}")
+    check("left goes left", left == -4, f"{left}")
 
     # In the PUSH zone she moves the way the camera does, or the picture
-    # doubles (CLAUDE.md 8.2): two bytes on the camera's frame and none
-    # between. A run is two bytes EVERY frame, which is the camera's own
-    # step, so it scrolls every frame and a walk every other one.
+    # doubles (CLAUDE.md 8.2): the CRTC's whole 2-byte character on the
+    # camera's frame and nothing between. That is one frame in two for a
+    # run and one in four for a walk - the same ground either way as the
+    # free zone above, which is the property that matters.
     pwalk = travel(IN_RIGHT, wx=140)
     prun = travel(IN_RIGHT | IN_RUN, wx=140)
     print(f"    push zone, 8 frames: walking {pwalk} bytes, running {prun}")
     check("in the push zone a walk keeps the camera's pace, not its own",
-          pwalk == 8, f"{pwalk} in 8 frames, want 8 - two bytes every other")
-    check("...and a run moves every frame, because the camera can", prun == 16,
+          pwalk == 4, f"{pwalk} in 8 frames, want 4 - two bytes every fourth")
+    check("...and a run steps twice as often, because the camera can",
+          prun == 8,
           f"{prun} in 8 frames, want 16")
 
     # -----------------------------------------------------------------

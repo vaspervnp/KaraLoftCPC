@@ -360,13 +360,21 @@ ENT_UPDATE:     xor  a
                 ld   (ENT_RESULT),a
 
                 ; THE TOUCH SWEEP TAKES THE FRAMES THE ENEMY REDRAW
-                ; DOES NOT - see ENEMY_DRAW. At 2 bytes a frame she
+                ; DOES NOT - see ENEMY_DRAW. At a byte a frame she
                 ; cannot cross a 4-byte pickup between two sweeps, and
                 ; the pair of them on one frame is 376 T more than the
                 ; frame has.
+                ;
+                ; AND IT TAKES THE ODD ONES, WHICH IS NOT ARBITRARY: she
+                ; steps on even frames and CAMERA_DECIDE asks for the
+                ; scroll there, so H_HEAD paints fourteen rows of the
+                ; incoming column on that frame and H_TAIL's six land on
+                ; the next - 13,872 T against 4,920. Measured, moving
+                ; this sweep to the cheaper half is worth 3 loop
+                ; iterations in 200 walking and 7 running (CLAUDE.md 9).
                 ld   a,(FRAME_COUNT)
                 rra
-                jr   c,.asked
+                jr   nc,.asked              ; even: the column's head is here
                 ld   a,EF_TOUCH             ; the automatic ones first
                 call ENTITY_COLLISION_CHECK
                 jr   nc,.asked
@@ -1156,14 +1164,23 @@ ENT_REPAINT_DUE:
                 ret  z
                 ld   de,0
                 ld   (ENT_RP_DUE),de
-                ; THE ENERGY BAR MAY BE UNDER THIS. It lives on screen
-                ; row 23 and is only written when the view moves, so a
-                ; repaint that lands on it would stay. &FF is no health
-                ; she can have, so the next frame writes it again -
-                ; before the beam reaches row 23, and after the beam has
-                ; passed it here (src/hud.asm).
+                ; THE BOTTOM ROW MAY BE UNDER THIS. The energy bar and
+                ; the ammo both live on screen row 23 and are only
+                ; written when the view or the count moves, so a repaint
+                ; that lands on either would stay. The next frame writes
+                ; them again - before the beam reaches row 23, and after
+                ; the beam has passed it here (src/hud.asm).
+                ;
+                ; IT IS HUD_LIT AND NOT HUD_HP THAT FORCES THE BAR. A
+                ; health she cannot have makes HUD_SERVICE look at the
+                ; bar, and then HUD_LEVEL finds the same six cells lit
+                ; and says so with the Z flag - which is the whole point
+                ; of it - and nothing is drawn. &FF is not a number of
+                ; cells, so the layout is what has to be disowned.
                 ld   a,&FF
-                ld   (HUD_HP),a
+                ld   (HUD_HP),a             ; ... so HUD_SERVICE looks,
+                ld   (HUD_LIT),a            ; ... and finds a layout it
+                ld   (HUD_AMMO_SPENT),a     ; does not own
                 ; fall through with HL = the map cell
 ; ---------------------------------------------------------------------
 ; ENT_CELL_REPAINT - HL = a map byte. Repaints the four character cells

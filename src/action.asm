@@ -40,8 +40,14 @@
 ; frames of the drawn sheet are not shipped at all, with each dropped
 ; cel's time added to the one before it (CLAUDE.md 7.1). Running the
 ; animation at a fixed rate instead would make the thinned walk cycle
-; faster than the artist drew it and out of step with the two bytes a
-; frame she travels.
+; faster than the artist drew it and out of step with itself.
+;
+; WHAT THE ENGINE DOES OWN IS THE RATE THE WHOLE CYCLE RUNS AT, because
+; that is the one thing Aseprite cannot know: how much floor goes under
+; her while it plays. KARA_RATE is one right shift per state, it is 1
+; for the two states that carry her along the ground and 0 for the other
+; eleven, and both of those are measured off the feet - see the table
+; beside it.
 ; =====================================================================
 
 KST_IDLE        equ 0
@@ -86,6 +92,38 @@ KARA_ANIMS:     db KSET_CORE,  KCORE_IDLE_FIRST,       KCORE_IDLE_COUNT,       1
 KARA_DURATIONS: dw KCORE_DURATION
                 dw KEXTRA_DURATION
                 dw KACT_DURATION
+
+; ---------------------------------------------------------------------
+; THE CEL RATE IS THE ART'S AND THE GROUND IS THE ENGINE'S, AND WHERE
+; THE TWO DISAGREE HER FEET SKATE. One right shift of the art's dwell
+; per state, and only the two states that carry her along the floor
+; have one.
+;
+; Measured on the shipped sheet, the feet at full stride and the cycle
+; the duration tables above add up to:
+;
+;   state  cels          cycle   stride  she covers   skate
+;   walk   10,10,10,5,5  40 fr   18 px   40 fr @ 1    2.2x  -> 20 fr, 1.1x
+;   run     7, 7, 7,4,4  29 fr   29 px   29 fr @ 4    4.0x  -> 13 fr, 1.8x
+;
+; "Stride" is twice the distance between her two feet on the cel they
+; are furthest apart - 9 px walking, 14.5 running - because a cycle is
+; two steps. The shift is the most halvings that still leave her
+; covering AT LEAST the stride: a second one takes the walk to 10 frames
+; and 10 pixels of ground against 18 of feet, which is skating
+; backwards, and the run to 5 frames and 20 against 29.
+;
+; The tables themselves are untouched. What the artist timed is a cel's
+; share of its cycle, and that is what is read here; how much floor goes
+; under her in that cycle is P_WALK's business and nothing Aseprite can
+; know.
+KARA_RATE:      db 0            ; idle
+                db 1            ; walk
+                db 1            ; run
+                db 0, 0, 0, 0   ; jump, roll, aim, fire
+                db 0, 0, 0, 0   ; climb, climb_turn, drop, die
+                db 0, 0         ; crouch, hang
+                assert $ - KARA_RATE == KST_COUNT
 
 ; ---------------------------------------------------------------------
 ; ACT_ROW - HL = the KARA_ANIMS row for state A.    destroys AF,DE,HL
@@ -232,9 +270,18 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 jr   nz,.want
                 ld   a,(KARA_STATE)
                 cp   KST_AIM
+                jr   nz,.no_fire
+                ; ---- AND AN EMPTY GUN HAS NO RECOIL TO PLAY ---------
+                ; The `shoot` cels carry the muzzle flash, so a release
+                ; on two dry magazines used to show a shot that never
+                ; left - reported from a play-test. The release still
+                ; starts the reload, which is what a trigger pull on an
+                ; empty gun is FOR; what it does not do is draw one.
+                call GUN_HAS_ROUND
                 ld   a,KST_FIRE
-                jr   z,.want
-
+                jr   nz,.want
+                call START_RELOAD
+.no_fire:
                 ; ---- DOWN ON ITS OWN IS A CROUCH --------------------
                 ; The roll's first cel is her on one knee, so the pose is
                 ; already drawn and costs nothing to ship. What it is FOR
@@ -354,11 +401,26 @@ ACT_SHOW:       ld   a,(KARA_STATE)
                 ld   e,a
                 jr   nc,.same
                 inc  d
+                ; C IS THE SET AND ACT_MUZZLE BELOW READS IT, so the
+                ; state's rate is fetched in B and HL and not in C.
 .same:          ld   a,(de)
+                ld   b,a                    ; B = the art's dwell, in frames
+                ld   a,(KARA_STATE)
+                ld   l,a
+                ld   h,0
+                ld   de,KARA_RATE
+                add  hl,de
+                ld   a,(hl)                 ; how many times to halve it
+                or   a
+                jr   z,.rated
+.halve:         srl  b
+                dec  a
+                jr   nz,.halve
+.rated:         ld   a,b
                 or   a
                 jr   nz,.got
                 inc  a                      ; a zero-length cel would stop the
-.got:           ld   (KARA_TIMER),a         ; animation dead
+.got:           ld   (KARA_TIMER),a         ; animation dead         ; animation dead
                 ; falls into ACT_MUZZLE - a cel has just changed, which is
                 ; the only moment a shot can leave
 

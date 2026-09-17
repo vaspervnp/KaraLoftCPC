@@ -28,6 +28,13 @@ CELLS, LINES, CELL_W = 6, 8, 2           # bytes across a cell
 ROW = 23                                 # THE BOTTOM character row
 BASE = ROW * 40                          # ... 920 words into the view
 TOP_LINE = ROW * 8                       # display line 184
+AMMO_CELLS = 7                           # ... and the rounds straight after
+AMMO_COL = CELLS                         # character 6
+AMMO_X0 = AMMO_COL * 4                   # Mode 0 pixel 24 of 160
+ROUNDS = AMMO_CELLS * 2                  # 14, both magazines
+BUL_MAX = ROUNDS                         # ... and what one reload is worth
+CLIPS_COL = AMMO_COL + AMMO_CELLS        # character 13: the spare magazines
+CLIPS_X0 = CLIPS_COL * 4
 
 fails = []
 
@@ -38,11 +45,28 @@ def check(name, ok, detail=""):
         fails.append(name)
 
 
-def cells_from_inc():
-    """The two 4x8 cells the build exported, as pen rows."""
+def digits_from_inc():
+    """HUD_DIGITS is one label and ten cels, with a comment before each."""
+    text = open(os.path.join(BUILD, "hud_art.inc")).read()
+    body = [ln for ln in text.split("HUD_DIGITS:")[1].splitlines()
+            if ln.strip().startswith("db ")]
+    out = {}
+    for d in range(10):
+        rows = []
+        for ln in body[d * LINES:(d + 1) * LINES]:
+            row = []
+            for v in ln.strip()[3:].split(","):
+                row += list(cpclib.decode_byte(int(v.strip()[1:], 16)))
+            rows.append(row)
+        out[f"HUD_DIGIT_{d}"] = rows
+    return out
+
+
+def cells_from_inc(names=("HUD_CELL_FULL", "HUD_CELL_EMPTY")):
+    """The 4x8 cells the build exported, as pen rows."""
     text = open(os.path.join(BUILD, "hud_art.inc")).read()
     out = {}
-    for name in ("HUD_CELL_FULL", "HUD_CELL_EMPTY"):
+    for name in names:
         body = text.split(name + ":")[1].splitlines()[1:]
         rows = []
         for line in body[:LINES]:
@@ -71,6 +95,30 @@ def expect(hp, art, steps):
     return grid
 
 
+def ammo_expect(spent, pips):
+    """The 28x8 pen grid the rounds should be showing.
+
+    THE ROUNDS GO OUT FROM THE LEFT, so the row is spent//2 empty cells,
+    a half-spent one when the count is odd, and full cells after it -
+    which is the engine's own rule stated a second time, from the count
+    rather than from the seam it keeps.
+    """
+    grid = []
+    for y in range(LINES):
+        row = []
+        for c in range(AMMO_CELLS):
+            lo, hi = 2 * c, 2 * c + 1
+            if hi < spent:
+                name = "HUD_PIP_EMPTY"
+            elif lo < spent:
+                name = "HUD_PIP_HALF"
+            else:
+                name = "HUD_PIP_FULL"
+            row += pips[name][y]
+        grid.append(row)
+    return grid
+
+
 def find_top(m, sym, want, hwpen):
     """Which framebuffer row the display starts on, from the bar itself."""
     fb = m.framebuffer()
@@ -85,14 +133,14 @@ def find_top(m, sym, want, hwpen):
     return max(range(0, 312 - TOP_LINE - LINES), key=score)
 
 
-def on_screen(m, top, want, hwpen):
-    """How many of the bar's 192 pixels are wrong in the rendered frame."""
+def on_screen(m, top, want, hwpen, x0=0):
+    """How many of a run's pixels are wrong in the rendered frame."""
     fb = m.framebuffer()
     bad = 0
     for y in range(LINES):
         row = fb[(top + TOP_LINE + y) * FBW:(top + TOP_LINE + y + 1) * FBW]
-        for x in range(CELLS * 4):
-            if row[64 + x * 4] != hwpen[want[y][x]]:
+        for x in range(len(want[y])):
+            if row[64 + (x0 + x) * 4] != hwpen[want[y][x]]:
                 bad += 1
     return bad
 
@@ -101,7 +149,9 @@ def main():
     sym = symbols()
     for n in ("HUD_SERVICE", "HUD_ALL", "HUD_PUT", "HUD_LEVEL", "HUD_HP",
               "HUD_LAST", "HUD_LIT", "HUD_STEPS", "HUD_CELL_FULL",
-              "HUD_CELL_EMPTY"):
+              "HUD_CELL_EMPTY", "HUD_AMMO", "HUD_AMMO_PUT",
+              "HUD_AMMO_SPENT", "MAG_LEFT", "MAG_RIGHT", "HUD_CLIPS",
+              "HUD_CLIPS_N", "HUD_DIGITS", "AMMO_RESERVE"):
         if n not in sym:
             check(f"the engine has {n}", False, "rebuild first")
     if fails:
@@ -240,6 +290,149 @@ def main():
     check("the bar survives the fold, at every one of them", not any(bad3),
           f"words 1018-1023, wrong bytes {bad3} - 1018 is the last one that "
           f"does NOT fold, so it is the control on the other five")
+
+    # -----------------------------------------------------------------
+    # THE ROUNDS, AT THE OTHER END OF THE SAME ROW.
+    #
+    # Fourteen pips, two to a character, going out from the LEFT as she
+    # fires - which is the mirror of the bar and NOT free in the same
+    # places: a run leaves the word just past its left end whichever way
+    # the view goes, so the bar is free stepping right and this is free
+    # stepping left (CLAUDE.md 7.8).
+    # -----------------------------------------------------------------
+    pips = cells_from_inc(("HUD_PIP_FULL", "HUD_PIP_HALF", "HUD_PIP_EMPTY"))
+    print("\n  fourteen rounds, straight after the bar:")
+    m.poke(sym["MAG_LEFT"], 7)
+    m.poke(sym["MAG_RIGHT"], 7)
+    m.run_frames(3)
+    sync(m, sym)
+    bad = on_screen(m, top, ammo_expect(0, pips), hwpen, AMMO_X0)
+    check("the rounds are on the screen, next to the bar, both magazines "
+          "full",
+          bad == 0, f"{ROUNDS * 2 * LINES - bad} of {ROUNDS * 2 * LINES} "
+          f"pixels are the artist's own bullet")
+
+    print("\n  and they go out from the LEFT as she fires:")
+    for left, right in ((7, 7), (6, 7), (4, 4), (2, 1), (0, 1), (0, 0)):
+        m.poke(sym["MAG_LEFT"], left)
+        m.poke(sym["MAG_RIGHT"], right)
+        m.run_frames(3)
+        sync(m, sym)
+        spent = ROUNDS - left - right
+        bad = on_screen(m, top, ammo_expect(spent, pips), hwpen, AMMO_X0)
+        check(f"{left}+{right} rounds leaves {ROUNDS - spent} pips lit, "
+              f"the rightmost ones", bad == 0,
+              f"{bad} wrong pixels" if bad else "exactly, on the screen")
+
+    # AND THEY STAY, which is the same property the bar has and a
+    # different arithmetic: this run's vacated word is off the row
+    # going LEFT and inside the picture going RIGHT.
+    print("\n  and they STAY, walking both ways:")
+    m.poke(sym["MAG_LEFT"], 5)
+    m.poke(sym["MAG_RIGHT"], 4)
+    m.run_frames(3)
+    want_ammo = ammo_expect(ROUNDS - 9, pips)
+    for mask, name in ((JOY_RIGHT, "RIGHT"), (JOY_LEFT, "LEFT")):
+        worst, seen = 0, set()
+        m.joystick(mask)
+        for _ in range(90):
+            m.run_frames(1)
+            sync(m, sym)
+            seen.add(m.peek(sym["SCROLL"]) | (m.peek(sym["SCROLL"] + 1) << 8))
+            m.poke(sym["MAG_LEFT"], 5)          # the drones shoot back and
+            m.poke(sym["MAG_RIGHT"], 4)         # she is not what is measured
+            worst = max(worst, on_screen(m, top, want_ammo, hwpen, AMMO_X0))
+        m.joystick(0)
+        check(f"... walking {name}, with nine rounds left", worst == 0,
+              f"{len(seen)} start addresses, worst frame {worst} wrong pixels "
+              f"of {ROUNDS * 2 * LINES}")
+
+    # THE NEGATIVE CONTROL IS THE SAME ONE THE BAR HAS: with HUD_AMMO
+    # returning at once the rounds are still DRAWN - the first frame
+    # draws them - and the CRTC then carries them off with the world.
+    print("\n  the negative control - the rounds must be REWRITTEN:")
+    m2 = boot(sym, scroll=True)
+    m2.run_frames(20)
+    m2.poke(sym["MAG_LEFT"], 5)
+    m2.poke(sym["MAG_RIGHT"], 4)
+    m2.run_frames(3)
+    sync(m2, sym)
+    top2 = find_top(m2, sym, expect(m2.peek(sym["PLAYER_HP"]), art, steps), hwpen)
+    before = on_screen(m2, top2, want_ammo, hwpen, AMMO_X0)
+    m2.poke(sym["HUD_AMMO"], 0xC9)          # RET
+    worst2 = 0
+    m2.joystick(JOY_RIGHT)
+    for _ in range(90):
+        m2.run_frames(1)
+        sync(m2, sym)
+        m2.poke(sym["MAG_LEFT"], 5)
+        m2.poke(sym["MAG_RIGHT"], 4)
+        worst2 = max(worst2, on_screen(m2, top2, want_ammo, hwpen, AMMO_X0))
+    m2.joystick(0)
+    check("without it the rounds slide off with the world",
+          before == 0 and worst2 > 0,
+          f"{before} wrong pixels with the redraw, {worst2} of "
+          f"{ROUNDS * 2 * LINES} without it")
+
+    # -----------------------------------------------------------------
+    # AND ONE DIGIT AFTER THEM: HOW MANY MAGAZINES THE RESERVE IS WORTH.
+    #
+    # A reload takes BUL_MAX rounds out of AMMO_RESERVE (bullets.asm),
+    # so the reserve IS a number of magazines. The expectation is
+    # computed here from the reserve rather than read out of
+    # HUD_CLIPS_N, which is the engine's own answer.
+    # -----------------------------------------------------------------
+    print("\n  and the spare magazines, as a digit:")
+    digits = digits_from_inc()
+    reserve0 = m.peek(sym["AMMO_RESERVE"])
+    for reserve in (28, 14, 13, 0, 42, 140):
+        m.poke(sym["AMMO_RESERVE"], reserve)
+        m.run_frames(3)
+        sync(m, sym)
+        want_d = min(reserve // BUL_MAX, 9)
+        bad = on_screen(m, top, digits[f"HUD_DIGIT_{want_d}"], hwpen,
+                        CLIPS_X0)
+        check(f"a reserve of {reserve:3d} rounds shows {want_d}", bad == 0,
+              f"{bad} wrong pixels" if bad else
+              f"the artist's own digit, and the engine agrees "
+              f"({m.peek(sym['HUD_CLIPS_N'])})")
+    m.poke(sym["AMMO_RESERVE"], reserve0)
+    m.run_frames(3)
+
+    # AND A REPAINT UNDER THE BOTTOM ROW IS PUT BACK. ENT_SETTLE queues
+    # the four cells a taken pickup leaves (entity.asm) and they can
+    # land on row 23; the repaint runs after the beam has passed it, and
+    # what makes the next frame write the row again is HUD_LIT and
+    # HUD_AMMO_SPENT being set to a layout neither owns.
+    print("\n  and a repaint under the bottom row is put back:")
+    m.run_frames(3)
+    sync(m, sym)
+    scroll = m.peek(sym["SCROLL"]) | (m.peek(sym["SCROLL"] + 1) << 8)
+    for w in range(CELLS + AMMO_CELLS + 1):   # ... and the digit
+        for line in range(LINES):
+            addr = 0xC000 + 2 * ((scroll + BASE + w) & 0x3FF) + 0x800 * line
+            m.poke(addr, 0x55)
+            m.poke(addr + 1, 0x55)
+    # ONE FRAME BEFORE READING IT: the framebuffer is what the beam
+    # last drew, not what is in RAM, so a scribble poked after the
+    # sweep is invisible until the next one - and that frame also
+    # proves the engine does NOT repair it on its own.
+    m.run_frames(1)
+    sync(m, sym)
+    damaged = (on_screen(m, top, expect(m.peek(sym["PLAYER_HP"]), art, steps),
+                         hwpen)
+               + on_screen(m, top, want_ammo, hwpen, AMMO_X0))
+    for n in ("HUD_HP", "HUD_LIT", "HUD_AMMO_SPENT"):
+        m.poke(sym[n], 0xFF)
+    m.run_frames(1)
+    sync(m, sym)
+    healed = (on_screen(m, top, expect(m.peek(sym["PLAYER_HP"]), art, steps),
+                        hwpen)
+              + on_screen(m, top, want_ammo, hwpen, AMMO_X0))
+    check("both runs come back on the next frame", damaged > 0 and healed == 0,
+          f"{damaged} pixels wrong after the scribble, {healed} after one "
+          f"frame - and a bar that only checked HUD_HP would leave them, "
+          f"because HUD_LEVEL finds the same cells lit and says so")
 
     print("\n  and the frame still closes:")
     m4 = boot(sym, scroll=True)

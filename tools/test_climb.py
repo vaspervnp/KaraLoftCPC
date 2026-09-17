@@ -437,13 +437,26 @@ def main():
 
     # ---- 7. and the loop still closes -------------------------------
     print("\n  the loop, on the new ground:")
-    for label, setup in (
-            ("climbing down", lambda mm: (onto_ladder(mm, sym, ladder),
-                                          mm.joystick(JOY_DOWN))),
-            ("standing on the street", lambda mm: (
+    for label, floor, setup in (
+            # CLIMBING IS THE ONE PATH THE BOTTOM ROW IS DEAR ON, and
+            # the cost is the ERASE and not the strip. Fourteen
+            # characters of HUD (six of health, seven of ammo, one
+            # digit - CLAUDE.md 7.8) leave a whole row of themselves
+            # behind on the frame the CRTC latches a downward step, and
+            # those words come back off the TILEMAP at ~59 T a byte
+            # against the 24 the strip itself is written at: ~13,200 T
+            # on a frame that has not got it, so about one frame in
+            # five while a ladder repeats that step. Measured with
+            # HUD_VACATE poked to RET a saturated vertical driver is
+            # 201 of 200 and with it 180 - the whole vertical cost is
+            # the erase, and the lever that would buy it back is a
+            # save-under ring (LDI at 20 T a byte).
+            ("climbing down", 193, lambda mm: (onto_ladder(mm, sym, ladder),
+                                               mm.joystick(JOY_DOWN))),
+            ("standing on the street", 198, lambda mm: (
                 onto_ladder(mm, sym, ladder), mm.joystick(JOY_DOWN),
                 mm.run_frames(200), mm.joystick(0))),
-            ("walking the street", lambda mm: (
+            ("walking the street", 198, lambda mm: (
                 onto_ladder(mm, sym, ladder), mm.joystick(JOY_DOWN),
                 mm.run_frames(200), mm.joystick(JOY_RIGHT)))):
         mm = boot(sym, scroll=True)
@@ -457,8 +470,9 @@ def main():
         # reason: an enemy coming into or going out of view costs a frame,
         # and the vertical camera's own step is a whole character row of
         # DRAW_ROW split over two frames.
-        check(f"50 Hz: {label}", got >= 198,
-              f"{got} loop iterations in 200 hardware frames")
+        check(f"50 Hz: {label}", got >= floor,
+              f"{got} loop iterations in 200 hardware frames "
+              f"(floor {floor})")
 
     # ---- 8. the negative control ------------------------------------
     print("\n  the negative control - TA_CLIMB is what does it:")
@@ -490,26 +504,56 @@ def main():
     T, _ = city.tile_names()
     MAP_ADDR = sym["MAP_ADDR"] if "MAP_ADDR" in sym else 0xA000
 
-    def to_the_gap(mm, frames=700):
+    def step_game(mm, limit=8):
+        """One iteration of the GAME's loop, not one hardware frame.
+
+        THE TWO ARE NOT THE SAME NUMBER ANY MORE. The bottom row carries
+        fourteen characters of HUD and a downward row step repaints all
+        of them one row up on the frame the CRTC latches - 13,200 T,
+        more than that frame has (CLAUDE.md 7.8) - so a fall drops about
+        one frame in five. Everything below that counts frames is
+        counting the coyote window, the cel timer or the arc, and every
+        one of those is in the engine's own clock; driven by hardware
+        frames, a press six frames after the lip arrived four game
+        frames after it and cleared a gap it was written to fall into.
+        """
+        f0 = mm.peek(sym["FRAME_COUNT"])
+        for _ in range(limit):
+            mm.run_frames(1)
+            if mm.peek(sym["FRAME_COUNT"]) != f0:
+                return
+    def to_the_gap(mm, frames=700, shift=False):
         """Hold right until the ground goes away, and keep her alive.
 
         The drones shoot at her on the way past and what is being
         measured here is the fall, not her hit points; a death would
         take the state machine (KST_DIE beats everything) and the run
         would be measuring that instead.
+
+        `shift` holds SHIFT down as well, which is the run. There is no
+        keycode for SHIFT on its own here, so what is pressed is an
+        UPPERCASE letter: the emulator puts row 2 bit 5 down for the
+        shift and row 8 bit 2 for the A, and the engine binds the first
+        and nothing at all to the second (src/input.asm).
         """
+        if shift:
+            mm.key_down('A')
         mm.joystick(JOY_RIGHT)
         first = None
         for i in range(frames):
-            mm.run_frames(1)
+            step_game(mm)
             mm.poke(sym["PLAYER_HP"], 100)
             s = st(mm, sym)
             if first is None and not s["ground"]:
                 first = (i, s)
             if first and s["ground"] and s["wy"] + KARA_BOX_H >= STREET_Y:
                 mm.joystick(0)
+                if shift:
+                    mm.key_up('A')
                 return first, i, st(mm, sym)
         mm.joystick(0)
+        if shift:
+            mm.key_up('A')
         return first, None, st(mm, sym)
 
     mm = boot(sym, scroll=True)
@@ -553,48 +597,69 @@ def main():
           f"she is at tile {ctl['wx'] // 4}, past the gap at "
           f"{city.ROOF_GAP}, still on the roof at {ctl['wy'] + KARA_BOX_H}")
 
-    # ---- 10. and she can JUMP the gap -------------------------------
+    # ---- 10. and she can RUN AND JUMP the gap -----------------------
     # A GAP YOU CAN ONLY FALL INTO IS A WALL WITH A LONGER ANIMATION.
-    # Her arc is 15 frames and she covers about a byte a frame; the hole
-    # is 12 bytes and she has to be 7 past its far lip to land, so the
+    # Her arc is 15 frames and a RUN covers a byte a frame; the hole is
+    # 12 bytes and she has to be 7 past its far lip to land, so the
     # take-off window is the ten bytes before the edge - a fifth of a
     # second, after which the press did nothing at all and she fell 128
     # pixels. P_COYOTE frames of edge after the ground goes away is what
     # makes that a jump a player can actually make, and the two controls
     # below are what keep it from becoming a jump she cannot miss.
-    print("\n  jumping it:")
+    #
+    # AND IT IS THE RUN THAT CLEARS IT NOW, WHICH IS A WALK'S WORTH OF
+    # ARC AWAY FROM WHAT IT WAS. The walk is half the speed it was
+    # (P_WALK_BEAT, CLAUDE.md 8.2) and the same 15 frames of arc carry
+    # her 7 bytes, which is less than the hole is wide: every one of
+    # these measurements is the old one with SHIFT held, and a walking
+    # jump lands in the hole - which is the last check in this section
+    # and the reason the gap is where the run is for.
+    print("\n  jumping it, at a run:")
 
-    def jump_at(offset, frames=800):
-        """Walk right and tap UP `offset` frames from the lip.
+    def jump_at(offset, frames=800, shift=True):
+        """Run right and tap UP `offset` frames from the lip.
 
-        THE LIP IS THE ONE SECTION 9 MEASURED, not one found in this
-        run: the press has to be scheduled before she gets there, and
-        a walk that starts the same way reaches it on the same frame.
-        A jump changes what happens after it and nothing before it.
+        THE LIP IS THE ONE MEASURED AT THE SAME SPEED, not one found in
+        this run: the press has to be scheduled before she gets there,
+        and an approach that starts the same way reaches it on the same
+        frame. A jump changes what happens after it and nothing before
+        it - but a SPEED changes what happens before it, which is why
+        the walking control below re-measures its own lip.
         """
         mm = boot(sym, scroll=True)
+        lip = where_lip if shift else where_lip_walk
+        if shift:
+            mm.key_down('A')
         mm.joystick(JOY_RIGHT)
         airborne, took_off = None, None
         for i in range(frames):
-            if i == where_lip + offset:
+            if i == lip + offset:
                 mm.joystick(JOY_RIGHT | JOY_UP)
-                mm.run_frames(1)
+                step_game(mm)
                 mm.joystick(JOY_RIGHT)
             else:
-                mm.run_frames(1)
+                step_game(mm)
             mm.poke(sym["PLAYER_HP"], 100)
             s = st(mm, sym)
-            if i == where_lip + offset:
+            if i == lip + offset:
                 took_off = s["state"]       # what the press made of her
             if airborne is None and not s["ground"]:
                 airborne = i
             if airborne is not None and s["ground"]:
                 mm.joystick(0)
+                if shift:
+                    mm.key_up('A')
                 return s, took_off
         mm.joystick(0)
+        if shift:
+            mm.key_up('A')
         return st(mm, sym), took_off
 
-    where_lip = off[0] if off else 0
+    where_lip_walk = off[0] if off else 0
+    mm = boot(sym, scroll=True)
+    off_run, _, _ = to_the_gap(mm, shift=True)
+    where_lip = off_run[0] if off_run else 0
+    print(f"    the lip is frame {where_lip} at a run, {where_lip_walk} at a walk")
     over, flew = jump_at(0)
     check("a press on the frame the roof runs out clears the gap",
           over["wy"] + KARA_BOX_H == ROOF_Y
@@ -628,6 +693,16 @@ def main():
           f"she ends at {early['wy'] + KARA_BOX_H} on tile "
           f"{early['wx'] // 4} - the gap is still a gap, and the check "
           f"above is not passing because everything clears it")
+    # ... AND THE THIRD CONTROL IS THE SPEED ITSELF. The arc is the same
+    # 15 frames whatever she is doing; what changed is how far they
+    # carry her. This is a design fact and not a defect: the gap is what
+    # the run is for.
+    walked_it, _ = jump_at(0, shift=False)
+    check("and a WALKING jump off the same lip does not clear it",
+          walked_it["wy"] + KARA_BOX_H >= STREET_Y,
+          f"she ends at {walked_it['wy'] + KARA_BOX_H} on tile "
+          f"{walked_it['wx'] // 4} - half a byte a frame is 7 bytes of arc "
+          f"against a 12-byte hole")
 
     # ---- 11. the street, past the garage ----------------------------
     # IT IS PART OF THE BUILDING'S FACE, like the brick around it. Solid,

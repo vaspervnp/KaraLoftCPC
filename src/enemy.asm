@@ -1174,11 +1174,13 @@ ENEMY_DYING:    ld   a,(ix + ES_DIE)
 ; reached. Two things say which: the interrupt tick - 5 on the roomy
 ; frames, 6 on the tight ones, with nothing in between - and whether
 ; ENT_UPDATE swept the pickups this frame, which is worth 2,800 T and
-; alternates on FRAME_COUNT's bottom bit.        destroys AF,HL
+; alternates on FRAME_COUNT's bottom bit - the sweep takes the ODD
+; frames now, because the even ones carry the incoming column's head
+; (entity.asm).                                  destroys AF,HL
 ; ---------------------------------------------------------------------
 ENEMY_ROOM:     ld   a,(FRAME_COUNT)
                 rra
-                jr   nc,.no                 ; the sweep's frame: not this one
+                jr   c,.no                  ; the sweep's frame: not this one
                 ld   a,(IRQ_TICKS)
                 ld   hl,FRAME_TICK0
                 sub  (hl)
@@ -1309,12 +1311,12 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 ; AND NOT ON THE FRAME ENT_UPDATE SWEEPS THE PICKUPS.
                 ; Measured, the frame that pays for both is 80,248 T of
                 ; 79,872 - over by 376 - so they take alternate frames.
-                ; She cannot cross a 4-byte pickup in the 2 bytes a
-                ; frame she can travel, and ENT_UPDATE's INTERACT pass
-                ; still runs every frame because a keypress lasts one.
+                ; She cannot cross a 4-byte pickup in the byte a frame
+                ; she can travel, and ENT_UPDATE's INTERACT pass still
+                ; runs every frame because a keypress lasts one.
 .optional:      ld   a,(FRAME_COUNT)
                 rra
-                jr   nc,.hold
+                jr   c,.hold                ; odd: the sweep is here
                 ld   hl,VIEW_STEP
                 ld   a,(hl)
                 or   a

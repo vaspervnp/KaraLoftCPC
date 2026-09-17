@@ -381,18 +381,37 @@ def main():
         # of composite the frame did not have. What that costs in play
         # is counted, not guessed: tools/test_enemies.py and
         # tools/test_module5.py carry the loop counts it moved.
+        #
+        # THE OVERRUN WAS 4,672 T AND HALF THE WALK TOOK IT TO 1,508.
+        # She steps on one frame in two now (P_WALK_BEAT), so PLAYER_X
+        # returns without probing anything on the others and the logic
+        # this model sums came back from 10,484 T to 7,320. In play it
+        # is worth far more than that, because the frames it takes the
+        # work OFF are the ones the camera steps on: the two firing
+        # paths of tools/test_enemies.py went 173 -> 194 and 158 -> 191
+        # loop iterations in 200.
+        #
+        # AND THEN THE ROUNDS WENT ON THE BOTTOM ROW AND IT IS 7,456.
+        # Fourteen pips next to the health bar and a digit for the spare
+        # magazines are eight more characters to rewrite every time the
+        # start address moves, and this model sums the HUD's own step:
+        # 1,188 T with the bar alone and 3,568 with all three
+        # (CLAUDE.md 7.8). What it costs in play is counted in
+        # tools/test_enemies.py, not here.
         light_tot = col + rest + light[2] + light[3]
         check("the frame closes on her lightest frame while scrolling",
               light_tot <= 79872,
               f"{light_tot} T, {79872 - light_tot} to spare")
         tot = col + rest + worst[2] + worst[3]
         check("and the heaviest is over by no more than it was measured at",
-              tot <= 85000,
-              f"{tot} T, over by {tot - 79872} against a recorded 4,672 - "
+              tot <= 88500,
+              f"{tot} T, over by {tot - 79872} against a recorded 7,456 - "
               f"the model adds worsts that do not co-occur (H_HEAD and "
               f"H_TAIL are one frame only when she runs), and the loop "
-              f"counted against interrupt ticks holds 50 Hz on every path "
-              f"tools/test_enemies.py and tools/test_climb.py drive")
+              f"counted against interrupt ticks is the authority on which "
+              f"paths hold 50 Hz and which drop frames - "
+              f"tools/test_enemies.py and tools/test_climb.py carry those, "
+              f"one floor a path with the reason beside it")
 
     print()
     if fails:

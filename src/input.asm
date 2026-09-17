@@ -129,7 +129,14 @@ INPUT_SCAN:     ld   bc,PPI_CONTROL * 256 + PPI_CTL_PA_OUT
                 KEYROW 1,0
                 KEYBIT 0,2              ; cursor LEFT  -> IN_LEFT
                 KEYROW 2,0
-                KEYBIT 6,7              ; SHIFT        -> IN_RUN
+                ; SHIFT IS ROW 2 BIT 5 AND THIS SAID BIT 6, WHICH IS
+                ; BACKSLASH. Nothing failed and nothing looked wrong: the
+                ; run state, its two banks of cels and its 2-byte step
+                ; were all reachable, by a key nobody would ever press.
+                ; Measured on the machine by holding one key at a time
+                ; and reading INPUT_NOW - `\` set IN_RUN and SHIFT did
+                ; not, and with the bit moved it is the other way round.
+                KEYBIT 5,7              ; SHIFT        -> IN_RUN
                 KEYROW 5,0
                 KEYBIT 7,4              ; SPACE        -> IN_FIRE
                 KEYROW 8,0

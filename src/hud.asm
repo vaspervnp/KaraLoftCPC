@@ -52,6 +52,57 @@ HUD_LINES       equ 8
 HUD_ROW         equ SCR_CHAR_ROWS - 1       ; 23 - THE BOTTOM of the picture
 HUD_BASE        equ HUD_ROW * SCR_CHARS     ; ... 920 words into the view
 
+; AND THE ROUNDS SHE IS CARRYING SIT STRAIGHT AFTER THE BAR, WHICH IS
+; WHAT MAKES THEM NEARLY FREE. The word a run leaves behind when the
+; view steps is the one just past its LEFT end (HUD_VACATE), so two runs
+; side by side vacate INTO EACH OTHER:
+;
+;   a step RIGHT   the bar leaves the last column of row 22, which
+;                  H_TAIL has just painted, and the ammo leaves column
+;                  5 - the bar's own last cell, which the bar writes on
+;                  every step right. Nothing to repaint at all.
+;   a step LEFT    the bar leaves column 6, which is the ammo's first
+;                  cell and the one the ammo writes on every step left;
+;                  the ammo leaves column 13, which is the DIGIT and is
+;                  rewritten on every move because it has no neighbour
+;                  to inherit from; and the digit leaves column 14, and
+;                  that one costs a DRAW_COLUMN.
+;
+; Level 1 scrolls left to right, so the bottom row costs NOTHING to
+; erase on the step the game actually makes. At the other end of the
+; row it was the mirror and the two did not cancel: a DRAW_COLUMN every
+; step whichever way she walked, and two DRAW_ROWs on every row step
+; instead of one. Measured, that was 196 loop iterations in 200 walking
+; and 148 running, against 199 and 172 with no ammo at all.
+;
+; ONE ROUND IS ONE PIXEL OF BULLET AND ONE OF GAP, so a 4-pixel cell
+; holds two of them and her fourteen are seven characters. The art is
+; the artist's own bullet out of hud_icons' `ammo' (tools/make_hud.py),
+; and a cell is FULL, HALF or EMPTY because the rounds go out from the
+; left: there is at most one half-spent cell and it is the seam.
+HUD_AMMO_CELLS  equ 7
+HUD_AMMO_BYTES  equ HUD_AMMO_CELLS * 2      ; 14 - a cell is 4 pixels
+HUD_AMMO_ROUNDS equ HUD_AMMO_CELLS * 2      ; 14, both magazines
+HUD_AMMO_COL    equ HUD_CELLS               ; straight after the bar
+HUD_AMMO_BASE   equ HUD_ROW * SCR_CHARS + HUD_AMMO_COL
+                assert HUD_AMMO_ROUNDS == MAG_SIZE * 2
+
+; AND ONE DIGIT AFTER THEM: HOW MANY MAGAZINES THE RESERVE IS WORTH.
+; A reload takes BUL_MAX rounds out of AMMO_RESERVE (src/bullets.asm),
+; so the reserve IS a number of magazines and the digit is that number.
+; It is the artist's own, out of hud_digits, and it is one character
+; because nine spare magazines is 126 rounds and the game hands out 14
+; at a time.
+HUD_CLIPS_COL   equ HUD_AMMO_COL + HUD_AMMO_CELLS
+HUD_CLIPS_BASE  equ HUD_ROW * SCR_CHARS + HUD_CLIPS_COL
+
+; THE THREE OF THEM ARE ONE STRIP as far as HUD_VACATE is concerned -
+; columns 0 to 13 of the bottom row - and that is what makes the erase
+; nearly free: each one's leftover word is the cell before it, which
+; the element to its left writes on the same frame.
+HUD_STRIP_CELLS equ HUD_CELLS + HUD_AMMO_CELLS + 1
+                assert HUD_STRIP_CELLS <= SCR_CHARS
+
 ; The least health each cell needs to stay lit. Six cells over 100
 ; points is 16.67 apiece, and cell 0 lights at 1 rather than 0 so that
 ; "one point left" and "dead" are different pictures.
@@ -72,14 +123,11 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 ld   a,h
                 cp   d
                 jr   nz,.moved
-                ; ---- the view is not moving: only health can have ----
-                ld   a,(PLAYER_HP)
-                ld   hl,HUD_HP
-                cp   (hl)
-                ret  z                      ; nothing at all to do
-                call HUD_LEVEL
-                ret  z                      ; ... and her HEALTH moving is not
-                jp   HUD_ALL                ; the same thing as the PICTURE
+                ; ---- the view is not moving: only the counts can ----
+                ld   bc,0
+                call HUD_BAR
+                call HUD_AMMO
+                jp   HUD_CLIPS
 
                 ; ---- IT IS MOVING, AND ONE CHARACTER OF MOVEMENT
                 ; CHANGES AT MOST TWO OF THE SIX CELLS.
@@ -112,9 +160,24 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 ld   b,a                    ; BC = the step, 0-1023
                 ld   c,l
                 push bc
-                call HUD_VACATE             ; ... put back what it leaves
+                call HUD_VACATE             ; ... put back what both leave
                 pop  bc
-                ld   a,(PLAYER_HP)
+                push bc
+                call HUD_BAR
+                pop  bc
+                call HUD_AMMO
+                call HUD_CLIPS
+                ld   hl,(HUD_WANT)
+                ld   (HUD_LAST),hl
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_BAR - the six health cells at the bottom LEFT.
+;
+; IN:  BC = the step the view has just taken, 0 if it has not moved
+; Clobbers AF,BC,DE,HL
+; ---------------------------------------------------------------------
+HUD_BAR:        ld   a,(PLAYER_HP)
                 ld   hl,HUD_HP
                 cp   (hl)
                 jr   z,.same_bar
@@ -122,10 +185,12 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 call HUD_LEVEL              ; dispatch below still needs the
                 pop  bc                     ; step if it comes back Z
                 jr   z,.same_bar            ; the health moved and the picture
-                call HUD_ALL                ; did not: shift it, do not redraw
-                jr   .remember
+                jp   HUD_ALL                ; did not: shift it, do not redraw
 
 .same_bar:      ld   a,b
+                or   c
+                ret  z                      ; the view is still as well
+                ld   a,b
                 or   a
                 jr   nz,.backwards
                 ld   a,c
@@ -136,12 +201,11 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 call HUD_PUT
                 ld   a,(HUD_LIT)
                 or   a
-                jr   z,.remember
+                ret  z
                 cp   HUD_CELLS
-                jr   z,.remember            ; no seam inside the bar
+                ret  z                      ; no seam inside the bar
                 dec  a
-                call HUD_PUT
-                jr   .remember
+                jp   HUD_PUT
 
 .backwards:     ld   a,b
                 cp   3
@@ -154,16 +218,321 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 call HUD_PUT
                 ld   a,(HUD_LIT)
                 or   a
-                jr   z,.remember
+                ret  z
                 cp   HUD_CELLS
-                jr   z,.remember
-                call HUD_PUT
-                jr   .remember
+                ret  z
+                jp   HUD_PUT
 
-.far:           call HUD_ALL                ; a bigger jump than the game
+.far:           jp   HUD_ALL                ; a bigger jump than the game
                                             ; can make in one frame
-.remember:      ld   hl,(HUD_WANT)
-                ld   (HUD_LAST),hl
+
+; ---------------------------------------------------------------------
+; HUD_AMMO - the fourteen rounds in her two magazines, at the bottom
+; RIGHT, emptying from the LEFT.
+;
+; WHAT IS COUNTED IS WHAT IS IN THE GUNS, not AMMO_RESERVE: the reserve
+; is what a reload will find and these are the rounds she can fire now,
+; which is what makes them go out one at a time as she shoots.
+;
+; The whole layout is one number - how many are SPENT - because the
+; rounds go out from the left: cells 0..spent/2-1 are empty, the one
+; after is half if `spent' is odd, and the rest are full. So a cell's
+; picture is a comparison and there is no buffer to lay out (HUD_LEVEL
+; needs one because six cells over 100 points is not a comparison).
+;
+; IN:  BC = the step the view has just taken, 0 if it has not moved
+; Clobbers AF,BC,DE,HL
+; ---------------------------------------------------------------------
+HUD_AMMO:       call HUD_AMMO_STEP          ; 0 still, 1 right, 2 left, 3 far
+                ld   (HUD_A_MOVED),a
+                ld   a,(MAG_LEFT)
+                ld   hl,MAG_RIGHT
+                add  a,(hl)                 ; rounds in the two guns, 0-14
+                ld   hl,HUD_AMMO_ROUNDS
+                sub  l                      ; ... as SPENT rounds, 14-0
+                neg
+                ld   hl,HUD_AMMO_SPENT
+                cp   (hl)
+                jr   nz,.changed
+                ld   a,(HUD_A_MOVED)        ; the count is where it was:
+                or   a                      ; only a move can want anything
+                ret  z
+                ; ---- THE VIEW MOVED AND THE COUNT DID NOT ------------
+                ; Every cell now holds its neighbour's picture, and the
+                ; row is empties then fulls - so they differ in one
+                ; place, at the end of the spent run, and at the cell
+                ; the shift left with no neighbour to inherit from.
+                cp   3
+                jp   z,HUD_AMMO_ALL
+                ; The cells whose picture differs from their NEIGHBOUR'S
+                ; are e-1, where the spent run ends, and e as well when
+                ; one cell is half spent. A shift right puts each of
+                ; those wrong; a shift LEFT puts the cell ABOVE each of
+                ; them wrong instead, which is the mirror and not the
+                ; same window - it was written once for both and the
+                ; suite caught it walking left, one cell of stale pips.
+                call HUD_AMMO_SEAM
+                ld   c,a                    ; C = e
+                ld   a,(HUD_AMMO_SPENT)
+                and  1
+                ld   b,a                    ; B = 1 while a cell is half
+                ld   a,(HUD_A_MOVED)
+                dec  a
+                ld   a,c
+                jr   nz,.cs_left
+                dec  a                      ; right: e-1, and e when odd
+.cs_left:       ld   (HUD_A_LO),a           ; left:  e,   and e+1 when odd
+                add  a,b
+                ld   (HUD_A_HI),a
+                jr   .paint
+
+                ; ---- THE COUNT MOVED --------------------------------
+                ; A SHOT IS ONE PIP AND AT MOST TWO CELLS: the seam is
+                ; spent/2 and one round moves it by nought or one, so
+                ; the window from min(old,new)-1 to max(old,new) holds
+                ; every cell whose picture is now wrong. A RELOAD puts
+                ; fourteen rounds back at once and the first frame has
+                ; nothing drawn at all; both lay out the whole row.
+.changed:       ld   d,(hl)                 ; the count it was drawn at
+                ld   (hl),a
+                srl  a
+                ld   e,a                    ; E = the new seam
+                ld   a,(HUD_A_MOVED)
+                cp   3
+                jp   z,HUD_AMMO_ALL         ; a row step or a jump
+                ld   a,d
+                inc  a
+                jp   z,HUD_AMMO_ALL         ; &FF: nothing is drawn yet
+                ld   a,d
+                srl  a
+                ld   d,a                    ; D = the old seam
+                sub  e
+                jr   nc,.gap
+                neg
+.gap:           cp   2
+                jp   nc,HUD_AMMO_ALL        ; more than a round's worth
+                ld   a,d
+                cp   e
+                jr   c,.lo_old
+                ld   a,e
+.lo_old:        ld   (HUD_A_LO),a           ; lo = min(old, new)
+                ld   a,d
+                cp   e
+                jr   nc,.hi_old
+                ld   a,e
+.hi_old:        ld   (HUD_A_HI),a           ; hi = max(old, new)
+                ; AND THE SHIFT WIDENS IT BY ONE, on the side it shifts
+                ; from: going right every cell holds its right-hand
+                ; neighbour's picture, so the cell BELOW the window is
+                ; wrong too, and going left the one above it. A still
+                ; view widens it by nothing - the cell below the seam
+                ; was empty and stays empty.
+                ld   a,(HUD_A_MOVED)
+                dec  a
+                jr   z,.wide_r              ; 1: one character right
+                dec  a
+                jr   nz,.paint              ; 0: still, and the window is
+                ld   a,(HUD_A_HI)           ; every cell there is to write
+                inc  a                      ; 2: one character left
+                ld   (HUD_A_HI),a
+                jr   .paint
+.wide_r:        ld   a,(HUD_A_LO)
+                dec  a
+                ld   (HUD_A_LO),a
+
+                ; ---- write the window, then the shift's own cell -----
+                ; LO IS -1 WHENEVER THE SEAM IS CELL 0, and -1 is 255 in
+                ; a byte: walked from there the loop wraps at 256 and
+                ; comes round for ever, which is exactly what it did.
+                ; Both ends are tested against 255 before the walk
+                ; starts - an empty window is a real answer (the row is
+                ; all full and only the shift's own cell is wrong).
+.paint:         ld   a,(HUD_A_HI)
+                inc  a
+                jr   z,.edge                ; no window at all
+                ld   a,(HUD_A_LO)
+                inc  a
+                jr   z,.cell                ; -1: start at 0, which INC made
+                dec  a
+.cell:          cp   HUD_AMMO_CELLS
+                jr   nc,.edge               ; past the right-hand end
+                push af
+                call HUD_AMMO_PUT
+                pop  af
+                inc  a
+                ld   hl,HUD_A_HI
+                cp   (hl)
+                jr   c,.cell
+                jr   z,.cell
+
+.edge:          ld   a,(HUD_A_MOVED)
+                or   a
+                ret  z                      ; the view is still: that is all
+                dec  a
+                ld   a,HUD_AMMO_CELLS - 1   ; right: cell 6 is the new one
+                jp   z,HUD_AMMO_PUT
+                xor  a                      ; left: cell 0 is
+                jp   HUD_AMMO_PUT
+
+; ---------------------------------------------------------------------
+; HUD_CLIPS - the digit: how many magazines the reserve is worth.
+;
+; ONE CHARACTER, AND IT IS THE CHEAPEST THING ON THE ROW, because its
+; picture only changes when AMMO_RESERVE does - a reload, or a clip
+; picked up (8.6) - and it has no seam to work out. What it does pay is
+; the view: a single cell has no neighbour whose content it can inherit,
+; so it is written on every frame the start address moves.
+;
+; THE DIVISION IS SKIPPED WHEN THE RESERVE HAS NOT MOVED, which is every
+; frame but a handful: repeated subtraction by 14 is 18 iterations at
+; worst and it would otherwise be paid for a picture that is already on
+; the screen.
+;
+; IN:  (HUD_A_MOVED), as HUD_AMMO left it
+; Clobbers AF,BC,DE,HL
+; ---------------------------------------------------------------------
+HUD_CLIPS:      ld   a,(AMMO_RESERVE)
+                ld   hl,HUD_CLIPS_RES
+                cp   (hl)
+                jr   z,.same
+                ld   (hl),a
+                ld   b,0
+.count:         cp   BUL_MAX                ; a reload takes BUL_MAX of it
+                jr   c,.got
+                sub  BUL_MAX
+                inc  b
+                jr   .count
+.got:           ld   a,b
+                cp   10
+                jr   c,.digit
+                ld   a,9                    ; nine is as many as a digit says
+.digit:         ld   hl,HUD_CLIPS_N
+                cp   (hl)
+                jr   z,.same                ; a different reserve, the same
+                ld   (hl),a                 ; number of magazines in it
+                jp   HUD_CLIPS_PUT
+
+.same:          ld   a,(HUD_A_MOVED)
+                or   a
+                ret  z
+                ; fall through: the view moved, so the digit has to be
+                ; put back where it was
+
+; ---------------------------------------------------------------------
+; HUD_CLIPS_PUT - the digit, wherever the view has gone.
+; Clobbers AF,DE,HL
+; ---------------------------------------------------------------------
+HUD_CLIPS_PUT:  ld   a,(HUD_CLIPS_N)
+                add  a,a                    ; sixteen bytes a digit
+                add  a,a
+                add  a,a
+                add  a,a
+                ld   e,a
+                ld   d,0
+                ld   hl,HUD_DIGITS
+                add  hl,de
+                ld   de,HUD_CLIPS_BASE
+                jp   HUD_CELL_BLIT
+
+; ---------------------------------------------------------------------
+; HUD_AMMO_STEP - what the view did, as one number.
+;
+; The ammo needs it after HUD_AMMO_PUT has had BC, so it is taken apart
+; once and kept in a byte: 0 the view is still, 1 one character right,
+; 2 one character left, 3 anything else - a row step, or a jump only a
+; test can make. Modulo the 1024-word ring there are no other answers
+; the game can produce (HUD_SERVICE).
+;
+; IN:  BC = the step      OUT: A = 0..3     destroys AF,DE
+; ---------------------------------------------------------------------
+HUD_AMMO_STEP:  ld   a,b
+                or   a
+                jr   nz,.back
+                ld   a,c
+                or   a
+                ret  z                      ; 0: still
+                dec  a
+                ld   a,1
+                ret  z                      ; 1: one character right
+                ld   a,3
+                ret
+.back:          cp   3
+                jr   nz,.far
+                ld   a,c
+                inc  a
+                ld   a,2
+                ret  z                      ; 1023: one character left
+.far:           ld   a,3
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_AMMO_ALL - all seven cells, one HUD_AMMO_PUT each.
+;
+; NOT A BUFFER AND AN LDI RUN like HUD_ALL, and it was written both ways
+; before that was settled. A 112-byte buffer copies the row in 2,668 T
+; against these 6,744 - but it has to be KEPT, and one cell of it is
+; 1,056 T to lay out, which is paid on every shot. Measured in play, the
+; buffer was 192 loop iterations in 200 walking and 175 firing against
+; 198 and 182 for the puts: the cheap paths are the common ones, and
+; this is the rare one.
+; Clobbers AF,BC,DE,HL
+; ---------------------------------------------------------------------
+HUD_AMMO_ALL:   ld   b,0
+.cell:          ld   a,b
+                push bc
+                call HUD_AMMO_PUT
+                pop  bc
+                inc  b
+                ld   a,b
+                cp   HUD_AMMO_CELLS
+                jr   c,.cell
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_AMMO_PUT - write cell A of the ammo row.
+;
+; IN:  A = 0..6    Clobbers AF,BC,DE,HL
+; ---------------------------------------------------------------------
+HUD_AMMO_PUT:   ld   c,a
+                call HUD_AMMO_ART
+                ld   e,c
+                ld   d,0
+                push hl
+                ld   hl,HUD_AMMO_BASE
+                add  hl,de
+                ex   de,hl
+                pop  hl
+                jp   HUD_CELL_BLIT
+
+; ---------------------------------------------------------------------
+; HUD_AMMO_ART - which of the three pictures cell C is showing.
+;
+; IN:  C = 0..6    OUT: HL -> its 16 bytes    destroys AF
+; ---------------------------------------------------------------------
+HUD_AMMO_ART:   call HUD_AMMO_SEAM          ; A = the first cell with a round
+                cp   c
+                jr   z,.half                ; c == e: half, if spent is odd
+                ld   hl,HUD_PIP_EMPTY
+                ret  nc                     ; c <  e: both rounds gone
+                ld   hl,HUD_PIP_FULL
+                ret
+.half:          ld   a,(HUD_AMMO_SPENT)
+                and  1
+                ld   hl,HUD_PIP_FULL
+                ret  z                      ; even: this cell is whole
+                ld   hl,HUD_PIP_HALF
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_AMMO_SEAM - A = the first cell with a round in it, CARRY SET
+; while that cell is on the row.
+;
+; Fourteen spent rounds put it at 7, which is one past the row, and the
+; carry says so rather than every caller testing.     destroys AF
+; ---------------------------------------------------------------------
+HUD_AMMO_SEAM:  ld   a,(HUD_AMMO_SPENT)
+                srl  a
+                cp   HUD_AMMO_CELLS         ; carry while it is 0..6
                 ret
 
 ; ---------------------------------------------------------------------
@@ -202,10 +571,15 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
 ; downward row step, and it dropped 23 frames in 200 climbing down
 ; (CLAUDE.md 7.8). The four answers are constants:
 ;
-;      1  right  word HUD_BASE-1 - the LAST column of row 22, and the
-;                incoming column of a step right, so H_TAIL has it
-;   1023  left   word HUD_BASE+6, row 23 column 6
-;     40  down   the whole bar, row 22 columns 0-5
+;      1  right  the bar leaves word HUD_BASE-1 - the LAST column of
+;                row 22, and the incoming column of a step right, so
+;                H_TAIL has it - and the ammo leaves the bar's own last
+;                cell, which the bar is about to write. Nothing to do.
+;   1023  left   the bar leaves word HUD_BASE+6, which is the ammo's
+;                first cell and the one the ammo is about to write; the
+;                ammo leaves column 13, and that one is real.
+;     40  down   both runs, one row UP: row 22 columns 0-12, which is
+;                ONE run and one DRAW_ROW
 ;    984  up     row 24 - off the bottom of the display, nothing to do
 ;
 ; and DRAW_ROW paints a run of cells in ONE row with the map lookup
@@ -231,17 +605,24 @@ HUD_VACATE:     ld   a,b
                 ret  z                      ; 984: it has left the display
                 jr   .general
 
-; AND THE STEP RIGHT COSTS NOTHING AT ALL, because H_TAIL has already
-; done it. The word the bar leaves behind on a step right is the LAST
-; column of row 22 - and the incoming column of a step right IS column
-; 39, painted rows COL_HEAD..23 by H_TAIL four instructions before this
-; is called (src/main.asm). The step LEFT has no such luck: its incoming
-; column is 0 and the word left over is column 6 of the bar's own row.
+; AND THE STEP RIGHT COSTS NOTHING AT ALL, because H_TAIL and the bar
+; have already done it. The word the BAR leaves behind on a step right
+; is the LAST column of row 22 - and the incoming column of a step right
+; IS column 39, painted rows COL_HEAD..23 by H_TAIL four instructions
+; before this is called (src/main.asm). The word the AMMO leaves is the
+; bar's own last cell, and HUD_BAR writes that cell on every step right
+; (it is the one with no neighbour to inherit from).
+;
+; The step LEFT has no such luck at one end: the bar's leftover is the
+; ammo's first cell, which HUD_AMMO writes on every step left, and the
+; ammo's is the digit, which is written whenever the view moves - but
+; the DIGIT's leftover is column 14, one past the strip, and that one
+; has to come back off the tilemap.
                 assert COL_HEAD <= HUD_ROW - 1
 .plus_one:      ret
 
 .minus_one:     ld   h,HUD_ROW
-                ld   l,HUD_CELLS
+                ld   l,HUD_STRIP_CELLS
 
 ; ONE CELL GOES THROUGH DRAW_COLUMN AND A RUN THROUGH DRAW_ROW, because
 ; a row hoists the map lookup across the whole run and charges 1,150 T
@@ -270,9 +651,13 @@ HUD_VACATE:     ld   a,b
                 ld   (COL_N),a
                 ret
 
+; ONE RUN AND ONE MAP LOOKUP, because the three are adjacent: fourteen
+; cells from column 0. At the other end of the row it was two DRAW_ROWs
+; - 6,332 T and 7,000 - on the latch frame of every row step, which a
+; climb makes every five frames.
 .plus_row:      ld   h,HUD_ROW - 1
                 ld   l,0
-                ld   a,HUD_CELLS
+                ld   a,HUD_STRIP_CELLS
 
 ; H = screen character row, L = first column, A = how many.
 ;
@@ -295,30 +680,46 @@ HUD_VACATE:     ld   a,b
                 ld   (ROW_FIRST),de
                 ret
 
+; AND IT IS ONE RUN OF FOURTEEN, because the bar, the rounds and the
+; digit are adjacent: everything below is "where has word (base + k)
+; gone, and does anything still show it", and the three of them are one
+; strip from column 0. HUD_V_BASE and HUD_V_N are what say which.
 .general:       ld   (HUD_STEP),bc
                 ld   a,1
                 ld   (COL_N),a
                 xor  a
                 ld   (HUD_BANK),a           ; C4 is not paged in yet
-                ld   b,0
+                ld   hl,HUD_BASE
+                ld   (HUD_V_BASE),hl
+                ld   a,HUD_STRIP_CELLS
+                ld   (HUD_V_N),a
+                call .run
+                ld   a,(HUD_BANK)
+                or   a
+                ret  z                      ; nothing needed repainting
+                jp   BANK_RESTORE
+
+.run:           ld   b,0
 .cell:          ld   l,b                    ; where this cell's word has
                 ld   h,0                    ; landed under the new view
                 ld   de,(HUD_STEP)
                 or   a
                 sbc  hl,de
-                ld   de,HUD_BASE
+                ld   de,(HUD_V_BASE)
                 add  hl,de
                 ld   a,h
                 and  3                      ; the circular window
                 ld   h,a
                 push hl
-                ld   de,HUD_BASE            ; ... is it inside the new bar?
+                ld   de,(HUD_V_BASE)        ; ... is it inside the new run?
                 or   a
                 sbc  hl,de
                 ld   a,h
                 and  3
                 ld   h,a
-                ld   de,HUD_CELLS
+                ld   a,(HUD_V_N)
+                ld   e,a
+                ld   d,0
                 or   a
                 sbc  hl,de
                 pop  hl
@@ -357,13 +758,10 @@ HUD_VACATE:     ld   a,b
                 call DRAW_COLUMN
                 pop  bc
 .next:          inc  b
-                ld   a,b
-                cp   HUD_CELLS
-                jr   c,.cell
-                ld   a,(HUD_BANK)
-                or   a
-                ret  z                      ; nothing needed repainting
-                jp   BANK_RESTORE
+                ld   a,(HUD_V_N)
+                cp   b
+                jr   nz,.cell
+                ret
 
 ; ---------------------------------------------------------------------
 ; HUD_ALL - write all six cells, twelve contiguous bytes a line.
@@ -452,13 +850,8 @@ HUD_ALL:        ld   hl,(HUD_WANT)
                 ret
 
 ; ---------------------------------------------------------------------
-; HUD_PUT - write cell A of the bar at word SCROLL + A.
+; HUD_PUT - write cell A of the health bar at word SCROLL + A.
 ;
-; ONE CELL IS ONE CRTC CHARACTER, which is what makes the 1024-word
-; seam free here: the fold is between characters, never inside one, so
-; the address is a mask and the eight lines are &0800 apart with no run
-; to split (CLAUDE.md 6.4). The eight are unrolled because the
-; bookkeeping is most of the cost at two bytes a line.
 ; IN:  A = 0..5     Clobbers AF,BC,DE,HL
 ; ---------------------------------------------------------------------
 HUD_PUT:        ld   c,a
@@ -471,9 +864,26 @@ HUD_PUT:        ld   c,a
 .source:        ld   e,c
                 ld   d,0
                 push hl
-                ld   hl,(HUD_WANT)          ; the view just latched ...
+                ld   hl,HUD_BASE            ; the bottom row of the view
                 add  hl,de
-                ld   de,HUD_BASE            ; ... and the bottom row of it
+                ex   de,hl
+                pop  hl
+                ; falls into HUD_CELL_BLIT
+
+; ---------------------------------------------------------------------
+; HUD_CELL_BLIT - one 4x8 cell, wherever in the bottom row it goes.
+;
+; ONE CELL IS ONE CRTC CHARACTER, which is what makes the 1024-word
+; seam free here: the fold is between characters, never inside one, so
+; the address is a mask and the eight lines are &0800 apart with no run
+; to split (CLAUDE.md 6.4). The eight are unrolled because the
+; bookkeeping is most of the cost at two bytes a line.
+;
+; IN:  DE = the word offset into the view, HL = the cell's 16 bytes
+; Clobbers AF,DE,HL
+; ---------------------------------------------------------------------
+HUD_CELL_BLIT:  push hl
+                ld   hl,(HUD_WANT)          ; the view just latched
                 add  hl,de
                 ld   a,h
                 and  3                      ; the circular window
@@ -572,6 +982,8 @@ HUD_LEVEL:      ld   a,(PLAYER_HP)
 
 HUD_WANT:       dw 0            ; the start address it is being written for
 HUD_STEP:       dw 0            ; ... less the one it is written at now
+HUD_V_BASE:     dw 0            ; which run HUD_VACATE's general path is on,
+HUD_V_N:        db 0            ; ... and how many cells it has
 HUD_BANK:       db 0            ; whether HUD_VACATE has paged C4 in yet
 HUD_LAST:       dw 0            ; the start address it was last drawn at,
                                 ; and 0 is SCROLL_INIT's own, so the first
@@ -579,6 +991,14 @@ HUD_LAST:       dw 0            ; the start address it was last drawn at,
 HUD_HP:         db &FF          ; the health it was last drawn for, and
                                 ; &FF is none she can have, so the first
                                 ; frame always draws
+HUD_AMMO_SPENT: db &FF          ; ... and the same for the rounds: &FF is
+                                ; not a number of spent rounds either
+HUD_A_MOVED:    db 0            ; what the view did: HUD_AMMO_STEP's 0-3
+HUD_CLIPS_RES:  db &FF          ; the reserve the digit was worked out from,
+                                ; and &FF is not one the game hands out
+HUD_CLIPS_N:    db 0            ; ... and the digit itself
+HUD_A_LO:       db 0            ; the window of ammo cells whose picture
+HUD_A_HI:       db 0            ; ... is wrong, inclusive
 HUD_LIT:        db &FF          ; NOT 0 - see HUD_LEVEL: a count that
                                 ; matches means the buffer is already right,
                                 ; and it is not until it has been laid out once

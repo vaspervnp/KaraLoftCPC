@@ -367,6 +367,27 @@ START_RELOAD:   ld   a,RELOAD_FRAMES
                 ld   (RELOAD_TIMER),a
                 ret
 
+; ---------------------------------------------------------------------
+; GUN_HAS_ROUND - NZ if a trigger pull would put a round in the air.
+;
+; IT IS WHAT KEEPS THE MUZZLE FLASH OFF AN EMPTY GUN. The four `shoot`
+; cels are drawn WITH the flash in them (CLAUDE.md 7.1 - it is the pen
+; her skin nearly shared), so playing them on two empty magazines shows
+; a shot that never left, which is what a play-test reported. The test
+; is FIRE_BULLET's own first two, in one place so the animation and the
+; round agree about what "dry" means.
+;                                destroys AF,HL
+; ---------------------------------------------------------------------
+GUN_HAS_ROUND:  ld   a,(RELOAD_TIMER)
+                or   a
+                jr   nz,.dry                ; reloading: nothing to fire yet
+                ld   a,(MAG_LEFT)
+                ld   hl,MAG_RIGHT
+                or   (hl)
+                ret                         ; NZ while either has a round
+.dry:           xor  a
+                ret
+
 UPDATE_RELOAD:  ld   a,(RELOAD_TIMER)
                 or   a
                 ret  z

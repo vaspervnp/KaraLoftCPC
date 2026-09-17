@@ -79,7 +79,7 @@ class World:
         self.m.poke(self.sym["KARA_WX"] + 1, wx >> 8)
         self.m.poke(self.sym["KARA_WY"], wy)
 
-    def run(self, routine, up=False, mask=0, frame=0):
+    def run(self, routine, up=False, mask=0, frame=1):
         """Call one routine from a DI stub.
 
         `mask` goes into A, which ENTITY_COLLISION_CHECK reads as the
@@ -89,10 +89,18 @@ class World:
         register-argument routine disagrees with a model.
         """
         s, m = self.sym, self.m
-        # ENT_UPDATE's TOUCH sweep runs on even frames only - it shares
-        # the frame budget with the enemy redraw, which takes the odd
+        # ENT_UPDATE's TOUCH sweep runs on ODD frames only - it shares
+        # the frame budget with the enemy redraw, which takes the even
         # ones (src/enemy.asm). A test that did not say which it wanted
         # would pass or fail on the parity of whatever ran before it.
+        #
+        # IT WAS THE EVEN ONES AND THE PHASE IS NOT ARBITRARY ANY MORE:
+        # she steps on the even frames and CAMERA_DECIDE asks for the
+        # scroll there, so H_HEAD paints fourteen rows of the incoming
+        # column on that frame and H_TAIL's six land on the odd one.
+        # 13,872 T against 4,920, and the sweep belongs with the
+        # cheaper half - measured, it is 3 loop iterations in 200
+        # walking and 7 running (CLAUDE.md 9).
         m.poke(s["FRAME_COUNT"], frame)
         m.poke(s["INPUT_PRESSED"], IN_UP if up else 0)
         m.poke(s["INPUT_NOW"], IN_UP if up else 0)
@@ -556,12 +564,12 @@ def main():
     w.load(record(EK_PICKUP, 100, 100, EF_ACTIVE | EF_TOUCH, PU_KEY, 0))
     w.place(50, 40)
     w.give(KEYS_COUNT=0)
-    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=1)   # odd: the redraw's frame
+    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=0)   # even: the redraw's frame,
+    even = w.st("KEYS_COUNT")                    # and the column's head
+    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=1)  # odd: the sweep's own
     odd = w.st("KEYS_COUNT")
-    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=0)   # even: the sweep's own
-    even = w.st("KEYS_COUNT")
-    check("the touch sweep runs on even frames and not odd ones",
-          odd == 0 and even == 1, f"odd {odd}, even {even}")
+    check("the touch sweep runs on odd frames and not even ones",
+          even == 0 and odd == 1, f"even {even}, odd {odd}")
 
     check("the level's table is the eight-byte record, ENT_MAX long",
           len(blob) == ENT_MAX * 8 and used > 0, f"{len(blob)} bytes")

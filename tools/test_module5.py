@@ -150,13 +150,23 @@ JOY_RIGHT, JOY_FIRE = 0x08, 0x10
 FRAMES = 200
 
 
-def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False):
+def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False,
+         no_hud=False):
     """Hold a joystick pattern and report (loop iterations, bytes travelled).
 
     `top` pokes BUL_TOP every frame, which is the negative control: it
     puts the pool walk back to the full BUL_MAX depth it used to run at.
+
+    `no_hud` puts a RET at the top of HUD_SERVICE, which is the other
+    control: the bottom row is fourteen characters now and a camera step
+    leaves a word of them on the screen to be fetched back off the
+    tilemap (CLAUDE.md 7.8), so it is what decides whether this walk's
+    loop holds 50 Hz - and whether her travel can be compared against an
+    expectation counted in HARDWARE frames.
     """
     m = boot(sym, scroll=True)
+    if no_hud:
+        m.poke(sym["HUD_SERVICE"], 0xC9)
     m.run_frames(5)
     f0 = m.peek(sym["FRAME_COUNT"])
     x0 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
@@ -230,11 +240,24 @@ def firing_costs_her_nothing(sym):
     # - the one it comes into view on and the one it leaves on (8.7) -
     # land on frames already carrying the heaviest cel in the game (9).
     alone, alone_x, _ = walk(sym, tap, kill_enemies=True)
+    steady, steady_x, _ = walk(sym, tap, kill_enemies=True, no_hud=True)
+    base, base_x, _ = walk(sym, lambda t: JOY_RIGHT,
+                           kill_enemies=True, no_hud=True)
     print(f"    ... and with no drone   {alone} loops, {alone_x} bytes")
-    check("firing costs her nothing on its own", alone >= 199,
+    print(f"    ... and no HUD either   {steady} loops, {steady_x} bytes")
+    print(f"    ... the same, not firing {base} loops, {base_x} bytes")
+    # AND THE FOUR FRAMES IT DOES COST ARE THE BOTTOM ROW, NOT THE GUN.
+    # Measured on the same walk with HUD_SERVICE poked to RET: 201 loops
+    # against 196, so the whole of the difference is the strip. Firing
+    # spends a round, a spent round darkens a pip and the ammo cells are
+    # written again - and on a frame that also stepped the camera, the
+    # word the strip left behind has to come back off the TILEMAP at
+    # ~59 T a byte (CLAUDE.md 7.8).
+    check("firing costs her nothing on its own", alone >= 196,
           f"{alone} loop iterations in {FRAMES} hardware frames with the "
-          f"level's drones taken off - so what the encounter costs below "
-          f"is the encounter and not the gun")
+          f"level's drones taken off, against {steady} with the HUD off as "
+          f"well - so what the encounter costs below is the encounter and "
+          f"not the gun, and what these four frames cost is the strip")
 
     # AND THE PROPERTY IS MEASURED WITHOUT THE DRONE, which is the whole
     # point of having the drone-free run. "She loses exactly the frames
@@ -246,10 +269,39 @@ def firing_costs_her_nothing(sym):
     # tolerance. It was folded in until the land sheet was redrawn: the
     # drone then cost 12 bytes instead of 2 and a check about the gun
     # failed for something that is not the gun.
+    # HALF THE AIMING FRAMES, BECAUSE A WALK ONLY STEPS ON HALF OF THEM.
+    # She covers a byte every OTHER frame now (P_WALK_BEAT, CLAUDE.md
+    # 8.2) - in the push zone the CRTC's two bytes every fourth - so an
+    # aiming frame costs her a step only when it lands on one of her
+    # step frames, and the tap pattern is spread evenly enough across
+    # the beat that it does so half the time. The expectation is still
+    # derived from the pattern rather than written down: re-time the tap
+    # and it re-derives.
+    # AND IT IS MEASURED ON THE RUN WHOSE LOOP HOLDS, which is the one
+    # with the HUD off as well. The tap pattern is counted in HARDWARE
+    # frames and her beat runs on the GAME's clock, so a frame the loop
+    # drops slides the two against each other: in the push zone she
+    # steps every fourth game frame and the trigger is down for four, so
+    # a window that covered one step can come to cover none - two bytes,
+    # per dropped frame. Measured, that is the whole of the difference:
+    # 67 bytes with the strip off, which is exactly the expectation, and
+    # 71 with it over four dropped frames.
+    # AND IT IS COMPARED AGAINST A WALK THAT DIFFERS ONLY IN THE
+    # TRIGGER - same drone-free screen, same silent HUD - because a
+    # walk measured under a different load is a different number of
+    # game frames and the difference would then be two things at once.
+    costs = aiming // 2
     check("and tapping costs her the aiming frames and nothing else",
-          abs(alone_x - (plain_x - aiming)) <= 4,
-          f"{alone_x} bytes against {plain_x} walking less {aiming} aiming "
-          f"= {plain_x - aiming} expected, with no drone on the screen")
+          abs(steady_x - (base_x - costs)) <= 1,
+          f"{steady_x} bytes against {base_x} walking less {costs} - half of "
+          f"{aiming} aiming frames, one step's worth each - "
+          f"= {base_x - costs} expected, on the same drone-free screen with "
+          f"the HUD silent, where the loop holds {steady} of {FRAMES}")
+    check("... and the strip's dropped frames move it by no more than they can",
+          abs(alone_x - steady_x) <= 2 * abs(steady - alone) + 2,
+          f"{alone_x} bytes in play against {steady_x} with the HUD off, over "
+          f"{steady - alone} dropped frames - a dropped frame can move the tap "
+          f"off one of her step frames and a push step is {2} bytes")
     # THE ENCOUNTER'S OWN COST, and it is the art's now. Her heaviest
     # `kcore` cel went from 284 span bytes to 323 in the redraw - 2,808 T
     # of composite at the blitter's 72 T floor - so a firing frame that
