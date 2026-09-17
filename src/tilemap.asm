@@ -158,22 +158,98 @@ SCROLL_INIT:    ld   b,CRTC_R6
 ; the bootstrap's relocation has already put it in base RAM.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-MAP_INSTALL:    ld   hl,CITY_MAP
+                ; The header, in the order docs/editor.md 9.2 fixes.
+LVL_VER         equ 2
+LVL_ID          equ 3
+LVL_FLAGS       equ 4
+LVL_W           equ 5
+LVL_H           equ 7
+LVL_TILESET     equ 9
+LVL_ENTS        equ 10
+LVL_LINKS       equ 11
+LVL_REGIONS     equ 12
+LVL_OFF_MAP     equ 13
+LVL_OFF_ENT     equ 15
+LVL_OFF_LINK    equ 17
+LVL_OFF_REGION  equ 19
+
+MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
+                ; The addressing in this file and the probes in
+                ; collide.asm are built around 128x16 at compile time -
+                ; MAP_CELL scales the row out of the base address - so a
+                ; level of another shape is refused rather than drawn
+                ; wrong. Carry set on the way out says so.
+                ld   hl,(LEVEL_LVL)
+                ld   de,&564C               ; "LV", low byte first
+                or   a
+                sbc  hl,de
+                jr   nz,.refuse
+                ld   hl,(LEVEL_LVL + LVL_W)
+                ld   de,MAP_W
+                or   a
+                sbc  hl,de
+                jr   nz,.refuse
+                ld   hl,(LEVEL_LVL + LVL_H)
+                ld   de,MAP_H
+                or   a
+                sbc  hl,de
+                jr   nz,.refuse
+                ld   a,(LEVEL_LVL + LVL_ENTS)
+                cp   ENT_MAX + 1
+                jr   nc,.refuse             ; more than the table holds
+
+                ; ---- the map ---------------------------------------
+                ld   (ENT_COUNT),a          ; the header's count IS the
+                ld   hl,(LEVEL_LVL + LVL_OFF_MAP)   ; sweep's bound (8.6)
+                ld   de,LEVEL_LVL
+                add  hl,de
                 ld   de,MAP_ADDR
                 ld   bc,MAP_W * MAP_H
                 ldir
-                ; ... and the entities, which follow it in the image and
-                ; land straight after it in RAM. Module 6's loader reads
-                ; both out of level_<n>.lvl the same way: an LDIR, because
-                ; the record on disc IS the record in the table.
-                ld   hl,CITY_ENTITIES
-                ld   de,ENT_TABLE
-                ld   bc,ENT_MAX * ENT_STRIDE
+
+                ; ---- the entities ----------------------------------
+                ; THE FILE CARRIES ONLY THE LIVE ONES and the table is
+                ; ENT_MAX long, so it is cleared first. An all-zero
+                ; record is a real entity at (0,0) unless EF_ACTIVE says
+                ; otherwise - which is exactly why the flags byte
+                ; decides and not the kind (8.6).
+                ld   hl,ENT_TABLE
+                ld   de,ENT_TABLE + 1
+                ld   bc,ENT_MAX * ENT_STRIDE - 1
+                ld   (hl),0
                 ldir
-                call ENT_RECOUNT
+                ld   a,(ENT_COUNT)
+                or   a
+                jr   z,.flags
+                add  a,a
+                add  a,a
+                add  a,a                    ; * ENT_STRIDE, 192 at most
+                ld   c,a
+                ld   b,0
+                ld   hl,(LEVEL_LVL + LVL_OFF_ENT)
+                ld   de,LEVEL_LVL
+                add  hl,de
+                ld   de,ENT_TABLE
+                ldir
+
+                ; ---- and what each tile DOES -----------------------
+.flags:         ld   hl,TILE_ATTR           ; clear the whole page: a map
+                ld   de,TILE_ATTR + 1       ; byte is an index and every
+                ld   bc,TILE_ATTR_N - 1     ; one of the 256 must answer
+                ld   (hl),0
+                ldir
+                ld   hl,LEVEL_TILEFLAGS
+                ld   de,TILE_ATTR
+                ld   bc,LEVEL_TILEFLAGS_N
+                ldir
+
                 call ENT_BAKE               ; ... each pickup onto the tile
-                jp   ENEMY_SPAWN            ; it stands on, and the level's
-                                            ; characters onto their feet
+                call ENEMY_SPAWN            ; it stands on, and the level's
+                or   a                      ; characters onto their feet
+                ret
+
+.refuse:        scf                         ; the caller draws no level
+                ret
 
 ; ---------------------------------------------------------------------
 ; SCROLL_APPLY - push SCROLL into R12/R13.

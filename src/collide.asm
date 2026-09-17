@@ -31,13 +31,20 @@
 ; came out of PLAYER_UPDATE.
 ; =====================================================================
 
-TA_SOLID        equ %10000000   ; blocks from every direction
-TA_PLATFORM     equ %01000000   ; one-way - blocks a descent only
-TA_HAZARD       equ %00100000   ; damages on contact
-TA_TRIGGER      equ %00010000   ; reserved for Module 5's entities
+; THE BIT ORDER IS THE EDITOR'S, NOT THIS FILE'S. docs/editor.md 9.2
+; ships a tileflags_<level>.bin of one byte a tile and names the bits;
+; every probe here is symbolic (`AND TA_SOLID`, `LD B,TA_BLOCK`) and
+; none of them cared which bit it was, so the engine took the format's
+; numbering rather than asking the exporter to translate. A translation
+; pass is 256 bytes of nothing to go wrong in, and this way the golden
+; file and the running table hold the same byte.
+TA_SOLID        equ %00000001   ; blocks from every direction
+TA_PLATFORM     equ %00000010   ; one-way - blocks a descent only
+TA_HAZARD       equ %00000100   ; damages on contact
 TA_CLIMB        equ %00001000   ; a ladder: UP and DOWN move her along it
-TA_WATER        equ %00000100   ; RESERVED, level 4 - defined, never read
-TA_SINK         equ %00000010   ; RESERVED, level 5 - defined, never read
+TA_WATER        equ %00010000   ; RESERVED, level 4 - defined, never read
+TA_SINK         equ %00100000   ; RESERVED, level 5 - quicksand
+TA_DEADLY       equ %01000000   ; RESERVED - a fall that does not end well
 TA_BLOCK        equ TA_SOLID + TA_PLATFORM
 
 ; ---------------------------------------------------------------------
@@ -92,78 +99,17 @@ BOX_COLS_MAX    equ (KARA_BOX_W - 1) / TILE_W_BYTES + 2
 ; rooftop is a wall she cannot walk past, which stops the camera and
 ; makes every scrolling test vacuous without failing it.
 ;
-; This is the CITY's table. Level 2 onward will each want their own, and
-; the level format (8.3) carries the flags in tileflags_<level>.bin - at
-; which point this becomes the loader's target rather than a literal.
-                align 256
-TILE_ATTR:      db 0                        ;  0 sky_stars
-                db 0                        ;  1 void
-                db 0                        ;  2 sky_mid
-                db 0                        ;  3 sky_low
-                db 0                        ;  4 far_tower      background
-                db 0                        ;  5 far_block
-                db 0                        ;  6 far_step
-                db 0                        ;  7 far_fill
-                ; THE BUILDING'S FACE IS BACKGROUND, NOT A WALL, and
-                ; the artist's own street mockup is what says so: she
-                ; walks the pavement in FRONT of a brick facade that runs
-                ; floor to roof. Made solid, the foot of every ladder is
-                ; a place she arrives inside a wall - her box is three
-                ; tiles wide, the shaft is one, and BOX_SOLID_H then
-                ; refuses every step she tries to take along the street.
-                ; What holds her up is the roof at the top and the
-                ; pavement at the bottom; the 128 rows of brick between
-                ; them are scenery, and a roof edge she walks off is a
-                ; fall to the street, which is what a roof edge is.
-                db 0                        ;  8 brick
-                db 0                        ;  9 brick_win_lit
-                db 0                        ; 10 brick_win_dark
-                db 0                        ; 11 brick_top
-                db TA_SOLID                 ; 12 concrete
-                db TA_SOLID                 ; 13 roof_l         the runway
-                db TA_SOLID                 ; 14 roof_m
-                db TA_SOLID                 ; 15 roof_r
-                db 0                        ; 16 ac_unit        props: she
-                db 0                        ; 17 chimney        walks through
-                db 0                        ; 18 antenna        them
-                db 0                        ; 19 tank_00
-                db 0                        ; 20 tank_01
-                db 0                        ; 21 tank_10
-                db 0                        ; 22 tank_11
-                db 0                        ; 23 tank_20
-                db 0                        ; 24 tank_21
-                ; A LADDER IS A FLOOR AS WELL AS A SHAFT. Its top tile
-                ; sits in the roof's own row (tools/make_city_map.py), so
-                ; she has to be able to stand on it before she can step
-                ; onto it - TA_PLATFORM is what a one-way floor is, and
-                ; it is what DOWN then takes her through.
-                db TA_CLIMB + TA_PLATFORM   ; 25 ladder
-                db TA_SOLID                 ; 26 sidewalk
-                db TA_SOLID                 ; 27 curb
-                db TA_SOLID                 ; 28 street
-                db TA_SOLID                 ; 29 street_line
-                ; AND THE GARAGE IS PART OF THAT FACE. It is four tiles
-                ; wide and five tall, standing on the pavement in the same
-                ; plane as the brick around it, and solid it was a wall
-                ; across the street: her box is three tiles wide, so
-                ; BOX_SOLID_H refused every step into it and the pavement
-                ; beyond one was somewhere she could not walk - the street
-                ; is cut in two at tiles 30 and 90. A shut door is a thing
-                ; she opens with the key (EK_DOOR, entity.asm), not a thing
-                ; the physics stops her at; what stops her going THROUGH it
-                ; is that there is nothing behind it to go to.
-                db 0                        ; 30 jamb_l         the garage
-                db 0                        ; 31 sign_p
-                db 0                        ; 32 jamb_r
-                db TA_TRIGGER               ; 33 lock_red       needs the key
-                db 0                        ; 34 shutter
-                db 0                        ; 35 shutter_bottom
-                db TA_TRIGGER               ; 36 lock_green     unlocked
-                db 0                        ; 37 open_ramp      walk in
-                db 0                        ; 38 lamp_top
-                db 0                        ; 39 lamp_pole
-                db TA_SOLID                 ; 40 crate
-                ds 215, 0                   ; 41-255 unused for now
+; THE TABLE IS RAM AND THE LEVEL BRINGS IT. It used to be a literal in
+; this file, in the artist's frame order, which is fine for exactly one
+; level: the City. It is now tileflags_<level>.bin (docs/editor.md 9.1),
+; one byte a tile, written by tools/make_level.py and LDIRed here by
+; LEVEL_PARSE - so level 2's tileset does not need a second table in the
+; engine and the editor writes the same bytes the loader reads.
+;
+; IT MUST BE PAGE-ALIGNED: ATTR_OF indexes it with `LD D,TILE_ATTR >> 8`
+; and a tile number in E, which discards any carry out of E.
+TILE_ATTR       equ &A900       ; 256 bytes, above the entity table
+TILE_ATTR_N     equ 256
 
 ; ---------------------------------------------------------------------
 ; MAP_CELL - address in bank C4 of the cell covering a world position.

@@ -888,17 +888,28 @@ LEVEL_START:
                 ; (tools/level_banks.py pins them at &4000 of it), and
                 ; the 2 KB the stand-in sheet used to take of the core
                 ; image goes back to the engine.
-CITY_MAP:       incbin "city_map.bin"
-                ; ... and the level's entities, in the eight-byte
-                ; record docs/editor.md 9.2 fixes. The editor will
-                ; write these; this is the same bytes by hand, so
-                ; the engine's half of the format is exercised
-                ; before a web application is built against it.
-CITY_ENTITIES:  incbin "city_entities.bin"
+                ;
+                ; AND THE MAP AND THE ENTITIES ARE ONE FILE IN THE
+                ; EDITOR'S OWN FORMAT. tools/make_level.py writes the
+                ; bytes docs/editor.md 9.2 fixes - header, map,
+                ; entities, links, regions - and LEVEL_PARSE reads them.
+                ; The editor's whole output is this file, so the format
+                ; gets a reference implementation and a level the engine
+                ; already plays before a web application is built
+                ; against it (CLAUDE.md 11).
+LEVEL_LVL:      incbin "level_1.lvl"
+                ; ... and what each tile DOES, which is the tileset's
+                ; and not the level's: one byte a tile, in the artist's
+                ; frame order, in the format's own bit order so that
+                ; this file IS src/collide.asm's table.
+LEVEL_TILEFLAGS:
+                incbin "tileflags_level1_city.bin"
+LEVEL_TILEFLAGS_N equ $ - LEVEL_TILEFLAGS
 LEVEL_END:
 LEVEL_SIZE      equ  LEVEL_END - LEVEL_START
 
-                assert CITY_MAP == LEVEL_IMAGE
+                assert LEVEL_LVL == LEVEL_IMAGE
+                assert LEVEL_TILEFLAGS_N <= TILE_ATTR_N
                 assert LEVEL_IMAGE + LEVEL_SIZE < STACK_TOP - 1024
                 ; and it must not land on top of what it is copied INTO
                 assert LEVEL_IMAGE >= ENT_TABLE + ENT_MAX * ENT_STRIDE

@@ -102,6 +102,42 @@ SCREEN_LINES = 192              # R6 = 24 character rows (CLAUDE.md 8.2)
 WORLD_LINES  = 16 * 16          # the map's own height, and Y wraps in a byte
 
 
+# ---------------------------------------------------------------------
+# WHAT EACH TILE DOES, which is not what it looks like and not how it is
+# drawn. docs/editor.md 9.1 ships this as tileflags_<level>.bin, one
+# byte a tile, and src/collide.asm takes the format's own bit order -
+# so this dict IS the engine's table and there is no translation
+# anywhere between them. Anything not named here is scenery.
+#
+# The three rules that are load-bearing and were each paid for once:
+#
+#   * THE BUILDING'S FACE IS NOT A WALL. brick, its windows and the
+#     garage in the middle of it have nothing: her box is three tiles
+#     wide and the ladder's shaft is one, so a solid facade is a place
+#     she arrives inside and can never walk out of (CLAUDE.md 8.8).
+#   * A LADDER IS A FLOOR AS WELL AS A SHAFT. Its top tile is in the
+#     roof's own row, so she has to be able to stand on it before she
+#     can step onto it: Platform is what a one-way floor is.
+#   * THE ROOF PROPS ARE SCENERY. A solid prop on the rooftop is a wall
+#     she cannot walk past, which stops the camera and makes every
+#     scrolling test vacuous WITHOUT failing it.
+SOLID, PLATFORM, HAZARD, LADDER, WATER, QUICKSAND, DEADLY = (
+    1, 2, 4, 8, 16, 32, 64)
+
+TILE_FLAGS = {
+    "concrete": SOLID,
+    "roof_l": SOLID, "roof_m": SOLID, "roof_r": SOLID,
+    "ladder": LADDER | PLATFORM,
+    "sidewalk": SOLID, "curb": SOLID, "street": SOLID, "street_line": SOLID,
+    "crate": SOLID,
+}
+
+
+def tile_flags(names):
+    """One byte a tile, in the artist's frame order."""
+    return bytes(TILE_FLAGS.get(n, 0) for n in names)
+
+
 def tile_names():
     """Frame order, straight out of the manifest's description field."""
     man = json.load(open(os.path.join(
@@ -352,6 +388,12 @@ def main():
     assert max(blob) < len(names), "a tile index ran past the sheet"
     out = os.path.join(ROOT, "build", "city_map.bin")
     open(out, "wb").write(blob)
+    flags = tile_flags(names)
+    open(os.path.join(ROOT, "build", "tileflags_level1_city.bin"),
+         "wb").write(flags)   # one byte a tile, and the loader clears
+                              # the rest of the 256 the engine indexes
+    print(f"-> tileflags_level1_city.bin  {len(flags)} tiles, "
+          f"{sum(1 for f in flags if f)} of them with anything on")
     n = build_entities(os.path.join(ROOT, "build", "city_entities.bin"))
     print(f"-> city_entities.bin  {n} of {ENT_MAX} slots used, "
           f"{ENT_MAX * 8} bytes")

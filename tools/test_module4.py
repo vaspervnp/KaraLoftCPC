@@ -51,7 +51,10 @@ TILE_BYTES = TILE_W_BYTES * 16   # 64 - column-major, 2 char columns of 32
 COL_HEAD = 14                    # rows of the incoming column painted behind
                                  # the beam; tilemap.asm derives it
 N_TILES = 41                     # the City sheet
-MAP_ADDR = 0xA000                # base RAM: bank C4 belongs to the art
+MAP_ADDR = 0xA000              # base RAM: bank C4 belongs to the art
+# The map is a section of level_1.lvl now, not an incbin of its own:
+# docs/editor.md 9.2's header is 21 bytes and the map follows it.
+LVL_HEADER = 21
 
 fails = []
 def check(name, ok, detail=""):
@@ -628,7 +631,8 @@ def main():
     tiles = (shipped + bytes(ENT_BAKE_ADDR - 0x4000 - len(shipped))
              + bytes(read_tile_bank(machine, sym, ENT_BAKE_BYTES,
                                     ENT_BAKE_ADDR)))
-    level_map = machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H)
+    level_map = machine.read_ram(sym["LEVEL_LVL"] + LVL_HEADER,
+                                 MAP_W * MAP_H)
     check("level blob is intact in base RAM",
           len(set(level_map)) > 1 and max(level_map) < N_TILES,
           f"{len(set(level_map))} distinct tiles, max index {max(level_map)}")
@@ -659,7 +663,8 @@ def main():
     # The installed map is the shipped one EXCEPT where a pickup was
     # baked in: those cells hold that pickup's scratch tile instead.
     # Anything else differing means the staging buffer reached it.
-    shipped_map = bytes(machine.read_ram(sym["CITY_MAP"], MAP_W * MAP_H))
+    shipped_map = bytes(machine.read_ram(sym["LEVEL_LVL"] + LVL_HEADER,
+                                         MAP_W * MAP_H))
     installed = bytes(machine.read_ram(MAP_ADDR, MAP_W * MAP_H))
     baked = {}
     for slot in range(machine.peek(sym["ENT_BAKED"])):

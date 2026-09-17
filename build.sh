@@ -56,6 +56,12 @@ python3 "$ROOT/tools/dskdata.py" --inc
 # export's sidecar to check the tile numbering has not shifted.
 python3 "$ROOT/tools/make_city_map.py"
 
+# ... and then the same bytes in the EDITOR's format. make_level.py is
+# the reference implementation of docs/editor.md 9.2 and the engine's
+# LEVEL_PARSE reads what it writes, so the format has a golden file and
+# a level that is played on real hardware before the editor exists.
+python3 "$ROOT/tools/make_level.py"
+
 # ZX0 for everything that goes on the disc. It is the best cruncher RASM
 # ships on BOTH ratio and depack speed - see tools/pack.py for the nine
 # that were measured - and it buys disc space and load time, not frame

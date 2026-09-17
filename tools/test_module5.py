@@ -75,6 +75,12 @@ def fire(m, sym, pool, live, sx, sy, direction=0):
     m.poke(sym[live], 1)
     if "BUL_TOP" in sym and pool == "BULLETS":
         m.poke(sym["BUL_TOP"], 1)
+    # AND WHICH FRAME OF THE THREE IT IS. Rounds hold still one frame in
+    # BUL_SLOW (CLAUDE.md 8.5) and the counter belongs to the main loop,
+    # which is not running under a DI stub - left where it was parked
+    # the round correctly does not move and every check below reads as a
+    # dead engine.
+    m.poke(sym["BUL_PHASE"], sym["BUL_SLOW"])
 
 
 def main():

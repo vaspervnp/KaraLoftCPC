@@ -1362,21 +1362,59 @@ Tile flags travel separately in `tileflags_<level>.bin`, one byte a
 tile: `Solid 1, Platform 2, Hazard 4, Ladder 8, Water 16, Quicksand 32,
 Deadly 64`.
 
+**THAT BIT ORDER IS THE ENGINE'S TOO, and settling it was half of §11
+step 7's homework.** `collide.asm`'s `TA_*` used to run the other way
+up — `TA_SOLID` was bit 7 — for no reason anyone wrote down: every
+probe in the engine is symbolic (`AND TA_SOLID`, `LD B,TA_BLOCK`) and
+not one of them cared which bit it was. So the engine took the format's
+numbering rather than asking the exporter to translate, and
+`tileflags_level1_city.bin` IS the table `TILE_ATTR` holds. `TA_TRIGGER`,
+which had no counterpart in the format and no reader in the engine, is
+gone; `TA_DEADLY` comes in from the format's own list.
+
+**And the table is RAM the level fills, not a literal in the engine.**
+It was a `db` per tile in `collide.asm` in the artist's frame order,
+which is fine for exactly one level; `MAP_INSTALL` now clears all 256
+entries at &A900 and LDIRs the file over them, so level 2's tileset
+needs no second table in the image.
+
+#### The engine reads `level_1.lvl`, and that is where Module 6 starts
+
+`tools/make_level.py` writes the bytes of §9.2 — header, map, entities,
+links, regions — and `MAP_INSTALL` reads them: the magic, the shape
+(128×16 or it is refused, because `MAP_CELL` scales the row out of the
+base address at compile time), the header's entity count straight into
+`ENT_COUNT`, the map and the records by `LDIR` because **the record on
+disc IS the record in RAM**, and the tileset's flags into `TILE_ATTR`.
+
+The City is 2,149 bytes of it: 21 of header, 2,048 of map, 80 of
+entities, no links and no regions. `tools/test_format.py` is the golden
+file — an independent reader takes the header apart field by field, and
+then the engine is checked against what it read, with three controls a
+loader that ignored the file would fail: **break the magic and it
+refuses**, **give it a map of another shape and it refuses**, and
+**take `TA_CLIMB` off the ladder in the FILE and the table in RAM loses
+it too**. The five cells where RAM and file disagree are the pickups
+`ENT_BAKE` stamps into scratch tiles (§8.6), and the test says so by
+name.
+
 **Those are what a tile DOES; `tile_table.json` says how it is DRAWN**
 (§7.3), and the two are independent — `ladder` is an overlay in level 3
 and an opaque tile in level 1, with the same `Ladder` flag in both. The
 format has nowhere to put "this cell is an overlay over that one" yet,
 which is the same gap: a cell is one byte and an overlay needs the tile
-under it as well. Settle it here before the editor is written, with the
-tile flag byte and the `param0`/`param1` meanings (§11 step 7).
+under it as well — **and that is the one question of §11 step 7 still
+open.** The tile flag byte is settled above and `param0`/`param1` are in
+§8.6.
 
 #### Two corrections to editor.md, both forced by the CRTC
 
-**1. Tiles are 8×16, which this engine does not do yet.** The current
-tilemap is 16×16 (8 bytes × 16 lines) and the map is 64×16. At 8×16 a
-tile is **4 bytes × 16 lines**, so it spans 2 CRTC character columns
-and 2 character rows, and a map of the same world width has twice the
-columns. `tilemap.asm` and `collide.asm` both assume the old size.
+**1. Tiles are 8×16 — ~~which this engine does not do yet~~, and now it
+does.** A tile is **4 bytes × 16 lines**, so it spans 2 CRTC character
+columns and 2 character rows, and the City's map is 128×16 of them.
+`tilemap.asm` and `collide.asm` were rewritten around it when the drawn
+art arrived; what is left of Module 6 is the play area, the masked tile
+path and the X clip.
 
 **2. The play area is 20×11 tiles and the HUD is 16 lines, not 24.**
 editor.md §2.1 asks for 176 lines of play plus a 24-line HUD = 200

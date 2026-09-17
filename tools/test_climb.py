@@ -55,7 +55,9 @@ import make_city_map as city                                     # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 JOY_UP, JOY_DOWN, JOY_LEFT, JOY_RIGHT = 0x01, 0x02, 0x04, 0x08
-TA_SOLID, TA_PLATFORM, TA_CLIMB = 0x80, 0x40, 0x08
+# The FORMAT's bit order, which the engine took as its own when the
+# flags moved into tileflags_<level>.bin (docs/editor.md 9.2).
+TA_SOLID, TA_PLATFORM, TA_CLIMB = 0x01, 0x02, 0x08
 TILE_LADDER = 25
 KARA_BOX_H = 64
 SCREEN_LINES = 192
