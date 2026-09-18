@@ -1357,6 +1357,25 @@ can be pressed during `LEVEL_LOAD`, which runs with interrupts off. Put
 up after, it means what it says — the press starts the game on the next
 frame.
 
+**And the credit is baked like the title, for the same reason.**
+`REVIVE8BIT - 2026 - VASPER` sits under her feet and does not blink, so
+it goes into the picture before it is packed and costs nothing at all —
+not a byte of the core image and not a T-state. **Where it goes was
+measured**: counted pen by pen off the artist's own `.scr`, the ledge
+she stands on is lines 162-171, 154 to 157 pixels of pen 3 on each of
+them, and her boots rest on its top line — so line 163 is the one clear
+run in the picture that is directly under her. The band below it is the
+rails and the pavement at 185-199 is where the prompt already blinks.
+It is **pen 1**, the picture's own black: pen 11 is the prompt's white
+and a second white line would read as a second prompt.
+
+**AND IT ONLY FITS AT A SIX-PIXEL PITCH.** The glyphs are 5 pixels of
+ink inside a 7-wide cell, so 26 letters at the prompt's 8-pixel pitch
+is 208 pixels of a 160-pixel screen; at 6 it is 156, with one pixel of
+gap left between neighbours. `stamp` takes the pitch as an argument
+now, and seven glyphs the prompt never used — `B V - 0 2 6 8` — went
+into the font with it.
+
 **The words are two pre-rendered strips, not a font and a save-under.**
 The build knows the picture and it knows where the words go, so it emits
 the picture with them and the picture without; the blink is one `LDIR`

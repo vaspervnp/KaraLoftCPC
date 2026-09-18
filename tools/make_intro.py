@@ -66,6 +66,32 @@ SUB = "AND THE ILLUMINATI"
 SUB_Y = 20
 SUB_PEN = 15                    # yellow
 
+# AND THE CREDIT, ON THE PAVEMENT UNDER HER FEET. Baked like the title
+# and for the same reason: it does not blink, so it costs nothing at
+# all - not a byte of the core image and not a T-state.
+#
+# WHERE IT GOES WAS MEASURED, NOT CHOSEN. Counted pen by pen off the
+# artist's own .scr, the ledge she is standing on is lines 162-171 -
+# 154 to 157 pixels of pen 3 on each of them, the teal face of the roof
+# - and her boots rest on its top line. So 163 puts the words directly
+# under her feet, on the one clear run in the picture that is under
+# them: the band below it is the rails, and the pavement at 185-199 is
+# where the prompt already blinks.
+#
+# AND IT IS BLACK, not white. Pen 11 is what the prompt uses and a
+# second white line would read as a second prompt; pen 1 is the
+# picture's own black, which on the teal reads as engraved.
+CREDIT = "REVIVE8BIT - 2026 - VASPER"
+CREDIT_Y = 163
+CREDIT_PEN = 1
+CREDIT_ADVANCE = 6              # ... and it only fits AT SIX. The glyphs
+                                # below are 5 pixels of ink inside a
+                                # 7-wide cell, so 26 letters at the
+                                # prompt's 8-pixel pitch is 208 of a
+                                # 160-pixel screen and at 6 it is 156,
+                                # with one pixel of gap left between
+                                # neighbours.
+
 # An 8x8 glyph for each letter the prompt uses, and nothing else - a
 # full font would be 96 glyphs to draw ten of them.
 FONT = {
@@ -87,6 +113,14 @@ FONT = {
     "T": ".#####. ...#... ...#... ...#... ...#... ...#... ...#... .......",
     "U": ".#...#. .#...#. .#...#. .#...#. .#...#. .#...#. ..###.. .......",
     " ": "....... ....... ....... ....... ....... ....... ....... .......",
+    # ... and these seven are the credit's, which the prompt never used
+    "B": ".####.. .#...#. .#...#. .####.. .#...#. .#...#. .####.. .......",
+    "V": ".#...#. .#...#. .#...#. .#...#. .#...#. ..#.#.. ...#... .......",
+    "-": "....... ....... ....... .#####. ....... ....... ....... .......",
+    "0": "..###.. .#...#. .#..##. .#.#.#. .##..#. .#...#. ..###.. .......",
+    "2": "..###.. .#...#. .....#. ....#.. ...#... ..#.... .#####. .......",
+    "6": "...##.. ..#.... .#..... .####.. .#...#. .#...#. ..###.. .......",
+    "8": "..###.. .#...#. .#...#. ..###.. .#...#. .#...#. ..###.. .......",
 }
 GLYPH_W = 8
 
@@ -97,9 +131,14 @@ def glyph_rows(ch):
     return [r.ljust(GLYPH_W, ".") for r in rows]
 
 
-def stamp(pens, text, y0, scale, pen, shadow=None):
-    """Draw `text` centred, `scale` times up, into a grid of pens."""
-    w = len(text) * GLYPH_W * scale
+def stamp(pens, text, y0, scale, pen, shadow=None, advance=GLYPH_W):
+    """Draw `text` centred, `scale` times up, into a grid of pens.
+
+    `advance` is the pitch from one letter to the next; it is the cell
+    width by default and narrower for a line that would not otherwise
+    fit the 160-pixel screen.
+    """
+    w = len(text) * advance * scale
     x0 = (W_BYTES * 2 - w) // 2
     assert x0 >= 0 and x0 % 2 == 0, (text, x0)
     passes = [(shadow, scale, scale)] if shadow is not None else []
@@ -113,7 +152,7 @@ def stamp(pens, text, y0, scale, pen, shadow=None):
                         continue
                     for sy in range(scale):
                         for sx in range(scale):
-                            x = x0 + (i * GLYPH_W + rx) * scale + sx + dx
+                            x = x0 + (i * advance + rx) * scale + sx + dx
                             y = y0 + ry * scale + sy + dy
                             if 0 <= x < W_BYTES * 2 and 0 <= y < LINES:
                                 pens[y][x] = colour
@@ -172,6 +211,7 @@ def main():
     # ---- the title, straight into the pens ---------------------------
     stamp(pens, TITLE, TITLE_Y, TITLE_SCALE, TITLE_PEN, TITLE_SHADOW)
     stamp(pens, SUB, SUB_Y, 1, SUB_PEN)
+    stamp(pens, CREDIT, CREDIT_Y, 1, CREDIT_PEN, advance=CREDIT_ADVANCE)
     scr = bytes(cpclib.encode_pixels(pens[y][xb * 2], pens[y][xb * 2 + 1])
                 for y in range(LINES) for xb in range(W_BYTES))
 
