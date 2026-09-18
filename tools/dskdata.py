@@ -28,7 +28,17 @@ LEV = os.path.join(ROOT, "build", "levels")
 DSK = os.path.join(ROOT, "build", "kara.dsk")
 INTRO = os.path.join(ROOT, "build", "intro.zx0")
 
-DATA_TRACK = 8              # AMSDOS reaches track 3 today; this is headroom
+DATA_TRACK = 9              # ... and it was 8 until the label screen went on
+                            # the disc. REVIVE8B.SCR is a whole 16 KB
+                            # screen - BASIC loads it straight to &C000
+                            # and cannot unpack anything - so AMSDOS's
+                            # own allocation went from block 18 to 36,
+                            # which IS the first data block at track 8.
+                            # At track 9 the first data block is 40 and
+                            # the files have four 1 KB blocks of room
+                            # left; the data ends at sector 346 of 360,
+                            # so there are fourteen at the other end
+                            # too. Both numbers are checked below.
 SECT_FIRST = 0xC1
 SECTORS = 9
 SECT_SIZE = 512

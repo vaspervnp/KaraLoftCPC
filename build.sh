@@ -92,12 +92,21 @@ rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
 
 cp "$ROOT/disc/disc.bas" "$BUILD/disc.bas"
 
+# THE FRONT DOOR: the label screen, then the game. Generated rather
+# than written, because its sixteen INKs are the artist's palette note
+# and a typed copy would go stale silently.
+python3 "$ROOT/tools/make_loader.py"
+cp "$ROOT/assets/revive8b.scr" "$BUILD/revive8b.scr"
+
 cd "$BUILD"
 iDSK "$DSK" -n >/dev/null
 # -t 1 binary, -c load address, -e execution address
 iDSK "$DSK" -i game.bin -t 1 -c 4000 -e 4000 -f >/dev/null
 iDSK "$DSK" -i disc.bas -t 0 -f >/dev/null
-rm -f disc.bas
+iDSK "$DSK" -i kara.bas -t 0 -f >/dev/null
+# ... and the label screen, a whole 16 KB one, straight to video RAM
+iDSK "$DSK" -i revive8b.scr -t 1 -c C000 -e C000 -f >/dev/null
+rm -f disc.bas revive8b.scr
 
 echo "--- $DSK ---"
 # ... and now the level streams go in as raw sectors, past the files.

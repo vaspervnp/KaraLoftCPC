@@ -175,7 +175,10 @@ src/entity.asm    the entity table, the AABB, the five interaction
                   handlers, and the pickup bake (8.6)
 src/enemy.asm     the level's characters: patrol, sight, fire, damage,
                   and the persistent sprite that pays for them (8.7)
-disc/disc.bas     ASCII BASIC loader
+disc/disc.bas     ASCII BASIC loader - straight into the game, and what
+                  every suite runs
+build/kara.bas    ... and the PLAYER's one, generated: the label screen
+                  first, then the same load (7.9)
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
@@ -190,6 +193,8 @@ tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/make_intro.py        the title .scr -> the CRTC's screen order,
                            packed, plus its palette and the prompt (7.7)
 tools/make_hud.py          the artist's health cells -> Mode 0 bytes
+tools/make_loader.py       the label screen's palette note -> kara.bas,
+                           the disc's front door (7.9)
 tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
                            and the build-time bake of its overlay tiles
 tools/make_level.py        that map + the entity table -> level_1.lvl,
@@ -199,6 +204,8 @@ tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
 tools/test_intro.py        the title screen, its palette and the press
 tools/test_hud.py          the energy bar, and that it STAYS put
+tools/test_loader.py       RUN"KARA: the label screen in video RAM, and
+                           the hold from both ends
 tools/test_format.py       the level file, the engine's reading of it,
                            and the overlay bake
 tools/test_*.py            acceptance suites, seventeen of them
@@ -1903,6 +1910,61 @@ Three more things about it are load-bearing:
 **The old ammo HUD is gone.** `HUD_UPDATE` and `HUD_ROW` drew two rows of
 seven round indicators for the Module 1-3 acceptance screen; that screen
 was deleted and nothing has called them since.
+
+### 7.9 The disc's front door: the label screen, then the game
+
+`RUN"KARA` is what a player types. It puts REVIVE8BIT's screen up,
+holds it for **ten seconds or until SPACE**, and then loads the game
+exactly the way `disc.bas` does. `RUN"DISC` still goes straight in and
+is what every suite runs, so the splash is never in a measurement's
+way.
+
+**IT IS BASIC AND NOT THE ENGINE, and that is a memory-map decision.**
+The engine disables both ROMs before it runs (§4) and drives the disc
+itself (§7.5), so a picture shown from inside it would cost a place in
+the bank map and a read through `src/disc.asm`. Shown from BASIC it
+costs one `LOAD` and nothing at all afterwards: by the time `CALL
+&4000` happens, BASIC and its screen are both gone.
+
+**AND THE LOADER IS GENERATED, BECAUSE THE PALETTE IS THE ARTIST'S.**
+`assets/revive8b.scr` arrives with a note giving sixteen firmware inks,
+one per pen; typed into a `.bas` once, a re-exported picture would come
+up in the last one's colours and nothing would say so.
+`tools/make_loader.py` reads the note. Two details in what it writes
+are load-bearing:
+
+* **`MEMORY &3FFF` comes before there is a variable to lose**, in the
+  same line as the `MODE`. It drops HIMEM to just under the game's load
+  address so `LOAD"GAME.BIN"` at &4000 lands above BASIC's stack
+  instead of through it.
+* **The ten seconds are counted AFTER the load**, not before it.
+  Interrupts are off for a disc read, so `TIME` stands still through
+  it; started first, the hold would be ten seconds minus the read. And
+  `TIME` counts in 1/300 s — the gate array's interrupt (§9), not the
+  frame — so ten seconds is 3,000.
+
+**The press is not swallowed.** The game's own title waits for the
+RELEASE as well as the press (§7.7), so a SPACE still held when the
+game starts does not run straight past it.
+
+#### What it cost the disc, and it was a track
+
+The label screen is a whole 16 KB and BASIC cannot unpack anything, so
+it goes on as a plain AMSDOS binary. That took AMSDOS's own allocation
+from block 18 to **36 — which IS the first data block at track 8** —
+and `tools/dskdata.py` said so rather than letting the level streams be
+overwritten. `DATA_TRACK` is **9** now: the first data block is 40, the
+files have four 1 KB blocks of room left, and the data ends at sector
+346 of 360. Both ends are checked by the build.
+
+`tools/test_loader.py` compares **video RAM with the artist's file byte
+for byte** — the AMSDOS header, BASIC's `LOAD` at &C000 and the file
+itself, three transformations at once — with the mistake that looks
+almost right as its control: the game's own title is a 16 KB Mode 0
+screen as well, and only 493 of 16,384 bytes agree with it by
+coincidence. The hold is checked from both ends, which is its own
+control: **968 frames left alone against 536 with SPACE**, and a loader
+that ignored the key would give the same number twice.
 
 ## 8. Game architecture
 
