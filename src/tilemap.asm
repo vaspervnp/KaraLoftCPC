@@ -814,11 +814,37 @@ DRAW_PLAYFIELD: call BANK_SET_C4
 ; it at the rendered-frame level, not in RAM, because RAM is correct
 ; either way - it is WHEN the write lands that is wrong.
 ;
+; AND EVERY NUMBER IN THAT TABLE IS THE EMULATOR'S BEAM, WHICH IS NOT
+; THE MACHINE'S. The border above the picture is 60 scanlines here and
+; 72 on a 6845 left as the firmware programs it (CLAUDE.md 9), so the
+; beam reaches display line L at 15,376 + 256L here and 18,432 + 256L
+; there: EVERY DEADLINE IN THIS TABLE FALLS 3,056 T LATER ON THE
+; MACHINE. The head has to be LATE for its deadline, so that is 3,056 T
+; straight off its slack - and 1,552 - 3,056 = -1,504. It shipped, it
+; passed every check here, and a play-test on RVM reported a bad column
+; down the side she was running away from, which is the side this
+; arithmetic puts it on.
+;
+; THE FIX IS NOT IN THIS TABLE. The tail's slack moves the other way
+; (its deadline is one it must be EARLY for), so no row count is
+; comfortable on both models at once - 13 is the best and it is -148 on
+; the machine. What buys margin on both is starting the head a whole
+; interrupt tick later, 13,312 T: +11,808 there and +14,864 here
+; (src/main.asm). That only became affordable when the game went to
+; 25 Hz and the head got a hardware frame with nothing else in it.
+;
 ; SCROLL and WORLD_X - what KARA_DRAW, BUL_DRAW and the tests read -
 ; keep describing the view that is on screen until the commit, exactly
 ; as V_SCROLL / V_WCR do for the vertical axis.
 ; ---------------------------------------------------------------------
-COL_HEAD        equ 14
+COL_HEAD        equ 12          ; TWELVE at 25 Hz, not fourteen: the head
+                                ; now waits for tick 5 (src/main.asm), so
+                                ; the rows it paints have to fit between
+                                ; there and the erase - and a shorter head
+                                ; is also a later-finishing one per row,
+                                ; which is the direction its own deadline
+                                ; wants. The tail has the whole top border
+                                ; after her draw and can afford the two.
 
 ; H_REQUEST_RIGHT / H_REQUEST_LEFT - ask for a step at the next VSYNC.
 ; Clobbers AF, HL
@@ -970,7 +996,14 @@ H_TAIL:         ld   a,(H_TAIL_DUE)
 ; SCROLL_V_STEP:   IN A = 0 to scroll down the map, non-zero to scroll up.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-V_PARTS         equ 4
+V_PARTS         equ 2           ; TWO, not four: the quarters were a 50 Hz
+                                ; budget decision - a climb cel and half a
+                                ; row came to 72,290 T of 79,872 - and a
+                                ; game frame is 159,744 now (src/main.asm).
+                                ; Halves are 18,384 T and a vertical step
+                                ; is three game frames instead of five,
+                                ; which is what keeps the camera ahead of
+                                ; a climb that is 2 pixels a frame
 V_PART_CELLS    equ SCR_CHARS / V_PARTS
                 assert V_PART_CELLS * V_PARTS == SCR_CHARS
 

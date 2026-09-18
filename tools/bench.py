@@ -38,11 +38,25 @@ def boot(sym, scroll=False):
                 break
     return m
 
-def sync(m, sym):
+def sync(m, sym, half=0):
+    """Step to the instant after VSYNC - the one where the last frame's
+    work is finished and the next has not begun.
+
+    THERE ARE TWO OF THEM A GAME FRAME NOW. The loop waits for two
+    VSYNCs (CLAUDE.md 9): the first half draws her and thinks, the
+    second erases her and puts the background right. Both spin in
+    WAIT_VSYNC, and a sampler that took whichever it reached first got
+    one frame with her on the screen and the next without - which reads
+    as a sprite that is sometimes there and sometimes not, in a test
+    that is about tiles. FRAME_HALF is the engine saying which, for the
+    benefit of exactly this function; half=0 is the top of the loop,
+    where she is erased and the background is finished.
+    """
     lo,hi=sym["WAIT_VSYNC"],sym["WAIT_VSYNC.WAIT"]+6
-    for _ in range(40000):
+    fh=sym.get("FRAME_HALF")
+    for _ in range(80000):
         m.run_us(4)
-        if lo<=m.pc<=hi: return
+        if lo<=m.pc<=hi and (fh is None or m.peek(fh)==half): return
 
 def raw(m, target):
     m.write_ram(STUB, bytes([0xF3,0xCD,target&0xFF,target>>8,0x18,0xFE])); m.set_pc(STUB)

@@ -104,8 +104,21 @@ def symbols():
     return out
 
 
-def in_vsync(machine, sym):
-    return sym["WAIT_VSYNC"] <= machine.pc <= sym["WAIT_VSYNC.WAIT"] + 6
+def in_vsync(machine, sym, half=0):
+    """In the WAIT_VSYNC spin - and in the RIGHT one.
+
+    THERE ARE TWO A GAME FRAME NOW (CLAUDE.md 9): the loop draws her and
+    thinks on the first hardware frame and erases her and puts the
+    background right on the second, and both spin here. A sampler that
+    took whichever it reached first got Kara still on the screen half
+    the time, in a check about TILES - which is exactly what 227 wrong
+    bytes of "playfield always matches the map" turned out to be, on a
+    build whose playfield was correct. FRAME_HALF is the engine saying
+    which half it is in, and 0 is the top of the loop, where she is
+    erased and the background is finished.
+    """
+    return (sym["WAIT_VSYNC"] <= machine.pc <= sym["WAIT_VSYNC.WAIT"] + 6
+            and ("FRAME_HALF" not in sym or machine.peek(sym["FRAME_HALF"]) == half))
 
 
 def settle(machine, sym):
@@ -542,6 +555,24 @@ def step_deltas(machine, sym, frames, pump=None):
     return out
 
 
+# THE MAGAZINE DIGIT LAGS ITS OWN VARIABLE BY ONE GAME FRAME, and that
+# is not a fault to measure here. HUD_SERVICE runs early in the frame,
+# before the logic that can take an ammo box; so on the frame the
+# reserve changes, AMMO_RESERVE says 3 magazines and the glyph on the
+# glass still says 2, and it is put right on the next one - 40 ms.
+# The model reads the variable, so it scores those five pixels as
+# tearing, in every check that compares the whole picture: it is what
+# "torn at every line" turned out to be on a build whose sprite was
+# pixel-perfect, because the raster sweep charges the picture's whole
+# mismatch to whichever line she happened to start on.
+#
+# One character of the bottom row, and only that one: the health cells
+# and the pips are compared like everything else.
+DIGIT_X0 = (CLIPS_BASE - HUD_BASE) * 4          # character column 13
+DIGIT_X1 = DIGIT_X0 + 4
+DIGIT_Y0 = (SCR_CHAR_ROWS - 1) * 8              # ... of the bottom row
+
+
 def render_mismatch(machine, pen_rows, pen_to_hw, y0, skip=None):
     """Wrong pixels between the model and the picture.
 
@@ -556,6 +587,8 @@ def render_mismatch(machine, pen_rows, pen_to_hw, y0, skip=None):
         for x, pen in enumerate(row):
             if skip and skip[0] <= x < skip[1]:
                 continue
+            if y >= DIGIT_Y0 and DIGIT_X0 <= x < DIGIT_X1:
+                continue                # the digit - see above
             if fb[base + x * 4] != pen_to_hw[pen]:
                 bad += 1
     return bad
@@ -1065,11 +1098,22 @@ def main():
             if hist[i][2] != hist[i - 1][2]:
                 latched += 1
                 continue
+            # THE VIEW IS A CANDIDATE TOO, NOT JUST HER POSITION. At
+            # 25 Hz the loop's two halves both spin in WAIT_VSYNC and
+            # the sample is taken at the top of one game frame, while
+            # the picture on the glass was swept under the view latched
+            # at the top of the one before: which of the two the
+            # framebuffer holds depends on where in the pair the sample
+            # landed. Scoring against one of them only made every line
+            # of a perfectly clean sprite read as torn - 20 samples of
+            # 20 - because a view one character out is 160 wrong pixels
+            # a row, not five.
             n = min(render_mismatch(machine,
-                                    expected_pens(model(tiles, level_map, blobs, hist[i],
-                                                        True, kara_st=hist[k]), hist[i][0]),
+                                    expected_pens(model(tiles, level_map, blobs, hist[v],
+                                                        True, kara_st=hist[k]), hist[v][0]),
                                     pen_to_hw, y0)
-                    for k in (i - 1, i - 2))
+                    for k in (i - 1, i - 2, i - 3)
+                    for v in (i, i - 1))
             clip = kara_clip(blobs[hist[i - 1][7]], hist[i - 1][5], hist[i - 1][4])
             if clip:
                 worst[clip[0]] = max(worst.get(clip[0], 0), n)

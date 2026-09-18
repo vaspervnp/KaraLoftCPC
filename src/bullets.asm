@@ -25,17 +25,21 @@ BUL_DIR         equ 3                   ; 0 = RIGHT, 1 = left - KARA_FACING's
                                         ; backwards out of her own muzzle.
 BUL_LIFE        equ 4
 
-BUL_SPEED       equ 2                   ; bytes per frame = 4 Mode 0 pixels
+BUL_SPEED       equ 4                   ; bytes per game frame = 8 Mode 0
+                                        ; pixels. TWICE THE 50 Hz STEP for
+                                        ; half as many frames, and still
+                                        ; under a 4-byte tile's width x2 so
+                                        ; the probe cannot skip a wall
 BUL_SLOW        equ 3                   ; ... on two frames in BUL_SLOW. A
                                         ; whole byte is 4 pixels and there is
                                         ; no half of one, so a third off the
                                         ; speed is a frame they do not move
                                         ; on - main.asm keeps the phase
-BUL_LIFE_INIT   equ 90                  ; frames, and it is BUL_SLOW / 2
+BUL_LIFE_INIT   equ 45                  ; game frames, and it is BUL_SLOW / 2
                                         ; longer than the 60 it was, so the
                                         ; slower round still reaches as far
 BUL_PEN         equ &CF                 ; solid pen 11, bright yellow
-RELOAD_FRAMES   equ 60                  ; 1.2 s at 50 Hz
+RELOAD_FRAMES   equ 30                  ; 1.2 s at 25 Hz (src/main.asm)
 
 ; ---------------------------------------------------------------------
 ; FIRE_BULLET - one trigger pull.

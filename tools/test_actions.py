@@ -279,7 +279,12 @@ def main():
     # to agree - 40 frames of walk cycle against 18 pixels of stride,
     # and she covers 1 pixel a frame (CLAUDE.md 8.4).
     # -----------------------------------------------------------------
-    RATE = {"IDLE": 0, "WALK": 1, "RUN": 1}
+    # ONE MORE SHIFT ON EVERY STATE THAN THE 50 Hz BUILD HAD. The art's
+    # durations are in 50 Hz frames and a game frame is two of them
+    # (CLAUDE.md 9), so every cel needs halving to be held for the time
+    # Aseprite says; the walk and the run take a second halving on top,
+    # which is the one that matches her feet to the ground she covers.
+    RATE = {"IDLE": 1, "WALK": 2, "RUN": 2}
     print("\n  cel timing against the durations Aseprite recorded:")
     bad = 0
     for name in ("IDLE", "WALK", "RUN"):
@@ -346,12 +351,16 @@ def main():
           f"{bad} wrong")
 
     # -----------------------------------------------------------------
-    # 4b. A RUN is a byte a frame and a WALK is a byte every other one.
+    # 4b. A RUN is two bytes a game frame and a WALK is one.
     #
     # Every step in PLAYER_X is a whole byte - KARA_X is a byte column
-    # and a Mode 0 pixel is half of one - so what tells the two apart is
-    # how many frames apart the steps are, which is PLAYER_BEAT. Eight
-    # frames therefore carry a run eight bytes and a walk four.
+    # and a Mode 0 pixel is half of one. At 50 Hz that left no way to be
+    # slower than a byte a frame, so a speed was how many frames apart
+    # the steps were; at 25 Hz (CLAUDE.md 9) there is no half-frame to
+    # skip and a speed is the SIZE of the step, which is PLAYER_STEP.
+    # Eight game frames therefore carry a run sixteen bytes and a walk
+    # eight - the same ground per SECOND as the 50 Hz numbers this used
+    # to assert, which were four and eight.
     #
     # Driven through PLAYER_UPDATE with the input poked, for the same
     # reason as everything above: there is no key code for SHIFT here,
@@ -394,25 +403,27 @@ def main():
     left = travel(IN_LEFT)
     print(f"    free zone, 8 frames: walking {walked} bytes, running "
           f"{ran}, still {still}, left {left}")
-    check("a walk is one byte every other frame", walked == 4,
-          f"{walked} in 8 frames, want 4")
-    check("SHIFT doubles it to a byte a frame", ran == 8,
-          f"{ran} in 8 frames, want 8")
+    check("a walk is one byte a game frame", walked == 8,
+          f"{walked} in 8 frames, want 8")
+    check("SHIFT doubles it to two bytes a frame", ran == 16,
+          f"{ran} in 8 frames, want 16 - which is also exactly one CRTC "
+          f"character a frame, so a run scrolls on every one")
     check("no direction, no movement", still == 0, f"{still}")
-    check("left goes left", left == -4, f"{left}")
+    check("left goes left", left == -8, f"{left}")
 
     # In the PUSH zone she moves the way the camera does, or the picture
     # doubles (CLAUDE.md 8.2): the CRTC's whole 2-byte character on the
-    # camera's frame and nothing between. That is one frame in two for a
-    # run and one in four for a walk - the same ground either way as the
-    # free zone above, which is the property that matters.
+    # camera's frame and nothing between. That is EVERY frame for a run,
+    # whose free step is already a character, and one frame in two for a
+    # walk - the same ground either way as the free zone above, which is
+    # the property that matters.
     pwalk = travel(IN_RIGHT, wx=140)
     prun = travel(IN_RIGHT | IN_RUN, wx=140)
     print(f"    push zone, 8 frames: walking {pwalk} bytes, running {prun}")
     check("in the push zone a walk keeps the camera's pace, not its own",
-          pwalk == 4, f"{pwalk} in 8 frames, want 4 - two bytes every fourth")
-    check("...and a run steps twice as often, because the camera can",
-          prun == 8,
+          pwalk == 8, f"{pwalk} in 8 frames, want 8 - two bytes every other")
+    check("...and a run steps on every one, because the camera can",
+          prun == 16,
           f"{prun} in 8 frames, want 16")
 
     # -----------------------------------------------------------------

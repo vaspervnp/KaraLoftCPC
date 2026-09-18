@@ -92,7 +92,9 @@ ENEMY_TYPES:
                 db CITYAGENT_WALK_FIRST, CITYAGENT_WALK_COUNT
                 db CITYAGENT_FIRE_FIRST, CITYAGENT_FIRE_COUNT
                 db CITYAGENT_BOX_W, CITYAGENT_BOX_H
-                db 1, 90, 3
+                db 2, 45, 3     ; speed, fire period, hit points - the
+                                ; first two doubled and halved for the
+                                ; 25 Hz game frame (src/main.asm)
                 dw CITYAGENT_DURATION
                 dw CITYAGENT_SPAWNS
                 ds EN_T_STRIDE - EN_T_USED
@@ -104,7 +106,7 @@ ENEMY_TYPES:
                 db CITYDRONE_FLY_FIRST, CITYDRONE_FLY_COUNT
                 db CITYDRONE_FIRE_FIRST, CITYDRONE_FIRE_COUNT
                 db CITYDRONE_BOX_W, CITYDRONE_BOX_H
-                db 1, 70, 2
+                db 2, 35, 2     ; ... and the same on this one
                 dw CITYDRONE_DURATION
                 dw 0                    ; the drone sheet has no spawn point:
                 ds EN_T_STRIDE - EN_T_USED  ; its shot leaves the box's nose
@@ -127,8 +129,8 @@ ES_SPAN         equ 13          ; db - half-width of the patrol, in pixels
 ES_DIR          equ 14          ; db - 0 = moving right
 ES_DIE          equ 15          ; db - frames of dying left, 0 = not
 ES_STRIDE       equ 16
-EN_DIE_FRAMES   equ 40          ; how long the fall and the flashing last
-EN_DIE_VY_MAX   equ 6           ; pixels a frame it can reach on the way down
+EN_DIE_FRAMES   equ 20          ; game frames the fall and the flashing last
+EN_DIE_VY_MAX   equ 12          ; pixels a game frame on the way down
 ENEMY_MAX       equ 4
 
 EBUL_MAX        equ 4
@@ -138,8 +140,14 @@ EBUL_X          equ 1           ; screen byte column, exactly like BULLETS
 EBUL_Y          equ 2
 EBUL_DIR        equ 3
 EBUL_LIFE       equ 4
-EBUL_SPEED      equ 2           ; bytes a frame, on two frames in three
-EBUL_LIFE_INIT  equ 105         ; and half as long again, because they
+EBUL_SPEED      equ 4           ; bytes a GAME frame, on two frames in
+                                ; three. THIS WAS MISSED WHEN THE GAME
+                                ; WENT TO 25 Hz and hers was doubled: at
+                                ; 2 it was half the real speed it had
+                                ; been, and a play-test reported their
+                                ; rounds as almost invisible
+EBUL_LIFE_INIT  equ 53          ; game frames - and half as long again
+                                ; than hers, because they
                                 ; move on two frames in three now
 EBUL_PEN        equ &0F         ; solid pen 3 - their shots are not hers
 EBUL_DAMAGE     equ 8
@@ -1169,19 +1177,42 @@ ENEMY_DYING:    ld   a,(ix + ES_DIE)
 ; ---------------------------------------------------------------------
 ; ENEMY_ROOM - Z if this frame can afford to DRAW one, NZ if not.
 ;
-; A citydrone's draw is 15,520 T and a frame with the incoming column in
-; it has between 5,300 and 14,600 left by the time the refresh is
-; reached. Two things say which: the interrupt tick - 5 on the roomy
-; frames, 6 on the tight ones, with nothing in between - and whether
-; ENT_UPDATE swept the pickups this frame, which is worth 2,800 T and
-; alternates on FRAME_COUNT's bottom bit - the sweep takes the ODD
-; frames now, because the even ones carry the incoming column's head
-; (entity.asm).                                  destroys AF,HL
+; AND AT 25 Hz THE ANSWER IS ALWAYS YES, WHICH IS MOST OF WHAT THE
+; SECOND VSYNC BOUGHT. A citydrone's draw is 15,520 T. At 50 Hz a frame
+; with the incoming column in it had between 5,300 and 14,600 left by
+; the time the refresh was reached, so this asked two questions - the
+; interrupt tick (5 on the roomy frames, 6 on the tight ones, with
+; nothing in between) and whether ENT_UPDATE had swept the pickups,
+; worth 2,800 T - and the entry draw waited for a frame that answered
+; well, up to EN_DEFER_MAX of them. A game frame is 159,744 T now
+; against a pessimistic sum of 87,328 (CLAUDE.md 9): there is no tight
+; frame left to tell from a roomy one.
+;
+; WHAT THAT GIVES BACK IS NOT T-STATES, IT IS THE DRONE'S OWN FRAME
+; RATE. It was redrawn on one frame in two at best and not at all while
+; the picture scrolled; now it is redrawn on every game frame it can
+; be, which is what a patrolling sprite should look like.
+;
+; AND THE TICK GATE STAYS, FOR A DIFFERENT REASON THAN IT WAS WRITTEN
+; FOR - the one that cost a whole play-test to learn. A GAME FRAME IS
+; 159,744 T BUT EACH HALF OF IT IS STILL A HARDWARE FRAME WITH 79,872,
+; and this runs in the second half, after H_HEAD and after her erase.
+; Anything that has to finish before the next VSYNC still has the old
+; ceiling. Taken out entirely, the refresh's 17,968 T pushed the end of
+; that half into the VSYNC pulse; WAIT_VSYNC tests the level, so the
+; next frame started late, and every 320 T of late start is a line off
+; the top border - which is her whole lead. Measured on the rendered
+; picture: the line she can be drawn from intact went from 43 to about
+; 148, which is BELOW anything the camera can produce, and
+; tools/test_module4.py reported her torn at thirteen of its twenty
+; sample lines on a sprite that is pixel-perfect in RAM.
+;
+; So the question is no longer "can the game frame afford it" - it can,
+; twice over - but "will it be finished before the beam comes back".
+; The erase is what makes that tight, and the erase's own gate is her Y.
+;                                                destroys AF,HL
 ; ---------------------------------------------------------------------
-ENEMY_ROOM:     ld   a,(FRAME_COUNT)
-                rra
-                jr   c,.no                  ; the sweep's frame: not this one
-                ld   a,(IRQ_TICKS)
+ENEMY_ROOM:     ld   a,(IRQ_TICKS)
                 ld   hl,FRAME_TICK0
                 sub  (hl)
                 cp   EN_DRAW_TICK + 1

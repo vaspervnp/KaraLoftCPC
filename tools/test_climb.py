@@ -437,26 +437,18 @@ def main():
 
     # ---- 7. and the loop still closes -------------------------------
     print("\n  the loop, on the new ground:")
-    for label, floor, setup in (
-            # CLIMBING IS THE ONE PATH THE BOTTOM ROW IS DEAR ON, and
-            # the cost is the ERASE and not the strip. Fourteen
-            # characters of HUD (six of health, seven of ammo, one
-            # digit - CLAUDE.md 7.8) leave a whole row of themselves
-            # behind on the frame the CRTC latches a downward step, and
-            # those words come back off the TILEMAP at ~59 T a byte
-            # against the 24 the strip itself is written at: ~13,200 T
-            # on a frame that has not got it, so about one frame in
-            # five while a ladder repeats that step. Measured with
-            # HUD_VACATE poked to RET a saturated vertical driver is
-            # 201 of 200 and with it 180 - the whole vertical cost is
-            # the erase, and the lever that would buy it back is a
-            # save-under ring (LDI at 20 T a byte).
-            ("climbing down", 193, lambda mm: (onto_ladder(mm, sym, ladder),
-                                               mm.joystick(JOY_DOWN))),
-            ("standing on the street", 198, lambda mm: (
+    # THE GAME RUNS AT 25 Hz AND THE LOCK IS 100 OF 200 (CLAUDE.md 9).
+    # Climbing was the dearest path on the old 50 Hz loop - 193 of 200,
+    # because a downward row step repaints the bottom row's fourteen HUD
+    # characters from the tilemap on the frame the CRTC latches - and it
+    # reaches the lock exactly like every other path now.
+    for label, setup in (
+            ("climbing down", lambda mm: (onto_ladder(mm, sym, ladder),
+                                          mm.joystick(JOY_DOWN))),
+            ("standing on the street", lambda mm: (
                 onto_ladder(mm, sym, ladder), mm.joystick(JOY_DOWN),
                 mm.run_frames(200), mm.joystick(0))),
-            ("walking the street", 198, lambda mm: (
+            ("walking the street", lambda mm: (
                 onto_ladder(mm, sym, ladder), mm.joystick(JOY_DOWN),
                 mm.run_frames(200), mm.joystick(JOY_RIGHT)))):
         mm = boot(sym, scroll=True)
@@ -466,13 +458,8 @@ def main():
         mm.run_frames(200)
         got = (mm.peek(sym["FRAME_COUNT"]) - f0) % 256
         mm.joystick(0)
-        # The floor is the one tools/test_enemies.py sets and for the same
-        # reason: an enemy coming into or going out of view costs a frame,
-        # and the vertical camera's own step is a whole character row of
-        # DRAW_ROW split over two frames.
-        check(f"50 Hz: {label}", got >= floor,
-              f"{got} loop iterations in 200 hardware frames "
-              f"(floor {floor})")
+        check(f"25 Hz: {label}", got == 100,
+              f"{got} game frames in 200 hardware frames")
 
     # ---- 8. the negative control ------------------------------------
     print("\n  the negative control - TA_CLIMB is what does it:")
@@ -802,7 +789,9 @@ def main():
           f"KARA_FACING {stood['facing']} -> {ducked['facing']} - the art is "
           f"drawn with the building to her RIGHT, so a right-hand lip is the "
           f"mirrored cel")
-    mm.run_frames(sym["HANG_BEAT"] + 2)
+    # HANG_BEAT, HANG_HOLD AND EVERY OTHER TIMER COUNT GAME FRAMES and
+    # run_frames counts hardware ones, which is two apiece (CLAUDE.md 9).
+    mm.run_frames(2 * (sym["HANG_BEAT"] + 2))
     hung = st(mm, sym)
     check("... and then she takes hold of it",
           hung["state"] == sym["KST_HANG"] and hung["kset"] == sym["KSET_ACT"]
@@ -823,9 +812,9 @@ def main():
           f"starts when DOWN comes up")
 
     mm.joystick(0)
-    mm.run_frames(sym["HANG_HOLD"] - 6)
+    mm.run_frames(2 * (sym["HANG_HOLD"] - 6))
     waiting = st(mm, sym)
-    mm.run_frames(12)
+    mm.run_frames(24)
     back = st(mm, sym)
     check("letting the key up and NOT pressing it again climbs her back",
           waiting["state"] == sym["KST_HANG"] and back["ground"] == 1
@@ -875,6 +864,77 @@ def main():
           f"still standing at {ctl['wy'] + KARA_BOX_H} - so the hang is the "
           f"floor running out and not the key")
     mm.joystick(0)
+
+    # -----------------------------------------------------------------
+    # AND WHAT THE DROP COSTS HER. A fall of more than one and a half of
+    # her own height takes energy, and only the excess is paid for
+    # (CLAUDE.md 8.4). The damage is checked against the distance the
+    # machine itself measured, not against the constant 32 - that is
+    # what makes it a check on the PROPORTION and not on one number.
+    print("\n  what the fall costs her:")
+    free = sym["FALL_FREE"]
+    check("the free height is one and a half of her box",
+          free == KARA_BOX_H + KARA_BOX_H // 2,
+          f"{free} lines against a {KARA_BOX_H}-line heroine")
+
+    def drop_cost(kill=None):
+        """Walk off the roof into the gap and come back with what it cost."""
+        mf = boot(sym, scroll=True)
+        if kill:
+            mf.poke(sym[kill], 0xC9)        # RET
+        mf.joystick(JOY_RIGHT)
+        for _ in range(900):                # ... topped up until she leaves
+            mf.run_frames(1)                # the roof, so a drone's round on
+            mf.poke(sym["PLAYER_HP"], 100)  # the way is not read as the fall
+            if not mf.peek(sym["KARA_GROUND"]):
+                break
+        for _ in range(400):
+            mf.run_frames(1)
+            if mf.peek(sym["KARA_GROUND"]):
+                break
+        mf.joystick(0)
+        top, wy = mf.peek(sym["FALL_TOP"]), mf.peek(sym["KARA_WY"])
+        return wy - top, 100 - mf.peek(sym["PLAYER_HP"])
+
+    fell, cost = drop_cost()
+    check("walking off the roof is paid for, by the pixel",
+          fell > free and cost == fell - free,
+          f"she fell {fell} lines and it cost {cost} - the first {free} are "
+          f"free and the rest are a point apiece")
+    check("... and it is survivable, which is what makes the gap a gap",
+          0 < cost < 100 // 2,
+          f"{cost} of 100, so she can take it {100 // cost} times")
+
+    # THE LEDGE IS THE OTHER HALF OF THE RULE and the two are each
+    # other's control: a rule that charged for everything would fail
+    # here and one that charged for nothing would fail above.
+    mh = to_lip()
+    mh.joystick(JOY_DOWN)
+    mh.run_frames(2 * (sym["HANG_BEAT"] + 4))
+    mh.joystick(0)
+    mh.run_frames(4)
+    hang_wy = mh.peek(sym["KARA_WY"])
+    mh.poke(sym["PLAYER_HP"], 100)
+    mh.joystick(JOY_DOWN)
+    mh.run_frames(4)
+    mh.joystick(0)
+    for _ in range(400):
+        mh.run_frames(1)
+        if mh.peek(sym["KARA_GROUND"]):
+            break
+    land_wy, hp = mh.peek(sym["KARA_WY"]), mh.peek(sym["PLAYER_HP"])
+    check("letting go of the ledge costs her nothing",
+          land_wy - hang_wy < free and hp == 100,
+          f"she hangs at {hang_wy} and lands at {land_wy}, {land_wy - hang_wy} "
+          f"lines - under {free}, so the ledge is the safe way down and the "
+          f"gap is not")
+
+    print("\n  the negative control - it is FALL_DAMAGE, not the drones:")
+    fell2, cost2 = drop_cost(kill="FALL_DAMAGE")
+    check("with it returning at once the same fall is free",
+          fell2 >= free and cost2 == 0,
+          f"{fell2} lines and {cost2} points - so the {cost} above is the "
+          f"fall and not something that shot her on the way down")
 
     print()
     if fails:

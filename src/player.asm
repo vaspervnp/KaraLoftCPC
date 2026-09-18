@@ -69,25 +69,59 @@
 ; that clears it now and a walking jump that falls in.
 ; =====================================================================
 
-P_WALK          equ 1           ; byte columns per step = 2 pixels
-P_WALK_BEAT     equ 1           ; ... and she steps on the frames where
-                                ; FRAME_COUNT AND this is 0: one in two
-P_RUN           equ 1           ; SHIFT: the same step ...
-P_RUN_BEAT      equ 0           ; ... on every frame
+; A GAME FRAME IS TWO HARDWARE FRAMES (25 Hz, src/main.asm), so a step
+; every game frame is 25 of them a second. These are the speeds the
+; 50 Hz loop had, in the units the 25 Hz one counts in: the walk was a
+; byte on one frame in two and the run a byte on every frame, and both
+; come to the same ground in the same second.
+P_WALK          equ 1           ; byte columns a game frame = 2 pixels
+P_RUN           equ 2           ; SHIFT: twice that, which is also exactly
+                                ; one CRTC character - so a run scrolls
+                                ; every game frame and a walk every other
 P_PUSH          equ 2           ; bytes per camera step: one CRTC character
-P_GRAVITY       equ 1
-P_VY_MAX        equ 8           ; MUST stay under one tile (16) - a
+; THE PHYSICS IS PER GAME FRAME AND THERE ARE HALF AS MANY OF THEM, so
+; every velocity doubles and gravity quadruples to leave the arc where
+; it was in REAL time. Measured against the 50 Hz numbers: -15 with a
+; gravity of 4 rises 15+11+7+3 = 36 pixels in four game frames, which
+; is the same 36 pixels in the same eight hardware frames the old
+; -8/1 took over eight.
+P_GRAVITY       equ 4
+; A FALL OF MORE THAN ONE AND A HALF OF HER OWN HEIGHT COSTS HER, AND
+; ONLY THE EXCESS IS PAID FOR. The height is KARA_BOX_H and not a
+; number, so a re-drawn heroine moves the threshold with her; the shift
+; is a shift because RASM's `/' rounds to nearest (CLAUDE.md 12.8).
+;
+; WHAT THE LEVEL MAKES OF IT, measured off the map rather than chosen:
+;
+;   walking off the roof into ROOF_GAP   world y 32 -> 160, 128 lines
+;                                        ... 32 over, so 32 points
+;   letting go of the LEDGE              world y 90 -> 160,  70 lines
+;                                        ... under 96, so free
+;   a jump that lands where it left      36 lines of arc, free
+;   climbing down the ladder             not a fall at all
+;
+; which is the design in one table: the ledge is the safe way down and
+; the gap is the one that hurts, and she can take the gap three times.
+; A point a pixel is the rate that makes those numbers, and the medkit
+; is worth 35 (CLAUDE.md 8.6).
+FALL_FREE       equ KARA_BOX_H + (KARA_BOX_H >> 1)
+
+P_VY_MAX        equ 15          ; MUST stay under one tile (16) - a
                                 ; destination-only probe is only exact
-                                ; while a single step cannot skip a tile
-P_JUMP          equ -8          ; rises 8+7+...+1 = 36 px, about 2.2 tiles
-P_COYOTE        equ 6           ; frames after the ground goes away in which
+                                ; while a single step cannot skip a tile.
+                                ; TWICE THE OLD 8 WOULD BE EXACTLY 16 AND
+                                ; IS NOT ALLOWED: 15 is as near as the
+                                ; probe lets a 25 Hz fall get, and it is
+                                ; 94% of the old speed in real time.
+P_JUMP          equ -15         ; rises 15+11+7+3 = 36 px, about 2.2 tiles
+P_COYOTE        equ 3           ; game frames after the ground goes away in which
                                 ; UP is still a jump. SHE CROSSES THE ROOF'S
                                 ; GAP IN A 15-FRAME ARC AND THE HOLE IS 12
                                 ; BYTES, so the window to take off in is the
                                 ; ten bytes before the lip - a fifth of a
                                 ; second, and a press one frame late is a
                                 ; 128-pixel fall. Measured: see PLAYER_Y.
-P_CLIMB         equ 1           ; pixels a frame on a ladder. The vertical
+P_CLIMB         equ 2           ; pixels a game frame on a ladder. The vertical
                                 ; scroll moves 8 lines every THREE frames,
                                 ; so anything faster than 2 outruns the
                                 ; camera and she walks off the bottom of
@@ -113,7 +147,8 @@ WORLD_W         equ MAP_W * TILE_W_BYTES    ; 128 tiles of 4 = 512 bytes,
                 ; for as long as it is up. Committed in action.asm, held
                 ; here: the two have to agree or she moves under a cel
                 ; that says she is not moving.
-PLAYER_UPDATE:  ld   a,(KARA_STATE)
+PLAYER_UPDATE:  call FALL_MARK              ; where this frame's fall began
+                ld   a,(KARA_STATE)
                 cp   KST_CLIMB_TURN
                 ret  z
                 ; AND SHE TAKES NO INPUT ONCE SHE IS DEAD, but gravity
@@ -177,11 +212,10 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ; a walk every fourth one.
                 ld   a,c
                 and  IN_RUN
-                ld   a,P_WALK_BEAT
+                ld   a,P_WALK
                 jr   z,.speed
-                ld   a,P_RUN_BEAT
-.speed:         ld   (PLAYER_BEAT),a        ; ... and the step itself is the
-                                            ; same P_WALK byte either way
+                ld   a,P_RUN
+.speed:         ld   (PLAYER_STEP),a        ; how far a free step carries her
                 ld   a,c
                 and  IN_LEFT
                 jr   nz,.left
@@ -191,18 +225,12 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   (KARA_FACING),a        ; 0 = right
                 call AIM_ROOTS_HER
                 ret  nz
-                call WALK_BEAT              ; SHE TURNS ON ANY FRAME AND
-                ret  nz                     ; STEPS ON HER OWN - the facing
-                                            ; is set above this and the step
-                                            ; below it, so a walk still faces
-                                            ; the way it is pushed on the
-                                            ; frames between its steps
                 call PLAYER_SCREEN_X
                 inc  a                      ; her screen column after 1 byte
                 sub  CAM_TRAIL              ; how far past the mark - and it
                 cp   CAM_BAND               ; underflows to 255 short of it,
-                ld   e,P_WALK               ; which reads as "not at the mark"
-                                            ; exactly as it should
+                ld   a,(PLAYER_STEP)        ; which reads as "not at the mark"
+                ld   e,a                    ; exactly as it should
                 jr   nc,.step_r             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
@@ -245,15 +273,14 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   (KARA_FACING),a        ; 1 = left
                 call AIM_ROOTS_HER
                 ret  nz
-                call WALK_BEAT              ; ... and the same beat
-                ret  nz
                 call PLAYER_SCREEN_X
                 dec  a                      ; her screen column after 1 byte
                 ld   c,a
                 ld   a,CAM_LEAD
                 sub  c                      ; how far short of the mark
                 cp   CAM_BAND
-                ld   e,P_WALK
+                ld   a,(PLAYER_STEP)
+                ld   e,a
                 jr   nc,.step_l             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 or   a
@@ -306,24 +333,6 @@ AIM_ROOTS_HER:  ld   a,c
                 ret
 
 ; ---------------------------------------------------------------------
-; WALK_BEAT - NZ on the frames a WALK spends between its steps.
-;
-; A run is Z on every frame - its mask is 0 - because a byte a frame is
-; as fast as the frame can carry the scroll (see the note at the top).
-; A walk is half of that and a byte is the smallest step there is, so
-; what it gets is a step on one frame in two.
-;
-; IT IS CALLED AFTER THE FACING AND BEFORE THE STEP, which is the same
-; place AIM_ROOTS_HER sits and for the same reason: a player who taps
-; left on one of her still frames must still turn round.
-;                                        destroys AF
-; ---------------------------------------------------------------------
-WALK_BEAT:      ld   hl,PLAYER_BEAT
-                ld   a,(FRAME_COUNT)
-                and  (hl)                   ; a run's mask is 0: every frame
-                ret
-
-; ---------------------------------------------------------------------
 ; PUSH_PHASE - NZ on the frames a pushing WALK sits still.
 ;
 ; The camera is decided at the top of the NEXT frame from the position
@@ -332,21 +341,74 @@ WALK_BEAT:      ld   hl,PLAYER_BEAT
 ; FRAME_COUNT (incremented right after PLAYER_UPDATE) are a clock both
 ; halves agree on.
 ;
-; THE PUSH STEP IS TWICE THE FREE ONE, so its beat is twice as long:
-; mask = PLAYER_BEAT * 2 + 1, which is 1 for a run - a character every
-; other frame, the load CLAUDE.md 9 measures as locked - and 3 for a
-; walk, of which WALK_BEAT has already taken bit 0. Either way it is the
-; same ground she covers in the open. CAMERA_DECIDE asks for nothing on
-; the frames between, because she is behind the mark on every one of
-; them: it reads her column, not this clock.
+; THE PUSH STEP IS P_PUSH WHATEVER SHE IS DOING, because the CRTC
+; scrolls a whole character and there is no smaller step to give it. So
+; the frames she sits still on are however many it takes to cover the
+; same ground as her free step would:
+;
+;     mask = P_PUSH / PLAYER_STEP - 1 = 2 - PLAYER_STEP
+;
+; which is 1 for a walk - two bytes every other frame against one byte
+; every frame - and 0 for a run, whose free step IS a character, so it
+; scrolls on every game frame and never sits still. CAMERA_DECIDE asks
+; for nothing on the frames between, because she is behind the mark on
+; every one of them: it reads her column, not this clock.
 ;                                        destroys AF,B
 ; ---------------------------------------------------------------------
-PUSH_PHASE:     ld   a,(PLAYER_BEAT)
-                add  a,a
-                inc  a
+PUSH_PHASE:     ld   a,2
+                ld   hl,PLAYER_STEP
+                sub  (hl)                   ; 1 walking, 0 running
                 ld   b,a
                 ld   a,(FRAME_COUNT)
                 and  b
+                ret
+
+; ---------------------------------------------------------------------
+; FALL_MARK - remember the line a descent started from.
+;
+; ONE RULE AND ONE CALL SITE: while she is NOT going down, the mark
+; follows her; the instant she starts going down it stays where it is.
+; That is the whole of it, and it gets every case right without knowing
+; about any of them - a jump measures from its own APEX, because the
+; mark follows her up and freezes on the frame gravity turns her round;
+; a ladder measures from nothing, because she never descends under
+; gravity on one; and letting go of a ledge measures from the ledge,
+; because hanging holds KARA_VY at zero.
+;
+; It is called FIRST in PLAYER_UPDATE, before anything this frame has
+; moved, so what it reads is last frame's verdict - which is the frame
+; the descent actually began on.
+;                                        destroys AF,HL
+; ---------------------------------------------------------------------
+FALL_MARK:      ld   a,(KARA_VY)
+                bit  7,a                    ; rising: the mark follows her
+                jr   nz,.follow
+                or   a
+                ret  nz                     ; descending: leave it where it is
+.follow:        ld   a,(KARA_WY)
+                ld   (FALL_TOP),a
+                ret
+
+; ---------------------------------------------------------------------
+; FALL_DAMAGE - what the drop cost her, on the frame she lands.
+;
+; IN:  A = the line she has landed on     destroys AF,C,HL
+; ---------------------------------------------------------------------
+FALL_DAMAGE:    ld   hl,FALL_TOP
+                sub  (hl)                   ; how far down she came
+                ret  c                      ; ... and up is not a fall
+                cp   FALL_FREE + 1
+                ret  c                      ; a step, a jump, a ledge: free
+                sub  FALL_FREE              ; only the excess is paid for,
+                ld   c,a                    ; a point a pixel
+                ld   hl,PLAYER_HP
+                ld   a,(hl)
+                sub  c
+                jr   nc,.store
+                xor  a                      ; ... and no further than dead
+.store:         ld   (hl),a
+                ld   a,HURT_FRAMES          ; the border says so, the same way
+                ld   (HURT_FLASH),a         ; a drone's round does (enemy.asm)
                 ret
 
 ; ---------------------------------------------------------------------
@@ -450,6 +512,7 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 and  &F0
                 sub  KARA_BOX_H
                 ld   (KARA_WY),a
+                call FALL_DAMAGE            ; A is still the line she landed on
                 xor  a
                 ld   (KARA_VY),a
                 ld   (KARA_FELL),a
@@ -723,13 +786,13 @@ CLIMB_LEAVE:    xor  a
 ; a `drop` and not a jump. Holding DOWN forever holds her there forever:
 ; the count only starts when the key comes up.
 ; =====================================================================
-HANG_BEAT       equ 10          ; frames of crouch before she takes hold
+HANG_BEAT       equ 5           ; game frames of crouch before she takes hold
 HANG_DROP       equ 58          ; lines she drops when she does. Standing,
                                 ; her feet are on the floor's top line and
                                 ; the box's last line is the one above it;
                                 ; hanging, the art puts that same floor
                                 ; line on line 6 of the box. 64 - 6 = 58
-HANG_HOLD       equ 40          ; frames to make up her mind in
+HANG_HOLD       equ 20          ; game frames to make up her mind in
 
 ; ---------------------------------------------------------------------
 ; EDGE_ENTER - DOWN, on her feet, at the lip of the floor she faces.
@@ -1048,9 +1111,12 @@ PLAYER_TO_SCREEN:
                 ld   (KARA_Y),a
                 ret
 
-PLAYER_BEAT:    db P_WALK_BEAT  ; how many frames apart her steps are:
-                                ; FRAME_COUNT AND this must be 0 for her to
-                                ; take one. 0 is a run, 1 a walk.
+PLAYER_STEP:    db P_WALK       ; byte columns a free step carries her: 1
+                                ; walking, 2 running. SHE STEPS ON EVERY
+                                ; GAME FRAME and a speed is the SIZE of the
+                                ; step now, not how many frames apart they
+                                ; are - at 25 Hz there is no half-frame to
+                                ; skip (src/main.asm).
 KARA_WX:        dw 43           ; her BOX - the sprite's left edge is 40
 KARA_WY:        db 16           ; starts in the air and falls onto the roof.
                                 ; HIGH ENOUGH THAT HER FEET START ABOVE IT:
@@ -1059,6 +1125,8 @@ KARA_WY:        db 16           ; starts in the air and falls onto the roof.
                                 ; landing snaps her a whole tile row too low
                                 ; and BOX_SOLID_H then refuses every step -
                                 ; she animates on the spot and never moves.
+FALL_TOP:       db 0            ; the line this descent began at - her own
+                                ; if she is not descending (FALL_MARK)
 KARA_VY:        db 0
 KARA_GROUND:    db 0
 KARA_CLIMB:     db 0   ; non-zero while she is on a ladder

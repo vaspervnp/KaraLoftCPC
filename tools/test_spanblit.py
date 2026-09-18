@@ -355,14 +355,18 @@ def main():
                     mm.poke(sym["COL_FIRST"], first)
                     mm.poke(sym["COL_N"], rows)
                 col += b.T("_DRAW", setup=setup) or 0
-        print(f"\n  a scrolling frame, of 79,872 T:")
+        # A GAME FRAME IS TWO HARDWARE FRAMES - 159,744 T at 25 Hz
+        # (CLAUDE.md 9). The loop draws her on the first and erases her
+        # on the second, so everything below is spent across the pair
+        # and the pessimistic sum is measured against the pair.
+        print(f"\n  a game frame, of 159,744 T (two hardware frames):")
         print(f"    the incoming column, head + tail          {col:6d} T"
               f"   ({col / 384:.0f} a byte)")
         print(f"    input, player, camera, bullets, logic     {rest:6d} T")
         for tag, c in (("lightest", light), ("heaviest", worst)):
             tot = col + rest + c[2] + c[3]
             print(f"    + Kara, {tag:<9}                      {tot:6d} T"
-                  f"   {'fits' if tot <= 79872 else 'OVER by %d' % (tot - 79872)}")
+                  f"   {'fits' if tot <= 159744 else 'OVER by %d' % (tot - 159744)}")
         # WHAT THIS MODEL IS, AND WHAT IT IS NOT. It adds the worst
         # placement of the heaviest cel in the game to the worst of
         # everything else and to BOTH halves of the incoming column -
@@ -400,12 +404,16 @@ def main():
         # tools/test_enemies.py, not here.
         light_tot = col + rest + light[2] + light[3]
         check("the frame closes on her lightest frame while scrolling",
-              light_tot <= 79872,
-              f"{light_tot} T, {79872 - light_tot} to spare")
+              light_tot <= 159744,
+              f"{light_tot} T, {159744 - light_tot} to spare")
         tot = col + rest + worst[2] + worst[3]
-        check("and the heaviest is over by no more than it was measured at",
-              tot <= 88500,
-              f"{tot} T, over by {tot - 79872} against a recorded 7,456 - "
+        # AND THE HEAVIEST NOW FITS, which it never did at 50 Hz: the
+        # sum that was 87,328 T of 79,872 - over by 7,456, and the
+        # reason this check was written as "over by no more than" - is
+        # 55% of a game frame.
+        check("and the heaviest cel fits a game frame too",
+              tot <= 159744,
+              f"{tot} T of 159,744, {159744 - tot} to spare - "
               f"the model adds worsts that do not co-occur (H_HEAD and "
               f"H_TAIL are one frame only when she runs), and the loop "
               f"counted against interrupt ticks is the authority on which "

@@ -46,7 +46,8 @@ HUD_LEFT_LINE   equ 180
 HUD_RIGHT_LINE  equ 190
 BORDER_BLACK    equ 20          ; the game's border, set once and left
 BORDER_HURT     equ 12          ; ... except for the frames she is hit on
-HURT_FRAMES     equ 4           ; and there are four of them
+HURT_FRAMES     equ 2           ; and there are two of them - which is the
+                                ; same 80 ms the old four were at 50 Hz
 
 ; =====================================================================
 ; BOOTSTRAP - entered from BASIC with CALL &4000, firmware still live.
@@ -269,8 +270,10 @@ SCROLL_DEMO:    di
                 jr   nz,.flash
                 ld   a,BORDER_BLACK         ; the last of them: put it back
 .flash:         call BORDER_SET
-.no_flash:      call SCROLL_VBLANK          ; R12/R13 may only be written here:
-                call H_COMMIT               ; vertical, then horizontal
+.no_flash:      call H_COMMIT               ; the HORIZONTAL latch. R12/R13 may
+                                            ; only be written in blanking, and
+                                            ; the VERTICAL one is in the second
+                                            ; sweep now - see the note there
                 call ENEMY_PICK             ; which one is in view UNDER THE
                                             ; view just latched - see the note
                                             ; on ENEMY_UPDATE
@@ -316,11 +319,199 @@ SCROLL_DEMO:    di
                 call UPDATE_RELOAD
                 call CAMERA_DECIDE          ; requests next frame's step
                 call SCROLL_SERVICE         ; a vertical step in flight
-                call PLAYER_TO_SCREEN       ; where she goes, in that view
+                                            ; PLAYER_TO_SCREEN is at the END of
+                                            ; the second sweep now: the view it
+                                            ; converts against is not final
+                                            ; until the latch down there
 
-                ld   c,4
-                call TICK_WAIT
-                call H_HEAD                 ; rows 0-17, behind the beam
+                ; =====================================================
+                ; THE SECOND VSYNC. THE GAME RUNS AT 25 Hz AND EVERY
+                ; GAME FRAME IS DISPLAYED TWICE.
+                ;
+                ; WHY: a frame this loop drops is not a stutter, it is a
+                ; frame with no heroine in it - she is drawn in the top
+                ; border and erased at her raster gate, so an overrun
+                ; sweeps the whole picture with her already lifted off
+                ; (CLAUDE.md 9). At 50 Hz the heavy paths could not make
+                ; the budget: 160 loop iterations in 200 running, which
+                ; is 40 holes, and a play-test called it what it is -
+                ; flicker. At 25 Hz the budget is 159,744 T against a
+                ; pessimistic sum of 87,328, and every path fits with
+                ; 45% to spare. A locked 25 Hz beats a jittery 32-50.
+                ;
+                ; AND THE SPLIT IS NOT "WAIT TWICE": it is WHICH HALF OF
+                ; THE LOOP GOES ON WHICH HARDWARE FRAME, and two rules
+                ; decide it, both of them the beam's.
+                ;
+                ;   SHE MUST STAY ON THE SCREEN FOR BOTH SWEEPS, so the
+                ;   erase cannot stay on the frame she is drawn on - the
+                ;   second sweep would find her gone. It moves here,
+                ;   behind the beam of the SECOND frame, and the next
+                ;   draw is in the top border of the first frame after
+                ;   it: every sweep has her in it.
+                ;
+                ;   AND SO MUST H_HEAD, for the mirror of the same
+                ;   reason. The incoming column's cells are the left
+                ;   edge of each row BELOW under the old start address
+                ;   (CLAUDE.md 8.2), which is why they go down behind
+                ;   the beam - but "behind the beam" only buys the rest
+                ;   of THAT sweep. Painted on the first frame they would
+                ;   be swept a second time before the latch, and that is
+                ;   a 4-pixel column of the wrong tile down the left
+                ;   edge for a whole displayed frame. Painted here, the
+                ;   latch at the top of the next first frame moves the
+                ;   view before the beam sees them again.
+                ;
+                ; So the first frame draws and thinks, and the second
+                ; frame erases and puts the background right. Everything
+                ; that changes the BACKGROUND is already at the end of
+                ; this loop for the older reason (CLAUDE.md 10) and
+                ; needed no moving at all.
+                ;
+                ; IT IS AN EDGE AND NOT A LEVEL. WAIT_VSYNC tests the
+                ; level and the pulse is 16 scanlines (CLAUDE.md 7.7):
+                ; on the rare frame whose work ENDS inside the pulse, a
+                ; bare wait would return at once and the erase would land
+                ; on the frame of the draw - one blank sweep, which is
+                ; the very thing this is here to stop. The pair costs
+                ; that frame a third hardware frame instead, and she
+                ; stays on the screen through all three.
+                ld   a,1
+                ld   (FRAME_HALF),a         ; ... and say which half we are in
+                call WAIT_VSYNC_END
+                call WAIT_VSYNC
+
+                ; AND THE HEAD'S ANCHOR IS TAKEN HERE, BEFORE ANY OF
+                ; IT. The gate below counts ticks from the WAIT_VSYNC
+                ; exit, which is what CLAUDE.md 9's tick table measures
+                ; from - and the latch and the strip that now run in
+                ; between are up to 33,000 T, two and a half ticks.
+                ; Anchored after them the head waits four ticks from
+                ; THERE and lands past the end of the sweep: measured as
+                ; 119 wrong pixels down column 0 by the check with no
+                ; model in it, which is the same column and the same
+                ; kind of fault as the tearing this loop already had.
+                ld   a,(IRQ_TICKS)
+                ld   (HEAD_ANCHOR),a
+
+                ; ---- THE VERTICAL LATCH, AND THE HUD ONE INSTRUCTION
+                ; AFTER IT. A play-test: "the hud leaves traces behind
+                ; on the fall", and it was neither the vacate nor the
+                ; step - it was WHEN.
+                ;
+                ; The latch used to be at the top of the FIRST sweep and
+                ; HUD_SERVICE runs after H_TAIL, most of a sweep later.
+                ; Measured on the latch frames of a fall, the strip was
+                ; not right again until 82,700-94,300 T, where the beam
+                ; reaches row 22 at 63,488 and row 23 at 65,536: one
+                ; whole sweep with the strip's pixels still at their old
+                ; words - which the latch has just made row 22 - and
+                ; fresh tilemap at row 23. A fall makes six to eight row
+                ; steps back to back, and that is the traces.
+                ;
+                ; IT CANNOT BE FIXED BY MAKING THE ERASE CHEAPER: to be
+                ; clean the strip has to be right before 60,432 T, which
+                ; means starting inside KARA_DRAW, and anything put in
+                ; front of her draw comes off the lead the top border
+                ; gives her at ~320 T a scanline (CLAUDE.md 9).
+                ;
+                ; SO THE LATCH COMES HERE, WHERE THERE IS ROOM. The
+                ; second sweep does nothing at all until interrupt tick
+                ; 4 - 40,468 T of waiting, every frame - and a downward
+                ; row step is 32,856 of it. The strip is repaired before
+                ; the beam of the very sweep the view moved on.
+                ;
+                ; WHAT MAKES IT SAFE is that her erase replays a script
+                ; of ABSOLUTE addresses the draw wrote (spanblit.asm),
+                ; so a start address that moves between her draw and her
+                ; erase does not move where the erase writes. Her PIXELS
+                ; move with the picture, which is what a world-fixed
+                ; sprite is supposed to do - the same reason the enemy
+                ; is a persistent sprite (CLAUDE.md 8.7).
+                call SCROLL_VBLANK
+                call HUD_SERVICE
+
+                ; AND WAIT FOR THE INTERRUPT TO STAMP THIS FRAME'S ANCHOR
+                ; BEFORE USING ANY GATE THAT COUNTS FROM IT. THIS WAS THE
+                ; BUG A PLAY-TEST REPORTED AS A BAD COLUMN DOWN THE SIDE.
+                ;
+                ; FRAME_TICK0 is written by the handler on the tick that
+                ; lands inside the VSYNC pulse, which is the whole reason
+                ; a frame that starts late still gates correctly (9). The
+                ; loop's FIRST wait is followed by thousands of T of
+                ; drawing before anything reads it, so the stamp has long
+                ; since happened. THIS one is followed immediately by
+                ; TICK_WAIT - and WAIT_VSYNC returns at the START of the
+                ; pulse, before the stamping interrupt has fired. So the
+                ; anchor still held the PREVIOUS frame's value, SIX ticks
+                ; had "already passed", TICK_WAIT returned at once, and
+                ; the incoming column's head went down at the very top of
+                ; the frame - AHEAD of the beam for every row it doubles
+                ; as (tilemap.asm), and on the glass for that whole sweep.
+                ;
+                ; Measured: 237 wrong pixels down column 0 running right,
+                ; and the SAME 237 at every tick from 2 to 5 - which is
+                ; the signature of a gate that is not gating. What found
+                ; it was reading the elapsed ticks at the moment H_HEAD
+                ; is entered instead of trusting the number asked for.
+                ;
+                ; FOUR TICKS AND NOT FIVE, AND THE DRONE IS WHY. Five put
+                ; ENEMY_REFRESH at tick 6, where its 17,968 T runs past
+                ; the vblank: ENEMY_ROOM refused it, the draw was
+                ; deferred EN_DEFER_MAX frames and taken anyway, and a
+                ; play-test reported the drone appearing and
+                ; disappearing. At COL_HEAD = 12 the head is 8,304 T, so
+                ; from tick 4 its last row lands 3,716 T after the beam
+                ; has left the row that cell doubles as ON THE MACHINE'S
+                ; beam model - which is the one that counts (tilemap.asm)
+                ; - and the refresh is reached at tick 5 with room.
+                ;
+                ; SO THE GATE ANCHORS ITSELF HERE instead of waiting for
+                ; the handler to catch up, which is both correct and
+                ; free: the tick table of 9 is measured FROM THE
+                ; WAIT_VSYNC EXIT, and that is exactly where this is.
+                ; Waiting for the stamp was written first and measured
+                ; at 97 game frames per 200 hardware running, against
+                ; 100 for this - the pulse is 4,060 T and a run has no
+                ; room to spend them.
+                ld   a,(HEAD_ANCHOR)        ; our own anchor, taken at the
+                ld   c,a                    ; WAIT_VSYNC exit above
+.head_gate:     ld   a,(IRQ_TICKS)
+                sub  c                      ; ticks since the VSYNC exit
+                cp   4                      ; ... and the head wants four
+                jr   c,.head_gate
+
+                ; TICK 5, NOT 4, AND A PLAY-TEST ON REAL HARDWARE IS
+                ; WHY. The incoming column's cells double as the left
+                ; edge of the row BELOW until the latch (tilemap.asm), so
+                ; the head must be written LATE - after the beam has left
+                ; the row it doubles as. How late is enough was measured
+                ; HERE, on an emulator whose border above the picture is
+                ; 60 scanlines; a real 6845 left as the firmware programs
+                ; it has 72, so every one of those deadlines falls
+                ; 3,056 T LATER on the machine than in the measurement.
+                ; The head's whole slack at COL_HEAD = 14 is 1,552 T.
+                ; 1,552 - 3,056 = -1,504: on hardware it clears the row
+                ; about six scanlines EARLY, and the incoming column
+                ; shows down the left edge - reported from RVM as a bad
+                ; column on the side she is running away from, which is
+                ; exactly the side the arithmetic puts it on.
+                ;
+                ; A whole tick of delay is 13,312 T and buys margin on
+                ; both models at once: +11,808 on the machine, +14,864
+                ; here. NOTHING ELSE WOULD: the split is squeezed from
+                ; both ends, and the tail's own slack moves the other
+                ; way, so no value of COL_HEAD is comfortable on the two
+                ; beam models together.
+                ;
+                ; AND IT IS AFFORDABLE ONLY BECAUSE OF THE SECOND VSYNC.
+                ; At 50 Hz this sat on the same frame as her draw, the
+                ; logic and the erase, and a whole tick of waiting was a
+                ; tick the frame did not have. This half of a 25 Hz game
+                ; frame has the column, the erase and the background and
+                ; nothing else.
+                call H_HEAD                 ; rows 0..COL_HEAD-1, behind the beam
+
 
                 ld   a,(LEVEL_OK)
                 or   a
@@ -390,6 +581,17 @@ SCROLL_DEMO:    di
                 call ENT_REPAINT_DUE
                 call ENEMY_REFRESH
 
+                ; AND NOW WHERE SHE GOES, because the view is final: the
+                ; vertical latch happened at the top of this sweep, and
+                ; a screen position worked out before it would draw her
+                ; a character row out of place. It is after the erase
+                ; and not before because the erase's raster gate is
+                ; picked from the lines the DRAW recorded, not from
+                ; these.
+                call PLAYER_TO_SCREEN
+
+                xor  a
+                ld   (FRAME_HALF),a         ; the next wait is the FIRST one
                 ld   hl,FRAME_COUNT
                 inc  (hl)
                 ; ONE FRAME IN THREE THE ROUNDS HOLD STILL. Both pools
@@ -443,7 +645,7 @@ RASTER_WAIT:    ld   c,1
                 ; 256 scanlines is four ticks and 48 more, so put it
                 ; back as exactly that.
                 add  a,48
-                ld   c,5
+                ld   c,3
 .tick:          cp   52                     ; one tick is 52 scanlines
                 jr   c,.rem
                 sub  52
@@ -787,7 +989,14 @@ KARA_LAST_CNT:  db 0            ; lines drawn; 0 = entirely off the display
 KARA_ANIM:      db 0            ; index within the current tag's frames
 LEVEL_OK:       db 0            ; did the disc load work? 0 = draw no sprite
 KARA_SAVE_PTR:  dw 0            ; where in KARA_SAVE the drawn part starts
-KARA_ERASE_LEAD equ 24          ; scanlines of beam the erase starts behind
+KARA_ERASE_LEAD equ 32          ; scanlines of beam the erase starts behind
+                                ; 24 + the 8 a vertical latch can move her
+                                ; by between her draw and her erase: the
+                                ; gate is picked from the lines the draw
+                                ; recorded, and a step UP puts her pixels
+                                ; 8 lines BELOW them. The worst any cel
+                                ; needs is 17.8, so 24 had 6.2 to give
+                                ; and a row is 8
                                 ; her FIRST drawn line, and the number is
                                 ; measured over all 59 shipped cels - see the
                                 ; gate in the loop. The worst of them needs
@@ -799,6 +1008,17 @@ DEMO_PHASE:     db 0                    ; 0 = right, 1 = down, 2 = up
 DEMO_PHASE_T:   db 0
 FRAME_TICK0:    db 0
 BUL_PHASE:      db BUL_SLOW     ; 3, 2, 1, 3, ... - at 1 the rounds hold
+; WHICH HALF OF THE GAME FRAME THE LOOP IS IN: 0 while it is drawing
+; and thinking, 1 while it is erasing and putting the background right
+; (see the note on the second VSYNC above). The engine never reads it.
+; IT IS THERE FOR THE TESTS, and they need it: every one of them samples
+; video RAM "at the instant after VSYNC, with Kara already erased", and
+; there are TWO such instants a game frame now - one with her on the
+; screen and one without. 7 T a frame to make the two tellable apart is
+; cheaper than every suite guessing.
+HEAD_ANCHOR:    db 0            ; IRQ_TICKS at the second sweep's VSYNC
+                                ; exit - the head's gate counts from it
+FRAME_HALF:     db 0
 HURT_FLASH:     db 0            ; frames of red border left on a hit
                 ; The MAP rides inside the core image, so the boot
                 ; relocation lands it in base RAM - which is the only

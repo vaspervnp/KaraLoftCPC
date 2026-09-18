@@ -360,10 +360,8 @@ ENT_UPDATE:     xor  a
                 ld   (ENT_RESULT),a
 
                 ; THE TOUCH SWEEP TAKES THE FRAMES THE ENEMY REDRAW
-                ; DOES NOT - see ENEMY_DRAW. At a byte a frame she
-                ; cannot cross a 4-byte pickup between two sweeps, and
-                ; the pair of them on one frame is 376 T more than the
-                ; frame has.
+                ; DOES NOT - see ENEMY_DRAW. The pair of them on one
+                ; frame is 376 T more than the frame has.
                 ;
                 ; AND IT TAKES THE ODD ONES, WHICH IS NOT ARBITRARY: she
                 ; steps on even frames and CAMERA_DECIDE asks for the
@@ -372,9 +370,22 @@ ENT_UPDATE:     xor  a
                 ; the next - 13,872 T against 4,920. Measured, moving
                 ; this sweep to the cheaper half is worth 3 loop
                 ; iterations in 200 walking and 7 running (CLAUDE.md 9).
-                ld   a,(FRAME_COUNT)
-                rra
-                jr   nc,.asked              ; even: the column's head is here
+                ;
+                ; AND IT RUNS ON EVERY GAME FRAME AGAIN, BECAUSE THE
+                ; REASON IT DID NOT IS GONE. It shared the budget with
+                ; the enemy redraw - the pair of them on one 50 Hz frame
+                ; was 376 T more than the frame had - so it took the odd
+                ; frames, and when a play-test reported the run
+                ; flickering it was quartered: one frame in four, on the
+                ; phase the drone's own draws were not on, worth 11 loop
+                ; iterations in 200 running and 15 on a firing path.
+                ;
+                ; A GAME FRAME IS TWO HARDWARE FRAMES NOW (src/main.asm)
+                ; and the pair costs 376 T of 159,744. Both run on every
+                ; one, which is the finest this sweep has ever been: at a
+                ; run she covers 2 bytes a game frame against the ten
+                ; bytes her box and a pickup overlap for, so five sweeps
+                ; land inside it.
                 ld   a,EF_TOUCH             ; the automatic ones first
                 call ENTITY_COLLISION_CHECK
                 jr   nc,.asked
@@ -1181,6 +1192,11 @@ ENT_REPAINT_DUE:
                 ld   (HUD_HP),a             ; ... so HUD_SERVICE looks,
                 ld   (HUD_LIT),a            ; ... and finds a layout it
                 ld   (HUD_AMMO_SPENT),a     ; does not own
+                ld   (HUD_INV_K),a          ; ... and the same for what she
+                ld   (HUD_INV_C),a          ; is carrying, which is what a
+                                            ; repaint is most likely to be
+                                            ; over: the cell a taken pickup
+                                            ; leaves is on the bottom row
                 ; fall through with HL = the map cell
 ; ---------------------------------------------------------------------
 ; ENT_CELL_REPAINT - HL = a map byte. Repaints the four character cells

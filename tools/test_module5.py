@@ -269,14 +269,15 @@ def firing_costs_her_nothing(sym):
     # tolerance. It was folded in until the land sheet was redrawn: the
     # drone then cost 12 bytes instead of 2 and a check about the gun
     # failed for something that is not the gun.
-    # HALF THE AIMING FRAMES, BECAUSE A WALK ONLY STEPS ON HALF OF THEM.
-    # She covers a byte every OTHER frame now (P_WALK_BEAT, CLAUDE.md
-    # 8.2) - in the push zone the CRTC's two bytes every fourth - so an
-    # aiming frame costs her a step only when it lands on one of her
-    # step frames, and the tap pattern is spread evenly enough across
-    # the beat that it does so half the time. The expectation is still
-    # derived from the pattern rather than written down: re-time the tap
-    # and it re-derives.
+    # HALF THE AIMING FRAMES, AND THE ARITHMETIC SURVIVED 25 Hz FOR A
+    # DIFFERENT REASON THAN IT WAS WRITTEN FOR. It used to be "she steps
+    # on one frame in two, so half the aiming frames land on a step".
+    # She steps on EVERY game frame now (PLAYER_STEP, CLAUDE.md 8.2) and
+    # every aiming frame costs her one - but `aiming` is counted in the
+    # tap pattern's own HARDWARE frames, and a game frame is two of them
+    # (CLAUDE.md 9). Half of 68 hardware frames is 34 game frames, each
+    # costing a byte. Same number, different derivation, and it still
+    # re-derives from the pattern rather than being written down.
     # AND IT IS MEASURED ON THE RUN WHOSE LOOP HOLDS, which is the one
     # with the HUD off as well. The tap pattern is counted in HARDWARE
     # frames and her beat runs on the GAME's clock, so a frame the loop

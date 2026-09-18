@@ -126,6 +126,48 @@ def pip_cell(lines, left, right, palette):
     return bytes(out)
 
 
+# WHAT SHE IS CARRYING, AND WHY IT IS TWO CELLS AND NOT ONE. The icons
+# in hud_icons are 8x16 Mode 0 pixels and the strip is ONE character row
+# - eight lines - so an icon cannot go in whole. Measured over the nine
+# of them, every one is drawn 5 pixels wide inside its 8 and 6 to 9
+# lines tall, so the WIDTH already fits two characters and only the
+# height has to be chosen. It is chosen by ink and not by arithmetic:
+# the 8-line window with the most drawn pixels in it, so a re-drawn
+# icon re-crops itself.
+ICONS = ("key", "coin")
+
+
+def icon_bytes(sheet, box, palette, dark=None):
+    """One 8x8 icon, LINE-MAJOR: four bytes a line, eight lines.
+
+    That is TWO CRTC characters side by side, and the bytes of a line
+    are consecutive words of the view, so the pair copies as one run
+    like the health bar does (CLAUDE.md 7.8).
+
+    `dark' is a colour every drawn pixel is mapped to - the convention
+    the spent rounds already use, a silhouette in the dark rather than a
+    hole in the row - for an item she is not carrying.
+    """
+    px = sheet.crop((box["x"], box["y"], box["x"] + box["w"],
+                     box["y"] + box["h"])).convert("RGB")
+    assert px.width == 8, box
+    ink = [sum(1 for x in range(8) if px.getpixel((x, y)) != (0, 0, 0))
+           for y in range(px.height)]
+    y0 = max(range(px.height - 7), key=lambda y: (sum(ink[y:y + 8]), -y))
+    img = Image.new("RGBA", (8, 8), (0, 0, 0, 255))
+    for y in range(8):
+        for x in range(8):
+            c = px.getpixel((x, y0 + y))
+            if c != (0, 0, 0):
+                img.putpixel((x, y), (dark or c) + (255,))
+    pens = cpclib.quantise(img, palette)
+    out = bytearray()
+    for y in range(8):
+        for x in (0, 2, 4, 6):
+            out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
+    return bytes(out)
+
+
 def main():
     js = json.load(open(os.path.join(ART, "hud_bars_cpc_mode0_sheet.json")))
     frames = js["frames"]
@@ -161,6 +203,18 @@ def main():
         out.append(f"{label}:")
         for y in range(8):
             out.append(f"                db &{b[y*2]:02X},&{b[y*2+1]:02X}")
+
+    # ---- and what she is CARRYING: an icon a kind, lit and dark ----
+    out.append("; the artist's own hud_icons, 8x8 - two characters wide -")
+    out.append("; for the things she picks up: lit while she has one and")
+    out.append("; the same silhouette in the dark while she has not")
+    for name in ICONS:
+        for suffix, dark in (("", None), ("_DARK", PIP_DARK)):
+            b = icon_bytes(icon, iframes[itags[name]]["frame"], palette, dark)
+            out.append(f"HUD_ICON_{name.upper()}{suffix}:")
+            for y in range(8):
+                out.append("                db &%02X,&%02X,&%02X,&%02X"
+                           % tuple(b[y * 4:y * 4 + 4]))
 
     # ---- and the digits, for the spare magazines ------------------
     djs = json.load(open(os.path.join(ART, "hud_digits_cpc_mode0_sheet.json")))

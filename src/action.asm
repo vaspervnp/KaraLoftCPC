@@ -117,11 +117,11 @@ KARA_DURATIONS: dw KCORE_DURATION
 ; share of its cycle, and that is what is read here; how much floor goes
 ; under her in that cycle is P_WALK's business and nothing Aseprite can
 ; know.
-KARA_RATE:      db 0            ; idle
-                db 1            ; walk
-                db 1            ; run
-                db 0, 0, 0, 0   ; jump, roll, aim, fire
-                db 0, 0, 0, 0   ; climb, climb_turn, drop, die
+KARA_RATE:      db 1            ; idle
+                db 2            ; walk
+                db 2            ; run
+                db 1, 1, 1, 1   ; jump, roll, aim, fire
+                db 1, 1, 1, 1   ; climb, climb_turn, drop, die
                 db 0, 0         ; crouch, hang
                 assert $ - KARA_RATE == KST_COUNT
 

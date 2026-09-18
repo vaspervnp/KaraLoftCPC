@@ -79,6 +79,60 @@ def cells_from_inc(names=("HUD_CELL_FULL", "HUD_CELL_EMPTY")):
     return out
 
 
+INV_BYTES = 12                  # six cells: icon, count, icon, count
+
+
+def inv_from_inc():
+    """The item icons and the digits as RAW BYTES, out of the build.
+
+    Bytes and not pens, because this run is copied into video RAM whole
+    - twelve consecutive bytes on each of eight lines - so the thing to
+    compare is the thing that is copied.
+    """
+    text = open(os.path.join(BUILD, "hud_art.inc")).read()
+
+    def block(label, lines):
+        body = [ln for ln in text.split(label + ":")[1].splitlines()
+                if ln.strip().startswith("db ")]
+        out = []
+        for ln in body[:lines]:
+            out += [int(v.strip()[1:], 16) for v in ln.strip()[3:].split(",")]
+        return out
+
+    art = {n: block("HUD_ICON_" + n, LINES)
+           for n in ("KEY", "KEY_DARK", "COIN", "COIN_DARK")}
+    art["DIGITS"] = block("HUD_DIGITS", LINES * 10)
+    return art
+
+
+def inv_expect(art, keys, coins):
+    """What the six cells must hold: an icon a kind and a count beside
+    it, lit while she has one and the same silhouette in the dark while
+    she has not - capped at nine, which is what one character holds."""
+    out = []
+    for y in range(LINES):
+        for count, name in ((keys, "KEY"), (coins, "COIN")):
+            lit = art[name if count else name + "_DARK"]
+            out += lit[y * 4:y * 4 + 4]
+            d = min(count, 9) * 16 + y * 2
+            out += art["DIGITS"][d:d + 2]
+    return out
+
+
+def inv_on_screen(m, sym):
+    """The six cells as they stand in video RAM, through the engine's
+    own circular address model (CLAUDE.md 6.4)."""
+    sc = m.peek(sym["SCROLL"]) | (m.peek(sym["SCROLL"] + 1) << 8)
+    base = (sc + sym["HUD_INV_BASE"]) & 0x3FF
+    out = []
+    for r in range(LINES):
+        for b in range(INV_BYTES):
+            w = (base + (b >> 1)) & 0x3FF
+            out.append(m.peek(0xC000 + ((r & 7) << 11) + w * 2 + (b & 1)))
+    return out
+
+
+
 def lit_cells(hp, steps):
     return sum(1 for s in steps if hp >= s)
 
@@ -404,6 +458,90 @@ def main():
     # land on row 23; the repaint runs after the beam has passed it, and
     # what makes the next frame write the row again is HUD_LIT and
     # HUD_AMMO_SPENT being set to a layout neither owns.
+    # -----------------------------------------------------------------
+    # AND THEN WHAT SHE IS CARRYING: an icon a kind and a count beside
+    # it, at columns 14-19 (CLAUDE.md 7.8). The expectation is built
+    # from the build's own art rather than from the engine's buffer,
+    # which would be the engine checking itself.
+    print("\n  and what she is carrying, at the end of the strip:")
+    inv = inv_from_inc()
+    for keys, coins in ((0, 0), (1, 0), (0, 3), (2, 7), (5, 14)):
+        m.poke(sym["KEYS_COUNT"], keys)
+        m.poke(sym["COINS_COUNT"], coins)
+        m.run_frames(4)
+        sync(m, sym)
+        got = inv_on_screen(m, sym)
+        want = inv_expect(inv, keys, coins)
+        wrong = sum(a != b for a, b in zip(got, want))
+        check(f"{keys} key(s) and {coins:2d} coin(s)", wrong == 0,
+              f"{wrong} wrong bytes of {INV_BYTES * LINES}"
+              + ("  - fourteen coins still show 9" if coins > 9 else ""))
+
+    m.poke(sym["KEYS_COUNT"], 0)
+    m.poke(sym["COINS_COUNT"], 0)
+
+    # THE WALK GETS ITS OWN MACHINE, and that is not tidiness. 180
+    # frames of walking carries her up the roof into a drone's fire,
+    # and the bench at the bottom of this file measures HUD_LEVEL from
+    # a full bar - so a walk left in the shared machine is a check
+    # failing three screens away from what changed.
+    print("\n  and they STAY, walking both ways:")
+    m4 = boot(sym, scroll=True)
+    m4.run_frames(20)
+    m4.poke(sym["KEYS_COUNT"], 1)           # ... and BEFORE the first
+    m4.poke(sym["COINS_COUNT"], 3)          # sample, or it is compared
+    m4.run_frames(3)                        # against the layout it had
+    # AND THE EXPECTATION IS BUILT FROM THE COUNTS AT THE SAMPLE, not
+    # from the two poked in above. She walks over the roof's key on the
+    # way, so KEYS_COUNT becomes 2 for the rest of the walk - and a
+    # fixed expectation then reports the digit as ten wrong bytes when
+    # the strip is showing exactly what she is carrying, which is the
+    # property this is about.
+    want_inv = inv_expect(inv, 1, 3)
+    for mask, name in ((JOY_RIGHT, "RIGHT"), (JOY_LEFT, "LEFT")):
+        worst, seen = 0, set()
+        m4.joystick(mask)
+        for _ in range(90):
+            m4.run_frames(1)
+            sync(m4, sym)
+            seen.add(m4.peek(sym["SCROLL"]) | (m4.peek(sym["SCROLL"] + 1) << 8))
+            want_inv = inv_expect(inv, m4.peek(sym["KEYS_COUNT"]),
+                                  m4.peek(sym["COINS_COUNT"]))
+            worst = max(worst, sum(a != b for a, b in
+                                   zip(inv_on_screen(m4, sym), want_inv)))
+        m4.joystick(0)
+        check(f"... walking {name}", worst == 0,
+              f"{len(seen)} start addresses, worst frame {worst} wrong "
+              f"bytes of {INV_BYTES * LINES}")
+
+    # THE SAME NEGATIVE CONTROL THE BAR AND THE ROUNDS HAVE: an icon has
+    # no neighbour's content to inherit, so with HUD_INV returning at
+    # once the CRTC carries the whole run off with the world.
+    print("\n  the negative control - the items must be REWRITTEN:")
+    m3 = boot(sym, scroll=True)
+    m3.run_frames(20)
+    m3.poke(sym["KEYS_COUNT"], 1)
+    m3.poke(sym["COINS_COUNT"], 3)
+    m3.run_frames(4)
+    sync(m3, sym)
+    before = sum(a != b for a, b in zip(inv_on_screen(m3, sym),
+                                        inv_expect(inv, 1, 3)))
+    m3.poke(sym["HUD_INV"], 0xC9)           # RET
+    worst3 = 0
+    m3.joystick(JOY_RIGHT)
+    for _ in range(90):
+        m3.run_frames(1)
+        sync(m3, sym)
+        want3 = inv_expect(inv, m3.peek(sym["KEYS_COUNT"]),
+                           m3.peek(sym["COINS_COUNT"]))
+        worst3 = max(worst3, sum(a != b for a, b in
+                                 zip(inv_on_screen(m3, sym), want3)))
+    m3.joystick(0)
+    check("without it the items slide off with the world",
+          before == 0 and worst3 > 0,
+          f"{before} wrong bytes with the redraw, {worst3} of "
+          f"{INV_BYTES * LINES} without it")
+
     print("\n  and a repaint under the bottom row is put back:")
     m.run_frames(3)
     sync(m, sym)
@@ -445,8 +583,13 @@ def main():
         m4.run_frames(1)
     m4.joystick(0)
     loops = (m4.peek(sym["FRAME_COUNT"]) - f0) % 256
-    check("walking and scrolling with the bar on holds 50 Hz", loops >= 199,
-          f"{loops} loop iterations in 200 hardware frames")
+    # THE LOCK IS 25 Hz AND 100 OF 200 (CLAUDE.md 9): a game frame is
+    # two hardware frames, so that the heroine is on the screen for both
+    # sweeps and a frame the loop cannot pay for is not a hole where she
+    # was. The strip is drawn once a game frame like everything else.
+    check("walking and scrolling with the strip on holds 25 Hz",
+          loops >= 99,
+          f"{loops} game frames in 200 hardware frames")
 
     print("\n  what it costs:")
     b = Bench(m, sym)

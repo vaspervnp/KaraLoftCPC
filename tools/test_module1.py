@@ -94,9 +94,16 @@ check("IM 1 handler is firing", abs(ticks - ((50 * 6) & 255)) <= 2,
       f"handler went out with the lower ROM, so this one is ours")
 check("the main loop is going round", frames > 0,
       f"{frames} iterations in 50 frames")
-check("... and it holds 50 Hz", frames >= 49,
-      f"{frames} of 50, against {ticks} ticks - the gate array delivers "
-      f"exactly 6 a frame")
+# AND IT HOLDS 25 Hz, WHICH IS WHAT THE LOOP IS FOR. A game frame is two
+# hardware frames (CLAUDE.md 9): the loop draws her on the first and
+# erases her on the second, so she is on the screen for both sweeps and
+# a frame it cannot pay for is not a hole where she was. 50 hardware
+# frames is 25 iterations, and the gate array's 6 ticks a hardware frame
+# is the clock that says the hardware frames really went by.
+check("... and it holds 25 Hz", frames >= 24,
+      f"{frames} of 50 hardware frames, against {ticks} ticks - the gate "
+      f"array delivers exactly 6 a hardware frame, so 25 iterations is "
+      f"two VSYNCs apiece with nothing dropped")
 
 print("\n" + ("ALL CHECKS PASSED" if not fails
               else f"{len(fails)} FAILED: {fails}"))

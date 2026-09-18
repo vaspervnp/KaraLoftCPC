@@ -79,7 +79,7 @@ class World:
         self.m.poke(self.sym["KARA_WX"] + 1, wx >> 8)
         self.m.poke(self.sym["KARA_WY"], wy)
 
-    def run(self, routine, up=False, mask=0, frame=1):
+    def run(self, routine, up=False, mask=0, frame=3):
         """Call one routine from a DI stub.
 
         `mask` goes into A, which ENTITY_COLLISION_CHECK reads as the
@@ -89,6 +89,11 @@ class World:
         register-argument routine disagrees with a model.
         """
         s, m = self.sym, self.m
+        # THE DEFAULT IS THE SWEEP'S OWN FRAME AND IT HAS MOVED ONCE:
+        # the sweep is one frame in FOUR now (FRAME_COUNT AND 3 == 3),
+        # so a default of 1 stopped sweeping and eleven checks below
+        # reported that no pickup goes into any counter. The default has
+        # to travel with the gate.
         # ENT_UPDATE's TOUCH sweep runs on ODD frames only - it shares
         # the frame budget with the enemy redraw, which takes the even
         # ones (src/enemy.asm). A test that did not say which it wanted
@@ -559,17 +564,81 @@ def main():
         print(f"    kind {r[0]}  x {r[1] | r[2] << 8:4d}  "
               f"y {r[3] | r[4] << 8:3d}  flags &{r[5]:02X}  "
               f"p0 {r[6]}  p1 {r[7]}")
-    print("\n  the touch sweep's frame parity:")
+    print("\n  the touch sweep's place in the beat:")
+    # IT IS ONE FRAME IN FOUR NOW, NOT ONE IN TWO, AND THE RUN IS WHY.
+    # A run is a byte a frame and the camera steps every other one, so
+    # the stepping frame carries the incoming column AND the heaviest
+    # cel in the game; the sweep on top of that is what tipped it over.
+    # Measured, quartering it is worth 11 loop iterations in 200
+    # running (151 -> 162) and nothing at all walking, which is the
+    # shape of a cost that only lands on the tight frames.
+    #
+    # ALL FOUR PHASES ARE DRIVEN, because a check that only knew about
+    # odd and even would still pass on the old gate and say nothing
+    # about the new one - and WHICH odd phase it is was worth more than
+    # the quartering: 182 -> 191 firing and 173 -> 189 jumping and
+    # firing, for two off the plain run (src/entity.asm).
     w = World(boot(sym), sym)
-    w.load(record(EK_PICKUP, 100, 100, EF_ACTIVE | EF_TOUCH, PU_KEY, 0))
-    w.place(50, 40)
-    w.give(KEYS_COUNT=0)
-    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=0)   # even: the redraw's frame,
-    even = w.st("KEYS_COUNT")                    # and the column's head
-    w.run("ENT_UPDATE", mask=EF_TOUCH, frame=1)  # odd: the sweep's own
-    odd = w.st("KEYS_COUNT")
-    check("the touch sweep runs on odd frames and not even ones",
-          even == 0 and odd == 1, f"even {even}, odd {odd}")
+    seen = []
+    for phase in range(4):
+        w.load(record(EK_PICKUP, 100, 100, EF_ACTIVE | EF_TOUCH, PU_KEY, 0))
+        w.place(50, 40)
+        w.give(KEYS_COUNT=0)
+        w.run("ENT_UPDATE", mask=EF_TOUCH, frame=phase)
+        seen.append(w.st("KEYS_COUNT"))
+    check("the touch sweep runs on every game frame",
+          seen == [1, 1, 1, 1],
+          f"phases 0..3 picked up {seen} - it shared the 50 Hz frame with "
+          f"the enemy redraw and took one frame in two, then one in four; "
+          f"a game frame is two hardware frames now and the pair of them "
+          f"is 376 T of 159,744 (CLAUDE.md 9)")
+
+    # ---- AND SHE STILL PICKS IT UP AT A RUN, WHICH IS THE WORST CASE
+    # A run is a byte a frame, so four frames between sweeps is four
+    # bytes of travel - against her 6-byte box plus a 4-byte pickup,
+    # which is ten bytes of overlap, so at least two sweeps land inside
+    # it. That is the argument; this is the measurement, in the running
+    # game rather than through the harness above.
+    print("\n  and she still picks it up at a RUN:")
+    # A RUN IS THE WORST CASE FOR A SWEEP: she covers two bytes a game
+    # frame, against the ten bytes her 6-byte box and a 4-byte pickup
+    # overlap for. This is that, in the running game rather than through
+    # the harness above.
+    JOY_RIGHT = 0x08
+
+    def running_pass(untouchable=False, frames=200):
+        mm = boot(sym, scroll=True)
+        if untouchable:
+            # THE NEGATIVE CONTROL IS THE FLAG, not the beat: take
+            # EF_TOUCH off the key's own record and the same run must
+            # walk straight past it. Without this the check below would
+            # pass on a game that handed her a key for any reason.
+            for i in range(ENT_MAX):
+                r = sym["ENT_TABLE"] + i * ENT_STRIDE
+                if (mm.peek(r) == EK_PICKUP and mm.peek(r + 6) == PU_KEY):
+                    mm.poke(r + 5, mm.peek(r + 5) & ~EF_TOUCH)
+        mm.joystick(JOY_RIGHT)
+        mm.key_down('A')                    # SHIFT: row 2 bit 5 (input.asm)
+        took = None
+        for t in range(frames):
+            mm.run_frames(1)
+            if took is None and mm.peek(sym["KEYS_COUNT"]):
+                took = t
+        mm.joystick(0)
+        mm.key_up('A')
+        return took
+
+    took = running_pass()
+    check("running right over the roof's key, she takes it",
+          took is not None,
+          f"KEYS_COUNT went up on hardware frame {took}" if took is not None
+          else "she ran straight past it")
+    missed = running_pass(untouchable=True)
+    check("... and with EF_TOUCH off that record she runs straight past",
+          missed is None,
+          f"she still took it on frame {missed} - so the check above is "
+          f"not measuring the touch sweep" if missed is not None
+          else "so what the check above measures really is the sweep")
 
     check("the level's table is the eight-byte record, ENT_MAX long",
           len(blob) == ENT_MAX * 8 and used > 0, f"{len(blob)} bytes")

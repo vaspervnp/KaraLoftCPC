@@ -264,7 +264,9 @@ def main():
     # for ES_DIE more frames, falling and flashing (CLAUDE.md 8.7).
     y0 = slot(m, sym, 0, "Y")
     seen, ys = set(), []
-    for _ in range(sym["EN_DIE_FRAMES"] + 12):
+    # EN_DIE_FRAMES COUNTS GAME FRAMES AND THIS LOOP COUNTS HARDWARE
+    # ONES, and a game frame is two of them (CLAUDE.md 9).
+    for _ in range(2 * sym["EN_DIE_FRAMES"] + 24):
         m.run_frames(1)
         seen.add(m.peek(sym["ENEMY_DREW"]) != 0)
         ys.append(slot(m, sym, 0, "Y"))
@@ -309,127 +311,41 @@ def main():
     # whole column every frame for about 26 frames instead of every
     # other one. Both are transients and both are named here rather than
     # hidden behind a loose threshold.
-    print("\n  the loop, with a drone on screen:")
-    for label, joy, floor, why, tap, shift in (
-            # A HIT COSTS A FRAME AND ONLY WHEN IT CROSSES A CELL.
-            # The drone shoots her while she stands there - 100 down to
-            # 76 over these 200 frames - and six cells over 100 points
-            # is 16.67 apiece, so one of those hits takes the bar from
-            # six lit to five and HUD_LEVEL lays the buffer out again:
-            # 5,732 + 2,348 T, landing on a frame that is already
-            # carrying ENEMY_REFRESH's 17,968. Measured against the same
-            # run with PLAYER_HP frozen at 100: 201 with the bar and 201
-            # without, against 199 and 201 when it is allowed to fall.
-            ("standing still", 0, 201,
-             "a hit that crosses a cell redraws the bar", False, False),
-            ("walking right, scrolling", JOY_RIGHT, 198,
-             "two frames an encounter pay for the enemy coming and going",
-             False, False),
-            ("walking left, into it", JOY_LEFT, 191,
-             "... turning round pans the camera for 20 frames, and a pan "
-             "is where the bar is dearest", False, False),
-            # HELD IS AIM, NOT FIRE. The gun is draw-hold-RELEASE
-            # (CLAUDE.md 8.4), so a trigger held down for 200 frames
-            # never puts a round in the air and these two used to
-            # measure a frame with an idle pool - which is how a pool
-            # walk that cost 6,228 T a firing frame went unseen. `tap`
-            # says fire the way a player does; what it costs her is
-            # tools/test_module5.py's business.
-            # AND THE ENERGY BAR IS THE THIRD NAMED COST. It is six
-            # cells at the BOTTOM left and it has to be rewritten every
-            # time the start address moves (CLAUDE.md 7.8). A step RIGHT
-            # costs 1,188 T - two cells, and nothing at all to erase,
-            # because the word the bar leaves behind is the last column
-            # of row 22 and that is the incoming column H_TAIL has just
-            # painted. A step LEFT is 2,688: its incoming column is 0,
-            # so the leftover word is inside the bar's own row and has
-            # to come back off the tilemap.
-            #
-            # Measured against the same run with HUD_SERVICE poked to
-            # RET: 201/199/194/196/195 without the bar and
-            # 199/199/190/195/193 with it. The whole of it is the pan -
-            # walking right, where the camera steps every OTHER frame,
-            # is 199 either way.
-            # AND THE FOURTH NAMED COST IS THE ART ITSELF, which is the
-            # one nothing in the engine can be tuned to give back. The
-            # artist redrew the land sheet and her heaviest `kcore` cel
-            # went from 284 span bytes to 323: 39 bytes at the
-            # composite's 72 T floor is 2,808 T, and drawn plus erased
-            # the cel went 54,820 -> 57,524. The frame did not have it.
-            # Measured over the same five paths, same build, only the
-            # sheet changed:
-            #
-            #   still 199 -> 198   right 199 -> 198   left 190 -> 186
-            #   right+firing 195 -> 173   jumping+firing 193 -> 158
-            #
-            # The two firing paths are where it lands because a firing
-            # frame carries the heaviest cel in the game AND a round in
-            # the air AND the drone. What it looks like in play is
-            # ground she does not cover, and tools/test_module5.py
-            # measures it in bytes rather than in frames: 119 where the
-            # aiming alone accounts for 131.
-            #
-            # AND THE FIFTH IS THE REST OF THE BOTTOM ROW. The bar was
-            # six characters and the strip is fourteen: six of health,
-            # seven of ammo (fourteen pips, two to a cell) and one digit
-            # for the spare magazines (CLAUDE.md 7.8). What that costs
-            # is not the pips - they are 24 T a byte like the bar - but
-            # the ERASE, because a character step leaves a word of the
-            # old strip on the screen and it has to come back off the
-            # TILEMAP at ~59 T a byte. Measured with HUD_VACATE poked to
-            # RET, a saturated vertical driver is 201 of 200 and with it
-            # 180: the whole vertical cost is the erase.
-            #
-            # Measured over the same six paths, same build, the strip
-            # being the only change:
-            #
-            #   still 201     right 198 <- 199   left 191 <- 193
-            #   right+firing 183 <- 194          jumping+firing 174 <- 191
-            #   running 151 <- 172               running+firing 151 <- 185
-            #
-            # The two run paths are where it lands hardest, and the
-            # reason is arithmetic rather than art: a run steps the
-            # camera every other frame where a walk steps it every
-            # fourth, so it pays the erase twice as often.
-            #
-            # These floors are the measurement, not a target. They were
-            # accepted deliberately - the alternative was dropping the
-            # mask on the 74% of her span bytes that are fully opaque,
-            # which is 56 T a byte against 72 and ~3,950 T on this cel,
-            # and that is a format, an exporter and a blitter (CLAUDE.md
-            # 9, "what did not work").
-            ("walking right + firing", JOY_RIGHT, 183,
-             "the half-speed walk gave the redraw back and the ammo row "
-             "took part of it again: 173, then 194, and now this",
-             True, False),
-            ("jumping + firing, scrolling",
-             JOY_RIGHT | JOY_UP, 174,
-             "... and the same on this one: 158, then 191, and now this",
-             True, False),
-            # AND THE SIXTH PATH IS THE ONE THAT WAS NEVER REACHABLE.
-            # SHIFT was bound to row 2 bit 6, which is backslash, so
-            # until it was moved to bit 5 nothing in the game could
-            # enter the run state (CLAUDE.md 8.4). It is a byte a frame
-            # - a character of scroll every other frame, the load the
-            # walk used to carry - and it still drops 28 frames in 200,
-            # because the RUN CELS ARE THE HEAVIEST IN THE GAME: 351
-            # span bytes against the 324 of her worst `kcore` cel, which
-            # is ~4,000 T more on the frames they land on. Measured, it
-            # is the heavy cel meeting the column's head that overruns.
-            #
-            # At TWO bytes a frame - which is what P_RUN said before
-            # anyone could press SHIFT - it is 107 of 200: a character
-            # of scroll every frame puts H_HEAD and H_TAIL together and
-            # nothing fits. The floor below is the honest measurement of
-            # the fastest run the frame can carry.
-            ("running right, scrolling", JOY_RIGHT, 151,
-             "the run cels are 351 span bytes, the heaviest in the game, "
-             "and a run steps the camera twice as often as a walk - so it "
-             "pays the bottom row's erase twice as often too",
-             False, True),
-            ("running right + firing", JOY_RIGHT, 151,
-             "... and aiming plants her, so a firing frame is one that "
-             "does not scroll", True, True)):
+    print("\n  the loop, and it is 25 Hz now:")
+    # THE GAME RUNS AT 25 Hz AND THE LOCK IS 100 OF 200 (CLAUDE.md 9).
+    # A frame this loop drops is not a stutter, it is a frame with no
+    # heroine in it - she is drawn in the top border and erased at her
+    # raster gate - and at 50 Hz the heavy paths could not make the
+    # budget. A play-test reported the last of it as flicker while she
+    # RAN. The loop waits for two VSYNCs, her erase moved to the second
+    # hardware frame so she is on the screen for both sweeps, and every
+    # path below reaches the lock exactly.
+    #
+    # WHAT THESE PATHS USED TO MEASURE IS KEPT HERE, because it is the
+    # record of what each thing cost while the frame was the budget and
+    # it is the first place to look when something has to come back out.
+    # The columns are the same build with one thing changed: the energy
+    # bar, the artist's redrawn land sheet, the half-speed walk, the
+    # fourteen ammo pips, the magazine digit, and the touch sweep moved
+    # to one frame in four.
+    #
+    #   standing         201 199 198 201 201 201 201
+    #   walking right    199 199 198 199 198 198 198
+    #   walking left     194 190 186 193 192 191 191
+    #   + firing         196 195 173 194 184 183 191
+    #   jumping + firing 195 193 158 191  -  174 189
+    #   running           -   -   -  172 161 151 160
+    #   running + firing  -   -   -  185  -  151 164
+    #
+    # and of those, the two run rows are what 25 Hz was for.
+    for label, joy, tap, shift in (
+            ("standing still", 0, False, False),
+            ("walking right, scrolling", JOY_RIGHT, False, False),
+            ("walking left, into it", JOY_LEFT, False, False),
+            ("walking right + firing", JOY_RIGHT, True, False),
+            ("jumping + firing, scrolling", JOY_RIGHT | JOY_UP, True, False),
+            ("running right, scrolling", JOY_RIGHT, False, True),
+            ("running right + firing", JOY_RIGHT, True, True)):
         mm = boot(sym, scroll=True)
         mm.joystick(JOY_RIGHT)
         for _ in range(90):
@@ -452,9 +368,13 @@ def main():
         mm.joystick(0)
         if shift:
             mm.key_up('A')
-        check(f"50 Hz: {label}", got >= floor,
-              f"{got} loop iterations in 200 hardware frames"
-              + (f" (floor {floor}: {why})" if why else ""))
+        # EXACTLY 100, NOT "AT LEAST". A game frame that took three
+        # hardware frames would read 99 and one that took one would read
+        # 101, and both are faults: the first is a dropped game frame
+        # and the second is the erase landing on the frame of the draw,
+        # which is a blank sweep.
+        check(f"25 Hz: {label}", got == 100,
+              f"{got} game frames in 200 hardware frames")
 
     print()
     if fails:

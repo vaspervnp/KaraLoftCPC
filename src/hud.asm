@@ -96,11 +96,41 @@ HUD_AMMO_BASE   equ HUD_ROW * SCR_CHARS + HUD_AMMO_COL
 HUD_CLIPS_COL   equ HUD_AMMO_COL + HUD_AMMO_CELLS
 HUD_CLIPS_BASE  equ HUD_ROW * SCR_CHARS + HUD_CLIPS_COL
 
-; THE THREE OF THEM ARE ONE STRIP as far as HUD_VACATE is concerned -
-; columns 0 to 13 of the bottom row - and that is what makes the erase
+; AND THEN WHAT SHE IS CARRYING, STRAIGHT AFTER THE DIGIT.
+;
+; An icon a kind and a count beside it: the key and the coins of level
+; 1's entity table (CLAUDE.md 8.6), lit while she has one and the same
+; silhouette in the dark while she has not - the convention the spent
+; rounds already use, so an empty slot is a thing she has not found and
+; not a hole in the row. The medkit is not among them because it is
+; spent the instant she walks into it (USE_MEDKIT), and the magazines
+; are already the digit at column 13.
+;
+; TWO CELLS FOR THE ICON AND NOT ONE, AND THAT IS THE ART'S ANSWER.
+; hud_icons is 8x16 Mode 0 pixels against a strip that is eight lines
+; tall, so an icon cannot go in whole; measured over all nine, every
+; one is drawn 5 pixels wide inside its 8 and 6 to 9 lines tall, so the
+; width already fits two characters and only the height is chosen -
+; tools/make_hud.py takes the 8-line window with the most ink in it.
+;
+; AND THE RUN IS WRITTEN WHOLE, WHICH IS WHAT MAKES IT AFFORDABLE. An
+; icon has no neighbour's content to inherit, so every cell of it is
+; wrong after a step of one character and all six have to be rewritten
+; on every frame the view moves - six HUD_PUTs would be 5,208 T, where
+; twelve consecutive bytes on each of eight lines is ~2,700. It is the
+; health bar's own argument (HUD_ALL) one group along, and it is why
+; the layout lives in a buffer that only a CHANGED COUNT lays out.
+HUD_INV_COL     equ HUD_CLIPS_COL + 1
+HUD_INV_KINDS   equ 2                       ; the key and the coins
+HUD_INV_CELLS   equ HUD_INV_KINDS * 3       ; two of icon and one of count
+HUD_INV_BYTES   equ HUD_INV_CELLS * 2       ; 12 - twelve bytes a line
+HUD_INV_BASE    equ HUD_ROW * SCR_CHARS + HUD_INV_COL
+
+; THE FOUR OF THEM ARE ONE STRIP as far as HUD_VACATE is concerned -
+; columns 0 to 19 of the bottom row - and that is what makes the erase
 ; nearly free: each one's leftover word is the cell before it, which
 ; the element to its left writes on the same frame.
-HUD_STRIP_CELLS equ HUD_CELLS + HUD_AMMO_CELLS + 1
+HUD_STRIP_CELLS equ HUD_CELLS + HUD_AMMO_CELLS + 1 + HUD_INV_CELLS
                 assert HUD_STRIP_CELLS <= SCR_CHARS
 
 ; The least health each cell needs to stay lit. Six cells over 100
@@ -127,7 +157,9 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 ld   bc,0
                 call HUD_BAR
                 call HUD_AMMO
-                jp   HUD_CLIPS
+                call HUD_CLIPS
+                ld   bc,0
+                jp   HUD_INV
 
                 ; ---- IT IS MOVING, AND ONE CHARACTER OF MOVEMENT
                 ; CHANGES AT MOST TWO OF THE SIX CELLS.
@@ -165,8 +197,11 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 push bc
                 call HUD_BAR
                 pop  bc
+                push bc
                 call HUD_AMMO
                 call HUD_CLIPS
+                pop  bc
+                call HUD_INV
                 ld   hl,(HUD_WANT)
                 ld   (HUD_LAST),hl
                 ret
@@ -577,9 +612,11 @@ HUD_AMMO_SEAM:  ld   a,(HUD_AMMO_SPENT)
 ;                cell, which the bar is about to write. Nothing to do.
 ;   1023  left   the bar leaves word HUD_BASE+6, which is the ammo's
 ;                first cell and the one the ammo is about to write; the
-;                ammo leaves column 13, and that one is real.
-;     40  down   both runs, one row UP: row 22 columns 0-12, which is
-;                ONE run and one DRAW_ROW
+;                ammo leaves the digit and the digit the inventory's
+;                first cell, both of which are written on every step -
+;                and the INVENTORY leaves column 20, which is real.
+;     40  down   all four runs, one row UP: row 22 columns 0-19, which
+;                is ONE run and one DRAW_ROW
 ;    984  up     row 24 - off the bottom of the display, nothing to do
 ;
 ; and DRAW_ROW paints a run of cells in ONE row with the map lookup
@@ -761,6 +798,181 @@ HUD_VACATE:     ld   a,b
                 ld   a,(HUD_V_N)
                 cp   b
                 jr   nz,.cell
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_INV - what she is carrying, at columns 14-19 of the bottom row.
+;
+; TWO QUESTIONS AND THEY ARE NOT THE SAME ONE. What the six cells SAY
+; changes only when she picks something up, which is a handful of times
+; in a level; where they are WRITTEN changes on every frame the view
+; moves, which is most of them. So the layout goes into a 96-byte
+; buffer and the copy runs off it - HUD_LEVEL's argument for the health
+; bar, and the numbers are the same shape: laying it out is ~4,000 T
+; and copying it ~2,700.
+;
+; IN:  BC = the step the view has just taken, 0 if it has not moved
+; Clobbers AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+HUD_INV:        ld   a,(KEYS_COUNT)
+                ld   hl,HUD_INV_K
+                cp   (hl)
+                jr   nz,.layout
+                ld   a,(COINS_COUNT)
+                ld   hl,HUD_INV_C
+                cp   (hl)
+                jr   nz,.layout
+                ld   a,b                    ; the picture is right and the
+                or   c                      ; view has not moved: there is
+                ret  z                      ; nothing for it to be wrong at
+                jr   .copy
+
+.layout:        call HUD_INV_LAYOUT
+
+                ; THE SEAM IS DECIDED ONCE AND NOT PER LINE. Twelve
+                ; bytes a line cross the 1024-word fold at six of the
+                ; ring's start positions (CLAUDE.md 6.4), and there the
+                ; run comes back at the top of its own 2 KB block - so
+                ; the split is two counts worked out before the loop,
+                ; with the second one zero everywhere else.
+.copy:          ld   hl,(HUD_WANT)
+                ld   de,HUD_INV_BASE
+                add  hl,de
+                ld   a,h
+                and  3                      ; the circular window
+                ld   h,a
+                add  hl,hl                  ; words are two bytes
+                ld   a,h
+                cp   7
+                jr   nz,.flat
+                ld   a,l
+                cp   256 - HUD_INV_BYTES + 1
+                jr   nc,.fold
+.flat:          ld   a,HUD_INV_BYTES
+                ld   (HUD_N1),a
+                xor  a
+                ld   (HUD_N2),a
+                jr   .go
+.fold:          neg                         ; 256 - l: the BYTES left in this
+                ld   (HUD_N1),a             ; block, and the offset is always
+                ld   c,a                    ; even, being a word index doubled
+                ld   a,HUD_INV_BYTES
+                sub  c
+                ld   (HUD_N2),a
+.go:            ld   a,h
+                add  a,SCREEN_BASE >> 8
+                ld   d,a
+                ld   e,l
+                ld   (HUD_DST),de
+                ld   hl,HUD_INV_BUF
+                ld   a,HUD_LINES
+                ld   (HUD_LN),a
+.line:          ld   de,(HUD_DST)
+                ld   a,(HUD_N1)
+                ld   c,a
+                ld   b,0
+                ldir                        ; ... and HL walks the buffer
+                ld   a,(HUD_N2)
+                or   a
+                jr   z,.next
+                ld   c,a
+                ld   b,0
+                ld   a,(HUD_DST + 1)
+                and  &F8                    ; the top of this same block
+                ld   d,a
+                ld   e,0
+                ldir
+.next:          ld   a,(HUD_DST + 1)
+                add  a,8                    ; the next raster block down
+                ld   (HUD_DST + 1),a
+                ld   a,(HUD_LN)
+                dec  a
+                ld   (HUD_LN),a
+                jr   nz,.line
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_INV_LAYOUT - the six cells into HUD_INV_BUF, line by line.
+;
+; The counts are remembered here and not by the caller, because this is
+; the one place that knows the buffer now matches them.
+; Clobbers AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+HUD_INV_LAYOUT: ld   a,(KEYS_COUNT)
+                ld   (HUD_INV_K),a
+                call HUD_INV_DIGIT
+                ld   hl,HUD_ICON_KEY
+                or   a
+                jr   nz,.key
+                ld   hl,HUD_ICON_KEY_DARK
+.key:           ld   de,HUD_INV_BUF
+                call HUD_INV_ITEM
+
+                ld   a,(COINS_COUNT)
+                ld   (HUD_INV_C),a
+                call HUD_INV_DIGIT
+                ld   hl,HUD_ICON_COIN
+                or   a
+                jr   nz,.coin
+                ld   hl,HUD_ICON_COIN_DARK
+.coin:          ld   de,HUD_INV_BUF + 6
+                ; falls into HUD_INV_ITEM
+
+; ---------------------------------------------------------------------
+; HUD_INV_ITEM - one icon and its count into the buffer.
+;
+; IN:  HL = the 8x4 icon, IX = its digit, DE = where the item starts
+; Clobbers AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+HUD_INV_ITEM:   ld   b,HUD_LINES
+.line:          push bc
+                ld   c,4                    ; the icon is two characters
+.icon:          ld   a,(hl)
+                ld   (de),a
+                inc  hl
+                inc  de
+                dec  c
+                jr   nz,.icon
+                ld   a,(ix + 0)             ; ... and the count is one
+                ld   (de),a
+                inc  de
+                ld   a,(ix + 1)
+                ld   (de),a
+                inc  de
+                inc  ix
+                inc  ix
+                ld   a,e                    ; the next line of the buffer,
+                add  a,HUD_INV_BYTES - 6    ; past the other item
+                ld   e,a
+                ld   a,d
+                adc  a,0
+                ld   d,a
+                pop  bc
+                djnz .line
+                ret
+
+; ---------------------------------------------------------------------
+; HUD_INV_DIGIT - IX = the artist's digit for the count in A.
+;
+; CAPPED AT NINE because one character is what the row can pay for -
+; the magazine digit's own rule, one group along.
+; A is preserved.            Clobbers BC,HL,IX
+; ---------------------------------------------------------------------
+HUD_INV_DIGIT:  push af
+                cp   10
+                jr   c,.ok
+                ld   a,9
+.ok:            ld   l,a
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; sixteen bytes a digit
+                ld   bc,HUD_DIGITS
+                add  hl,bc
+                push hl
+                pop  ix
+                pop  af
                 ret
 
 ; ---------------------------------------------------------------------
@@ -994,6 +1206,9 @@ HUD_HP:         db &FF          ; the health it was last drawn for, and
 HUD_AMMO_SPENT: db &FF          ; ... and the same for the rounds: &FF is
                                 ; not a number of spent rounds either
 HUD_A_MOVED:    db 0            ; what the view did: HUD_AMMO_STEP's 0-3
+HUD_INV_K:      db &FF          ; the counts the inventory's six cells were
+HUD_INV_C:      db &FF          ; ... laid out for, &FF being no layout yet
+HUD_INV_BUF:    defs HUD_INV_BYTES * HUD_LINES
 HUD_CLIPS_RES:  db &FF          ; the reserve the digit was worked out from,
                                 ; and &FF is not one the game hands out
 HUD_CLIPS_N:    db 0            ; ... and the digit itself
