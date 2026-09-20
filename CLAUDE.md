@@ -157,21 +157,27 @@ sitting among the stale ones and nobody could see it.
 | `test_module4.py` | 8 | **the display's top scanline, found two lines out.** `find_display_top` scored its guesses over the top 24 lines of the picture, and those are the night sky: one flat pen, so an offset two scanlines wrong scored exactly as well and the search kept the lowest of the plateau — reporting "256 of 256 probes matched" while doing it. Every rendered check then compared the picture against a model two lines up: 8,600 wrong pixels of 30,720 on a build whose picture was correct. It scores the whole 192 lines now and asserts the MARGIN to the runner-up, so a plateau is a visible fact |
 | | | ... and three more: the model did not know about the inventory group (96 bytes, to the byte); the Kara-position check paired the picture with the wrong frame's `KARA_Y`, because `PLAYER_TO_SCREEN` moved to the end of the second sweep (§7.8); and the horizontal step was measuring the camera's vertical catch-up, which is half again as fast now that a row step is two game frames |
 | `test_module5.py` | 5 | **a round steps four bytes and the suite expected two** — §9's own table of what 25 Hz cost, read off `BUL_SPEED`/`EBUL_SPEED` now instead of written down. And three floors counted in 50 Hz frames, re-derived: firing costs nothing at all with the strip silent, the frames she spends planted are counted off `INPUT_NOW` rather than halved out of the tap pattern, and `BUL_TOP` forced to `BUL_MAX` costs frames but no longer costs ground, because 5,408 T of overrun fits in a 25 Hz frame |
-| `test_enemies.py` | 4 | **the inventory group, and this one is real.** See below |
+| `test_enemies.py` | 4 | **the inventory group, and this one was real.** See below |
 | `test_climb.py` | 1 | a jump twelve frames early used to end inside the roof's gap; at 25 Hz speeds it ends short of the near lip and she lands back on the roof. The early end of the window is searched for now instead of written down — it is four frames |
 
-**AND THE ONE THAT WAS NOT A STALE FLOOR: THE INVENTORY GROUP COSTS A
-GAME FRAME.** Measured over all seven of `test_enemies.py`'s paths with
-`HUD_INV` poked to `RET` as the control, reproducible to the frame:
-walking right, jumping-and-firing and running right are **99 game frames
-in 200 hardware frames with the six cells and 100 without them**, and
-running-and-firing is 97 against 98. §7.8 said "the loop does not
-notice" on a measurement of the walk and the climb; it notices on the
-three paths that step the camera hardest, because an icon has no
-neighbour's content to inherit and all six cells are rewritten on every
-frame the view moves. The floors are those numbers now, each with that
-control beside it, so the cause travels with the number — and §7.8 has
-what it would take to buy them back.
+**AND THE ONE THAT WAS NOT A STALE FLOOR: THE INVENTORY GROUP COST A
+GAME FRAME, AND IT HAS BEEN PAID.** Measured over all seven of
+`test_enemies.py`'s paths with `HUD_INV` poked to `RET` as the control,
+walking right, jumping-and-firing and running right were **99 game
+frames in 200 hardware frames with the six cells and 100 without
+them**, and running-and-firing 97 against 98. **All four are back**, and
+what took them back was not the drawing: the inventory's LAYOUT moved
+to the second sweep, where the head gate is idle for 40,468 T; its copy
+became the health bar's own unrolled `LDI` run instead of a second pair
+of `LDIR`s; and — the last two frames, and the surprise — **a pickup's
+repaint stops disowning the whole strip's layout when it cannot reach
+it.** Six of the seven paths are 100 of 200 now with the strip in them
+and `HUD_SERVICE` poked out changing nothing on any of them; the
+seventh is the run with the gun at 98 either way, which is its own
+cels. §7.8 has the measurements, including the one that settled it: a
+delay of a KNOWN length in `HUD_INV`'s place, which cost the frame at
+484 T and at 2,884 alike — so no cheaper copy could ever have bought
+it.
 
 The frame budget is asserted where
 it can be measured now, and that is a change worth knowing about. The
@@ -1683,38 +1689,85 @@ in a level. It is `HUD_ALL`'s own argument one group along.
 | one row DOWN | 23,856 | **32,856** |
 | ... one row UP | 10,860 | **14,928** |
 
-**AND THE LOOP DOES NOTICE, ON THE THREE PATHS THAT STEP THE CAMERA
-HARDEST.** This section used to say it did not, on a measurement of the
-walk and the climb — and those two are indeed 100 game frames in 200
-hardware frames either way. Driven over all seven of
-`tools/test_enemies.py`'s paths with `HUD_INV` poked to `RET` as the
-control, reproducible to the frame over repeated runs:
+**AND THE LOOP DID NOTICE, ON THE FOUR PATHS THAT STEP THE CAMERA
+HARDEST — AND THE FRAME WAS NOT WHERE IT LOOKED.** This section used to
+say it did not, on a measurement of the walk and the climb. Driven over
+all seven of `tools/test_enemies.py`'s paths, game frames per 200
+hardware ones, with `HUD_INV` poked to `RET` as the control:
 
-| | with the six cells | with `HUD_INV` = `RET` |
-|---|---:|---:|
-| standing still | 100 | 100 |
-| walking right, scrolling | **99** | 100 |
-| walking left, into it | 100 | 100 |
-| walking right + firing | 100 | 100 |
-| jumping + firing, scrolling | **99** | 100 |
-| running right, scrolling | **99** | 100 |
-| running right + firing | **97** | **98** |
+| | with the six cells | `HUD_INV` = `RET` | **now** |
+|---|---:|---:|---:|
+| standing still | 100 | 100 | 100 |
+| walking right, scrolling | **99** | 100 | **100** |
+| walking left, into it | 100 | 100 | 100 |
+| walking right + firing | 100 | 100 | 100 |
+| jumping + firing, scrolling | **99** | 100 | **100** |
+| running right, scrolling | **99** | 100 | **100** |
+| running right + firing | **97** | 98 | **98** |
 
-So the inventory costs **one game frame in 200 on three paths**, and on
-the run-and-fire path one of its three; the other two are not the strip
-at all and do not come back with it silent — the run's own cels are 351
-span bytes against the 324 of her heaviest `kcore` one (§9).
+**AND THE COPY TURNED OUT NOT TO BE THE COST AT ALL.** Three changes
+took all four frames back and only the first two are about the strip:
 
-A game frame is 159,744 T and 4,068 of them is 2.5%, which is why the
-still paths do not feel it: what the three that do have in common is a
-camera step, and the six cells are rewritten on **every** frame the view
-moves because an icon has no neighbour's content to inherit. The lever
-is §7.8's own save-under ring, 224 bytes of RAM, and it is still not
-written. **One dropped game frame in 200 is one sweep with no heroine in
-it every eight seconds** — small, and on this loop not nothing, which is
-why the number is here rather than inside a tolerance.
-`tools/test_enemies.py` asserts each path's floor with that control
-beside it, so the cause travels with the number.
+1. **THE LAYOUT WAITS FOR THE SECOND SWEEP.** What the six cells SAY
+   changes when she picks something up, a handful of times in a level;
+   where they are WRITTEN changes on every frame the view moves. So
+   `HUD_INV_LAYOUT` (6,480 T) and the copy (2,516) are separate
+   questions, and only the second has to be on the sweep that latches.
+   Measured on the walk, sweep by sweep against the 19,968 µs each
+   hardware sweep has: sweep A's worst ordinary frame is **18,582 µs**,
+   the frame the layout lands on **20,870 — over by 902**, and sweep
+   B's worst **17,236, with 2,732 to give**, because the second sweep
+   waits 40,468 T for its head gate (§9). What it costs is that the
+   count on the glass is one game frame — 40 ms — behind its variable,
+   which is the lag the magazine digit has had since it went in.
+2. **AND THE COPY IS THE BAR'S, NOT A SECOND ONE.** Both runs are six
+   cells of twelve bytes on eight lines, so there is one unrolled `LDI`
+   run and two callers — `HUD_RUN12`, which is also where the
+   1024-word fold's slow lane lives. The inventory was copying itself
+   with a pair of `LDIR`s and a destination re-read out of memory every
+   line: **4,068 T against 2,300**.
+
+That left two paths at 99, and the next measurement is the one worth
+copying. **`HUD_INV` was replaced by a delay of a KNOWN length** — `ld
+b,n : djnz $ : ret`, benched from a DI stub — so the question stopped
+being "is the copy too dear" and became "what could that frame have
+paid for". The answer on both paths was **nothing: 484 T cost the frame
+and so did 2,884.** A sweep with under 484 T of room cannot be bought
+with a cheaper copy, and every idea for one — four cells instead of
+six, a compiled `push` run — was dead before it was written.
+
+**SO THE INSTRUMENT WAS TURNED ON THE FRAME INSTEAD, AND IT HAS NO
+MODEL IN IT.** Two traces of the same path sampled at every hardware
+frame, one with `HUD_INV` returning at once and one with the delay:
+they are the same machine until the frame that cannot pay, so **the
+hardware frame they part on IS that frame**. Both parted within seven
+frames of the start — on the frame she picks the key up.
+
+3. **`ENT_REPAINT_DUE` DISOWNED THE WHOLE STRIP'S LAYOUT WHEREVER THE
+   REPAINT LANDED, AND THAT IS THE GAME FRAME.** A taken pickup's cell
+   is put back from the tilemap at the very end of the frame, and that
+   cell *may* be under the bottom row — so the five counts were stamped
+   `&FF` and the next `HUD_SERVICE` laid the whole strip out again:
+   `HUD_LEVEL` and its copy 8,032 T, all seven ammo cells 6,076, the
+   digit 864 and the six icons after them, **~17,000 T on a first sweep
+   with under 484 to spare**. Measured, a level-1 pickup is never over
+   the strip at all: the roof is world character row 12 and the view's
+   own row is 0 to 8, so the cell comes out at screen row 4 to 12
+   against a strip at 23. The stamp is `HUD_DISOWN` now and the guard
+   is two comparisons in `ENT_CELL_REPAINT`, where the screen row and
+   column have already been worked out — the cell is two character rows
+   and two columns, so it meets row 23 only from row 22 and only left
+   of the strip's last cell.
+
+**Six of the seven paths are 100 of 200 with the whole strip in them**,
+and `HUD_SERVICE` poked out changes nothing on any of them. The seventh
+is the run with the gun at 98 either way — its cels are 351 span bytes
+against the 324 of her heaviest `kcore` one (§9), and that is not the
+bottom row. `tools/test_enemies.py` asserts each path exactly, with the
+whole-HUD control on the one that is short; `tools/test_entities.py`
+drives the guard at a cell chosen to land on row 22 and at two that do
+not, because a guard that never fired would pass the negative halves on
+its own.
 
 `tools/test_hud.py` builds the expected 96 bytes out of `hud_art.inc`
 independently and compares them in video RAM through the engine's own
@@ -1951,9 +2004,14 @@ Three more things about it are load-bearing:
   next frame so the damage is never displayed. **Forcing it is
   disowning the LAYOUT, not the health**: `HUD_HP = &FF` on its own
   changed nothing, because `HUD_LEVEL` compares the number of cells LIT
-  and &FF lights the same six as 100 does. `HUD_LIT` and
-  `HUD_AMMO_SPENT` are stamped with it too, so what `HUD_SERVICE` finds
-  is a layout nobody owns and it lays the whole strip out again.
+  and &FF lights the same six as 100 does. `HUD_LIT`,
+  `HUD_AMMO_SPENT` and both inventory counts are stamped with it too —
+  which is `HUD_DISOWN` — so what `HUD_SERVICE` finds is a layout
+  nobody owns and it lays the whole strip out again. **AND IT IS ONLY
+  DONE WHEN THE REPAINT CAN REACH THE STRIP**: two comparisons in
+  `ENT_CELL_REPAINT`, where the screen row and column are already
+  worked out, and a whole game frame on the two paths that had none to
+  give — see the third measurement below.
 * **ONE CHARACTER OF MOVEMENT ONLY CHANGES TWO OF THE SIX CELLS.** The
   bar is `c[0..5]` with `c[i]` full while `i < lit`, so a shift of one
   character leaves every cell holding its NEIGHBOUR'S content — the same
@@ -3573,17 +3631,20 @@ taken back out.
 
 | Loop, at 25 Hz | game frames / 200 hardware |
 |---|---:|
-| standing still, walking left, walking right + firing | **100** |
-| walking right, jumping + firing, running right | **99** |
-| running right + firing | **97** |
+| standing, walking either way, walking + firing, jumping + firing, running right | **100** |
+| running right + firing | **98** |
 
-**AND IT IS NOT 100 EVERYWHERE ANY MORE, WHICH IS THE INVENTORY.** This
-row said "every path, 100" and that was true of the build it was
-measured on. The six cells of §7.8's inventory group have gone on the
-end of the bottom row since, and with `HUD_INV` poked to `RET` all but
-one of those paths comes straight back to 100 — §7.8 has the table.
-The exception is the run-and-fire path, which is 98 with the strip
-silent: two of its three dropped frames are the run's own cels.
+**IT WAS NOT 100 EVERYWHERE FOR A WHILE, AND THE INVENTORY WAS BLAMED
+FOR ALL OF IT.** The six cells of §7.8's inventory group went on the
+end of the bottom row and four paths dropped a frame; with `HUD_INV`
+poked to `RET` three came straight back, so the six cells were written
+into the floors as the cause. **Two of those frames were not the copy
+at all** — they were a pickup's repaint disowning the whole strip's
+layout on a sweep that had under 484 T to give, which is §7.8's third
+measurement and the one that needed an instrument with no model in it.
+All four are back. The run-and-fire path is **98 with the whole of
+`HUD_SERVICE` silent as well**: its two frames are the run's own cels,
+351 span bytes against the 324 of her heaviest `kcore` one.
 
 **EVERY COLUMN OF THIS TABLE IS THE SAME BUILD WITH ONE THING CHANGED**,
 in the order the changes happened, so what a row costs can be read off

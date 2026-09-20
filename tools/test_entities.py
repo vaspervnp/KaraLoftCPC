@@ -250,6 +250,78 @@ def quiet_the_enemies(m, sym):
     m.run_frames(3)
 
 
+def disown_checks(sym):
+    """A repaint disowns the strip's layout ONLY when it can reach it.
+
+    ENT_REPAINT_DUE puts the tilemap back where a taken pickup was, and
+    that cell may be under the HUD's bottom row - so the layout is
+    stamped &FF and HUD_SERVICE writes the whole strip again before the
+    beam gets there (CLAUDE.md 7.8). Unconditionally, that costs a whole
+    game frame on the two paths that have none to give: the strip laid
+    out again is ~17,000 T on a first sweep with under 484 to spare.
+
+    A level-1 pickup is never over the strip - the roof is world
+    character row 12 and the view's own row is 0 to 8 - so what is
+    checked here is the guard itself, driven at a cell chosen to land
+    where the strip is and at two that do not. Both halves matter: a
+    guard that never fires would pass the second and third alone.
+    """
+    print("\n  the repaint disowns the strip only when it is under it:")
+    m = boot(sym, scroll=True)
+    quiet_the_enemies(m, sym)
+    sync(m, sym)
+    wx, wcr = m.peek(sym["WORLD_X"]), m.peek(sym["WORLD_CR"])
+    if wcr & 1:
+        # ENT_RP_WR is a map row doubled and so always even; with an odd
+        # view row the repaint's rows are odd, row 23 is refused for
+        # having its partner off the display, and row 21 stops at 22.
+        check("the view's row is even, so row 22 is reachable at all",
+              False, f"WORLD_CR {wcr}")
+        return
+
+    def cell(screen_col, screen_row):
+        row = (wcr + screen_row) // 2
+        col = (wx + screen_col) // 2
+        return MAP_ADDR + row * MAP_W + col
+
+    def repaint(addr):
+        m.poke(sym["HUD_HP"], 100)
+        m.write_ram(STUB, bytes([
+            0xF3, 0x21, addr & 0xFF, addr >> 8,
+            0xCD, sym["ENT_CELL_REPAINT"] & 0xFF,
+            sym["ENT_CELL_REPAINT"] >> 8, 0x18, 0xFE]))
+        m.set_pc(STUB)
+        for _ in range(40000):
+            m.run_us(1)
+            if m.pc == STUB + 7:
+                break
+        return m.peek(sym["HUD_HP"])
+
+    # THE COLUMNS HAVE TO BE EVEN with an even view, for the same reason
+    # the rows do: ENT_RP_WC is a map column doubled.
+    hud_row, strip = sym["HUD_ROW"], sym["HUD_STRIP_CELLS"]
+    inside = wx & 1
+    outside = strip + ((wx ^ strip) & 1)
+    got = repaint(cell(inside, hud_row - 1))
+    check("a cell whose lower half IS the strip's row disowns the layout",
+          got == 0xFF,
+          f"HUD_HP &{got:02X} after a repaint at screen ({inside}, "
+          f"{hud_row - 1}), which covers rows {hud_row - 1} and {hud_row}")
+
+    got = repaint(cell(inside, hud_row - 3))
+    check("... and two rows higher does not", got == 100,
+          f"HUD_HP {got} after the same repaint at screen row "
+          f"{hud_row - 3} - so the guard is the ROW and not the call")
+
+    got = repaint(cell(outside, hud_row - 1))
+    check("... nor does the same row past the strip's last cell",
+          got == 100,
+          f"HUD_HP {got} at screen column {outside}, the strip being "
+          f"columns 0 to {strip - 1}")
+
+    m.set_pc(sym["WAIT_VSYNC"])
+
+
 def bake_checks(sym):
     """A pickup is drawn by being composited into the tile it stands on.
 
@@ -644,6 +716,7 @@ def main():
           len(blob) == ENT_MAX * 8 and used > 0, f"{len(blob)} bytes")
 
     bake_checks(sym)
+    disown_checks(sym)
 
     print()
     if fails:

@@ -365,28 +365,35 @@ def main():
             mm.key_up('A')
         return got
 
-    # AND THE FOUR PATHS THAT DO NOT REACH THE LOCK ARE THE INVENTORY,
-    # MEASURED RATHER THAN ALLOWED FOR. Every floor below is the number
-    # this build produces, with a CONTROL beside it: the same path with
-    # HUD_INV poked to RET. Six cells of icons and counts went on the end
-    # of the bottom row (CLAUDE.md 7.8) and they are rewritten on every
-    # frame the view moves, because an icon has no neighbour's content
-    # to inherit - 4,068 T on a step, on frames that were already full.
+    # AND SIX OF THE SEVEN REACH THE LOCK, WITH THE WHOLE STRIP IN
+    # THEM. They did not when the six inventory cells went in: walking
+    # right, jumping-and-firing and running right were each one game
+    # frame short and running-and-firing three, and HUD_INV poked to RET
+    # closed the gap on all four - so the strip was blamed for it, and
+    # written down here as measured rather than allowed for.
     #
-    # Reproducible to the frame over repeated runs, and the control
-    # closes the gap exactly on three of the four. 7.8 recorded "the
-    # loop does not notice" and that was measured on the walk and the
-    # climb, which it does not; it notices on the three paths that step
-    # the camera hardest.
+    # Two things took it back and neither was the copy (CLAUDE.md 7.8):
+    # the inventory's LAYOUT moved to the second sweep, where the head
+    # gate is idle for 40,468 T; and the repaint that follows a pickup
+    # now disowns the strip's layout only when it can actually reach it
+    # (src/entity.asm). The second was worth the last two frames, and a
+    # 484 T delay poked in where HUD_INV stands no longer costs them -
+    # which is what says the frame was the disowned layout and not the
+    # six cells.
+    #
+    # The one path left is the run with the gun, and it is NOT the
+    # strip: HUD_SERVICE poked out gives the same 98, because a run's
+    # cels are 351 span bytes against the 324 of her heaviest kcore one
+    # (CLAUDE.md 9).
     for label, joy, tap, shift, want, without in (
             ("standing still", 0, False, False, 100, None),
-            ("walking right, scrolling", JOY_RIGHT, False, False, 99, 100),
+            ("walking right, scrolling", JOY_RIGHT, False, False, 100, None),
             ("walking left, into it", JOY_LEFT, False, False, 100, None),
             ("walking right + firing", JOY_RIGHT, True, False, 100, None),
             ("jumping + firing, scrolling",
-             JOY_RIGHT | JOY_UP, True, False, 99, 100),
-            ("running right, scrolling", JOY_RIGHT, False, True, 99, 100),
-            ("running right + firing", JOY_RIGHT, True, True, 97, 98)):
+             JOY_RIGHT | JOY_UP, True, False, 100, None),
+            ("running right, scrolling", JOY_RIGHT, False, True, 100, None),
+            ("running right + firing", JOY_RIGHT, True, True, 98, 98)):
         got = loop_count(joy, tap, shift)
         # EXACTLY THE FLOOR, NOT "AT LEAST" AND NOT "AT MOST". A game
         # frame that took three hardware frames reads one under and one
@@ -398,16 +405,12 @@ def main():
               f"{got} game frames in 200 hardware frames, want {want}")
         if without is None:
             continue
-        quiet = loop_count(joy, tap, shift, quiet="HUD_INV")
-        check(f"... and {label} is the inventory group",
+        quiet = loop_count(joy, tap, shift, quiet="HUD_SERVICE")
+        check(f"... and what {label} drops is not the strip",
               quiet == without,
-              f"{quiet} of 200 with HUD_INV returning at once, against {got} "
-              f"with it - so the {without - want} frame(s) it drops are the "
-              f"six cells at the end of the bottom row and not the drawing"
-              + ("" if without == 100 else
-                 f", and the {100 - without} left over are not the strip "
-                 f"at all: the run's own cels are 351 span bytes against "
-                 f"the 324 of her heaviest kcore one (CLAUDE.md 9)"))
+              f"{quiet} of 200 with the WHOLE of HUD_SERVICE returning at "
+              f"once, against {got} with it - so the {100 - want} frame(s) "
+              f"it drops are the run's own cels and not the bottom row")
 
     print()
     if fails:

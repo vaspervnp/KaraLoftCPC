@@ -1187,28 +1187,35 @@ ENT_REPAINT_DUE:
                 ret  z
                 ld   de,0
                 ld   (ENT_RP_DUE),de
-                ; THE BOTTOM ROW MAY BE UNDER THIS. The energy bar and
-                ; the ammo both live on screen row 23 and are only
-                ; written when the view or the count moves, so a repaint
-                ; that lands on either would stay. The next frame writes
-                ; them again - before the beam reaches row 23, and after
-                ; the beam has passed it here (src/hud.asm).
+                ; THE BOTTOM ROW MAY BE UNDER THIS. The strip lives on
+                ; screen row 23 and is only written when the view or a
+                ; count moves, so a repaint that lands on it would stay.
+                ; Disowning the layout (HUD_DISOWN) makes the next
+                ; HUD_SERVICE write the whole of it again - before the
+                ; beam reaches row 23, and after the beam has passed it
+                ; here (src/hud.asm).
                 ;
-                ; IT IS HUD_LIT AND NOT HUD_HP THAT FORCES THE BAR. A
-                ; health she cannot have makes HUD_SERVICE look at the
-                ; bar, and then HUD_LEVEL finds the same six cells lit
-                ; and says so with the Z flag - which is the whole point
-                ; of it - and nothing is drawn. &FF is not a number of
-                ; cells, so the layout is what has to be disowned.
-                ld   a,&FF
-                ld   (HUD_HP),a             ; ... so HUD_SERVICE looks,
-                ld   (HUD_LIT),a            ; ... and finds a layout it
-                ld   (HUD_AMMO_SPENT),a     ; does not own
-                ld   (HUD_INV_K),a          ; ... and the same for what she
-                ld   (HUD_INV_C),a          ; is carrying, which is what a
-                                            ; repaint is most likely to be
-                                            ; over: the cell a taken pickup
-                                            ; leaves is on the bottom row
+                ; AND IT IS ONLY DONE WHEN THE REPAINT CAN ACTUALLY
+                ; REACH IT, which is the whole of a game frame on the
+                ; two paths that had none left. It used to be
+                ; unconditional and described as "most likely to be over
+                ; the bottom row"; measured, a level-1 pickup is never
+                ; over it at all - the roof is world character row 12
+                ; and the view's own row is 0 to 8, so the cell comes out
+                ; at screen row 4 to 12 against a strip at 23. What it
+                ; cost was paid on every pickup: the whole strip laid
+                ; out again - HUD_LEVEL and its copy 8,032 T, all seven
+                ; ammo cells 6,076, the digit and the six icons after
+                ; them - on a first sweep that had under 484 T to give.
+                ;
+                ; Measured over 200 hardware frames, running right and
+                ; jumping-and-firing, both of which take a pickup inside
+                ; the window: 99 game frames with the stamp and 100
+                ; without it, and 100 without it even with 484 T of
+                ; delay standing where HUD_INV is - so the frame was
+                ; this and not the six cells it was blamed on.
+                ; The guard is in ENT_CELL_REPAINT below, where the
+                ; screen row and column have already been worked out.
                 ; fall through with HL = the map cell
 ; ---------------------------------------------------------------------
 ; ENT_CELL_REPAINT - HL = a map byte. Repaints the four character cells
@@ -1248,6 +1255,21 @@ ENT_CELL_REPAINT:
                 ret  nc
                 ld   b,a
 
+                ; ---- AND NOW WE KNOW WHETHER THE STRIP IS UNDER IT ---
+                ; The cell is two character rows and two columns, so it
+                ; meets a strip on row HUD_ROW only from row HUD_ROW - 1
+                ; (HUD_ROW itself was refused above, its partner being
+                ; off the display) and only left of the strip's end.
+                ld   a,b
+                cp   HUD_ROW - 1
+                jr   nz,.clear
+                ld   a,c
+                cp   HUD_STRIP_CELLS        ; columns C and C+1 against 0..19
+                jr   nc,.clear
+                push bc
+                call HUD_DISOWN             ; ... so write it all again
+                pop  bc
+.clear:
                 ld   hl,(SCROLL)            ; word index of the top-left cell
                 ld   d,0
                 ld   e,c
