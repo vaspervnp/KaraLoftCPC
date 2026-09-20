@@ -1,0 +1,14 @@
+<Project>
+  <!-- docs/editor.md 6.2: every project in the solution, on the same terms.
+       TreatWarningsAsErrors is the spec's, and it is worth keeping: this
+       assembly's whole job is to agree with a Z80 engine byte for byte, and
+       a nullable warning is the cheapest kind of disagreement to find. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

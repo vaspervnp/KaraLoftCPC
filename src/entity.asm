@@ -30,11 +30,23 @@
 ;   DOOR        p0 = lock id      p1 = PU_* that opens it
 ;   RECEPTACLE  p0 = PU_* it takes  p1 = how many it still wants
 ;   NPC         p0 = coins asked  p1 = which line he says
-;   ENEMY       p0 = patrol width in tiles   p1 = shots a second
+;   ENEMY       p0 = EN_* - WHICH CHARACTER   p1 = patrol half-width
 ;   HAZARD      p0 = damage       p1 = period
 ;
-; No Module 5 code reads the enemy or hazard fields; they are named so
-; the format is final.
+; p0 IS ALWAYS "WHICH THING THIS IS", and the ENEMY row said otherwise
+; until the level editor came to write these bytes and had to pick. It
+; first read p0 = patrol width, p1 = shots a second, which leaves
+; nowhere to say which character it is and makes the fire rate a
+; property of the instance when it is plainly a property of the
+; character: the rate, the speed, the box, the art and the hit points
+; all come from the type table (8.7), so a designer places a drone and
+; not a set of numbers. make_city_map.py has written EN_DRONE into p0
+; since the drones went in, the shipped level_1.lvl carries three of
+; them with half-widths of 4, 4 and 6 in p1, and CLAUDE.md 8.6 settled
+; it - this comment was the last thing still saying the old reading.
+;
+; No Module 5 code reads the hazard fields; they are named so the
+; format is final.
 ; =====================================================================
 
 ; The editor's enum, in its declaration order (editor.md 5.3).
