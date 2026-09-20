@@ -30,14 +30,24 @@ touch sweep takes one frame in four instead of one in two, and which of
 the two odd phases it takes was worth more than the quartering (§9).
 
 **AND THE LEVEL EDITOR HAS STARTED, FROM THE EXPORTER RATHER THAN FROM A
-SCREEN.** `editor/` is a .NET 10 solution — a Domain, an Exporters library
-and an xUnit suite — and what it does today is read `build/level_1.lvl`
-and write it back **byte for byte**, bake level 1's ten overlay pairs into
-the same `citytiles.bin` the build ships, and emit the same 51 bytes of
-tile flags. `tools/test_format.py` then loads the editor's own file on the
-emulator and passes all 21 of its checks. The golden file §11 step 7 was
-waiting for now runs both ways (§8.3); what is left is the asset import
-and the painter.
+SCREEN.** `editor/` is a .NET 10 solution — a Domain, an Assets library, an
+Exporters library and an xUnit suite — and what it does today is read
+`build/level_1.lvl` and write it back **byte for byte**, bake level 1's ten
+overlay pairs into the same `citytiles.bin` the build ships, and emit the
+same 51 bytes of tile flags. `tools/test_format.py` then loads the editor's
+own file on the emulator and passes all 21 of its checks. The golden file
+§11 step 7 was waiting for now runs both ways (§8.3).
+
+**AND THE TILES COME OFF THE ARTIST'S SHEET NOW, NOT OUT OF THE BUILD'S
+OWN OUTPUT.** The editor imports the asset package — the PNG, its frame
+boxes, the names in `tile_table.json` and the draw table — quantises it
+against `src/palette.asm`'s sixteen pens and packs it column-major, and
+**level 1's 41 tiles come out as the first 2,624 bytes of `citytiles.bin`
+exactly**. That is not a new comparison so much as an honest one: until the
+import existed those 41 tiles were *taken from* the blob they were checked
+against, so only the ten baked ones were really under test. All 51 are now,
+and the importer reads all nine tile sheets of all six levels — 275 tiles,
+34 overlays, which is §7.3's own table. What is left is the painter.
 
 **`RUN"DISC` opens on the title picture and then starts on the
 rooftop.** The core boots, self-tests its banks, puts the artist's
@@ -228,6 +238,9 @@ build/kara.bas    ... and the PLAYER's one, generated: the label screen
 editor/                    the level editor (§11 step 7), C# / ASP.NET Core
   src/...Domain/           the model: the level, the entity record, the tile
                            and its flags, and Mode 0's bit interleaving
+  src/...Assets/           the artist's package in: a PNG decoder with no
+                           package behind it, the palette out of palette.asm,
+                           and the tile sheets of all six levels
   src/...Exporters/        level_<n>.lvl, tileflags_<level>.bin, and the
                            build-time bake of the overlay pairs
   tests/...Tests/          xUnit, against build/'s own golden files
@@ -4623,20 +4636,64 @@ the next one starts.
    composite done the wrong way round, and the same ten flags moved one
    tile along — which keeps every count right and the file wrong.
 
-   **What is left is phases 2 and 3 of editor.md §15**: importing the
-   asset pack, and the painter itself. Three things the import will have
-   to be written around, all of them found by reading the shipped pack
-   rather than the spec — the manifest's `file` fields point at
-   `out/frames_*.txt` that do not exist and `city_agent` is missing from
-   level 1's manifest altogether, so the sheets are found by scanning the
-   directory; `tile_names` exists only in levels 3 and 5, so level 1's
-   names come out of the sheet's `description` ("frame order: ...") the
-   way `make_city_map.py` reads them; and **there is no file anywhere
-   that carries collision flags.** `tile_table.json` says how a tile is
-   DRAWN and the only statement of what it DOES is a dict written by hand
-   in `make_city_map.py` — so the flags are data the EDITOR owns, seeded
-   once from that dict, and `tileflags_<level>.bin` is its output.
-   Phase 4 of §15 this project does not need.
+   **AND PHASE 2 IS DONE: THE ASSET PACK GOES IN.**
+   `CpcLevelEditor.Assets` reads the artist's package and builds a
+   tileset out of it — and the measurement that says it is right is the
+   one the bake test was already making, only honestly. Level 1's 41
+   tiles used to be taken out of the front of `citytiles.bin`, so the
+   blob comparison had 2,624 of its 3,264 bytes copied from the file it
+   was compared against; imported from the PNG, **all 3,264 are under
+   test and they still agree byte for byte.** Four transformations at
+   once: the decoder, the quantiser, the column-major packing and the
+   frame order.
+
+   | | |
+   |---|---|
+   | level 1's tiles, imported against `citytiles.bin` | **2,624 bytes identical**, and the whole baked blob with them |
+   | every tile sheet in the package | **9 sheets, 6 levels, 275 tiles, 34 overlays** — §7.3's table, re-derived |
+   | `tileflags_level1_city.bin`'s artist half | **41 bytes identical** |
+   | every `*_sheet.png`, against the size Aseprite recorded | 56 of 56 |
+
+   **THE PNG DECODER IS WRITTEN HERE AND THAT IS DELIBERATE.** An image
+   package is a NuGet restore between this repository and a build, for
+   two hundred lines that can be checked against the shipped sheets byte
+   for byte. It does 8-bit colour types 2, 3 and 6, non-interlaced,
+   **which is every one of the 137 PNGs in `assets/` — 77, 58 and 2,
+   counted rather than assumed** — and refuses everything else with the
+   header it found in the message, because a decoder that guessed would
+   return a picture and a wrong picture quantises to a plausible
+   tileset. Its own tests hand it all five scanline filters
+   on a picture whose pixels are known, since a wrong Paeth decodes most
+   real images almost correctly.
+
+   Each check carries a negative control: the palette as it was before
+   §7.1 gave pens 1 and 5 to the art produces different bytes (so the
+   check would notice which palette was read), and the same 64 bytes
+   row-major instead of column-major do too.
+
+   **Four things the import had to be written around**, all found by
+   reading the shipped pack rather than the spec: the manifest's `file`
+   fields point at `out/frames_*.txt` that do not exist and `city_agent`
+   is missing from level 1's manifest altogether, so the sheet is found
+   through `tile_table.json` and then by scanning the directory;
+   **only `tile_table.json` names every tile** — two sheets of the nine
+   carry `tile_names`, one states the frame order in prose, and **five
+   say nothing at all** — so the table is the source and the manifest is
+   kept as a cross-check, which for level 1 is two independent
+   statements of the same order that have to agree; **which tiles are
+   overlays is the table's word and never the pixels'**, and level 1
+   alone shows why — counted on the bytes the engine gets, its eleven
+   overlays run from 32 to 94 transparent pixels of 128 and its thirty
+   opaque tiles from 0 to 128, so the best threshold there is still gets
+   twelve of the forty-one wrong; and **there is no file anywhere that
+   carries collision flags.** `tile_table.json` says how a tile is DRAWN
+   and the only statement of what it DOES was a dict written by hand in
+   `make_city_map.py` — so the flags are data the EDITOR owns,
+   `LevelFlagSeeds` is where level 1's start, and
+   `tileflags_<level>.bin` is the output.
+
+   **What is left is phase 3 of editor.md §15**: the painter itself.
+   Phase 4 this project does not need.
 8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

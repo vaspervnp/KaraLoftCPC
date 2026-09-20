@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/CpcLevelEditor.Domain/CpcLevelEditor.Domain.csproj" />
+    <Project Path="src/CpcLevelEditor.Assets/CpcLevelEditor.Assets.csproj" />
     <Project Path="src/CpcLevelEditor.Exporters/CpcLevelEditor.Exporters.csproj" />
   </Folder>
   <Folder Name="/tests/">
