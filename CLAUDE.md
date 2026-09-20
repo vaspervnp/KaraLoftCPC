@@ -3,7 +3,8 @@
 Z80 assembly game for the Amstrad CPC 6128. The design document is [plan.md](plan.md)
 (written in Greek); this file holds the technical contract that code must satisfy.
 **Where this file and plan.md disagree, this file wins** — see §11 for the specific
-corrections and why.
+corrections and why. The same holds for [docs/editor.md](docs/editor.md),
+which now carries its own §0 of four corrections this file forced (§8.3).
 
 ## 1. Status
 
@@ -27,6 +28,16 @@ is the fastest thing the frame can carry. **A play-test reported the
 run's flicker and the answer was in the logic, not the drawing**: the
 touch sweep takes one frame in four instead of one in two, and which of
 the two odd phases it takes was worth more than the quartering (§9).
+
+**AND THE LEVEL EDITOR HAS STARTED, FROM THE EXPORTER RATHER THAN FROM A
+SCREEN.** `editor/` is a .NET 10 solution — a Domain, an Exporters library
+and an xUnit suite — and what it does today is read `build/level_1.lvl`
+and write it back **byte for byte**, bake level 1's ten overlay pairs into
+the same `citytiles.bin` the build ships, and emit the same 51 bytes of
+tile flags. `tools/test_format.py` then loads the editor's own file on the
+emulator and passes all 21 of its checks. The golden file §11 step 7 was
+waiting for now runs both ways (§8.3); what is left is the asset import
+and the painter.
 
 **`RUN"DISC` opens on the title picture and then starts on the
 rooftop.** The core boots, self-tests its banks, puts the artist's
@@ -133,8 +144,25 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 **The roof's gap is a run-jump now**: the 15-frame arc carries 15 bytes
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all seventeen
-pass**, the frame budget among them — but the budget is asserted where
+`./tools/run_tests.sh` runs every acceptance suite. **Thirteen of the
+seventeen pass and four do not, and every one of the eighteen failing
+checks is a suite that has not caught up with a decision the engine
+already made** — measured, with the numbers beside them, so that the
+next person to run it knows which failures are news:
+
+| suite | checks | what has not caught up |
+|---|---:|---|
+| `test_module4.py` | 8 | the vertical latch moved into the second sweep (§7.8), so a row step is **two** game frames and not three; the driver still models the old cadence and its rendered-vs-engine offsets come back in the hundreds |
+| `test_module5.py` | 5 | floors written at 50 Hz: "firing costs her nothing on its own" wants 100 of 200 and the build gives 99, and the bullet/tile pair wants a round over sky to fly on |
+| `test_enemies.py` | 4 | the same, on the four scrolling paths — 99, 99, 99 and **97** of 200 against a floor of 100. §9's own table says a run is where the frames go |
+| `test_climb.py` | 1 | "a jump twelve frames early lands her in the hole" — the 25 Hz coyote budget in the test itself |
+
+None of them is a report that the game got worse: the loop counts in
+§9's table are the measurements these floors were supposed to be
+re-derived from and were not. **The migration is the work, not the
+diagnosis.**
+
+The frame budget is asserted where
 it can be measured now, and that is a change worth knowing about. The
 pessimistic sum of every call the loop makes is **87,328 T of 79,872 on
 her heaviest cel**, over by 7,456, because it adds worsts that do not
@@ -179,6 +207,13 @@ disc/disc.bas     ASCII BASIC loader - straight into the game, and what
                   every suite runs
 build/kara.bas    ... and the PLAYER's one, generated: the label screen
                   first, then the same load (7.9)
+
+editor/                    the level editor (§11 step 7), C# / ASP.NET Core
+  src/...Domain/           the model: the level, the entity record, the tile
+                           and its flags, and Mode 0's bit interleaving
+  src/...Exporters/        level_<n>.lvl, tileflags_<level>.bin, and the
+                           build-time bake of the overlay pairs
+  tests/...Tests/          xUnit, against build/'s own golden files
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
@@ -248,6 +283,7 @@ the title screen. `build.sh` regenerates them anyway so they cannot drift.
 | ffmpeg | `/home/vasilhs/bin/ffmpeg` | for the audio pipeline |
 | Blender | MCP tools (`mcp__Blender__*`) — no CLI binary on PATH | render pipeline |
 | Aseprite | **not available** — no CLI and no MCP server is connected | see §7.2 |
+| .NET SDK | `/home/vasilhs/.dotnet/dotnet` — **not on PATH**, call it by full path | 10.0.400, for `editor/` (§11 step 7) |
 
 RASM can emit the DSK itself via a `SAVE "GAME.BIN",start,length,AMSDOS,"kara.dsk"`
 directive, which is usually simpler than post-processing with iDSK. Use iDSK when you
@@ -2225,9 +2261,65 @@ name.
 and an opaque tile in level 1, with the same `Ladder` flag in both. The
 format has nowhere to put "this cell is an overlay over that one" yet,
 which is the same gap: a cell is one byte and an overlay needs the tile
-under it as well — **and that is the one question of §11 step 7 still
-open.** The tile flag byte is settled above and `param0`/`param1` are in
-§8.6.
+under it as well. The tile flag byte is settled above and
+`param0`/`param1` are in §8.6.
+
+#### AND THE EDITOR WRITES THESE BYTES NOW, WHICH MAKES THE GOLDEN FILE RUN BOTH WAYS
+
+`editor/` is the C# side of the contract (§11 step 7): a Domain that holds
+a level the way a designer does, and an Exporters library that turns it
+into the bytes above. **It reads `build/level_1.lvl` and writes it back
+byte for byte — 2,149 of them — and `tools/test_format.py` then loads the
+result on the emulator and passes every check with its three controls
+intact.** So the format is no longer something one implementation asserts
+about itself: an independent reader and an independent writer, in another
+language, agree with `make_level.py` and with `MAP_INSTALL`.
+
+**Four things the exporter has to get right that are easy to get NEARLY
+right**, all of them found by writing it:
+
+* **`SCROLL_H` is ZERO**, so a horizontally-scrolling level's flags byte is
+  `&00` and not `&01`. A writer that treats "horizontal" as a bit to set
+  differs from the shipped file in the header alone.
+* **An empty section still gets a real offset**, and with no links and no
+  regions both of those equal the FILE'S OWN LENGTH.
+* **A region is SEVEN bytes** and the header's count is `length / 7`, so a
+  record padded to eight reports a count that is nearly right.
+* **The live records are contiguous from zero and every one is
+  `EF_ACTIVE`.** The engine clears its 24 slots and `LDIR`s `count * 8`
+  bytes over the front, so an inactive record inside the count is not a
+  gap — kind 0 is `EK_PLAYER_START`, so an all-zero record is a real
+  entity at (0,0).
+
+**THE OVERLAY PAIRING LIVES IN THE EDITOR AND STILL DIES BEFORE THE
+FILE.** The gap above is real and is not closed by growing the format: the
+editor keeps `(overlay, background)` in a layer of its own and composites
+at export exactly as `bake_overlays()` does, so a map cell is still a
+finished tile and the engine is untouched. `OverlayBaker` reproduces level
+1's ten baked tiles and the `citytiles.bin` they go in **byte for byte**,
+drops the one pair whose composite came out the overlay again (`tank_10`),
+resolves the overlay that stands on another composite
+(`tank_21_on_ac_unit_on_far_fill`), and gives each baked tile the flags of
+what is UNDERNEATH it — 51 bytes of `tileflags_level1_city.bin`, also byte
+for byte.
+
+**What is NOT part of the contract is the NUMBERING.** A pair takes its
+index the first time it is placed, so a different placement order gives
+different indices and therefore different map bytes for the same picture.
+`make_city_map.py` sweeps prop by prop and an editor paints cell by cell,
+and neither is more correct. Handed the placements in the generator's own
+order the C# baker reproduces `city_baked.json` exactly, which is what the
+suite drives; what a golden test may assert in general is a pair's CONTENT
+and the map's consistency, not the number it was given.
+
+**`docs/editor.md` had four things wrong and they are written into its own
+§0 now**, because a spec that is read after the code is written is read by
+somebody who does not know which half to believe: the HUD band and the
+level size are §8.3's two corrections below, and the two the exporter
+found are the entity flags byte (editor.md says bit 0 is "facing left";
+the engine and the shipped file both say `EF_ACTIVE`, and there is no
+facing bit at all) and the enemy's `param0`/`param1`, which were the wrong
+way round in `src/entity.asm`'s own header comment as well.
 
 #### Two corrections to editor.md, both forced by the CRTC
 
@@ -4386,10 +4478,58 @@ the next one starts.
    editor.md §15; phases 1-3 (import, painting, binary export) are what
    this project needs, phase 4 is not.
 
-   Two things to settle before it starts, both of which are engine
-   decisions and not editor decisions: the tile flag byte (§8.3) and
-   the entity `param0`/`param1` meanings per entity kind, which
-   editor.md's Appendix A lists as free text.
+   ~~Two things to settle before it starts~~ — both settled, which is
+   what let it start: the tile flag byte is the format's own numbering
+   and the engine took it rather than asking the exporter to translate
+   (§8.3), and `param0`/`param1` are in §8.6 under the rule that **`p0`
+   is always "which thing this is"**.
+
+   **The exporter is done and it is the part that had to be first.**
+   `editor/` is a .NET 10 solution of a Domain, an Exporters library and
+   an xUnit suite — no web application yet, and deliberately: the first
+   thing worth having is not a screen, it is the editor emitting
+   `level_1.lvl` byte for byte and the engine reading it. It does both.
+   Measured, in this order, each check a stricter witness than the one
+   before it:
+
+   | | |
+   |---|---|
+   | Mode 0 encode → decode → the same pens | 256 of 256, and the wrong table of plan.md §4.2 disagrees on a quarter of the city's real tile bytes, which is what says this is pinning the hardware's |
+   | `build/level_1.lvl` read and written again | **2,149 bytes identical**; a single changed map byte breaks it |
+   | the ten baked tiles and `citytiles.bin` | **3,264 bytes identical**, the drop of `tank_10` and the chained `tank_21` among them |
+   | `tileflags_level1_city.bin` | **51 bytes identical**, each baked tile carrying what is underneath it |
+   | **`tools/test_format.py` on the editor's own file** | **all 21 checks, on the emulator, with its three controls intact** |
+
+   ```
+   /home/vasilhs/.dotnet/dotnet test editor/CpcLevelEditor.slnx
+   ```
+
+   **`.slnx`, not `.sln`** — .NET 10's own solution format, which is what
+   `dotnet new sln` writes. And the SDK is not on PATH (§3). The suite
+   reads its golden files out of `build/` rather than out of copies:
+   a copied golden file stops being golden the first time the generator
+   changes and nobody re-copies it.
+
+   Every one of those carries a negative control, because this project's
+   rule is that a comparison proves nothing until something shows it
+   would have noticed: the plan.md bit table, a flipped map byte, a
+   composite done the wrong way round, and the same ten flags moved one
+   tile along — which keeps every count right and the file wrong.
+
+   **What is left is phases 2 and 3 of editor.md §15**: importing the
+   asset pack, and the painter itself. Three things the import will have
+   to be written around, all of them found by reading the shipped pack
+   rather than the spec — the manifest's `file` fields point at
+   `out/frames_*.txt` that do not exist and `city_agent` is missing from
+   level 1's manifest altogether, so the sheets are found by scanning the
+   directory; `tile_names` exists only in levels 3 and 5, so level 1's
+   names come out of the sheet's `description` ("frame order: ...") the
+   way `make_city_map.py` reads them; and **there is no file anywhere
+   that carries collision flags.** `tile_table.json` says how a tile is
+   DRAWN and the only statement of what it DOES is a dict written by hand
+   in `make_city_map.py` — so the flags are data the EDITOR owns, seeded
+   once from that dict, and `tileflags_<level>.bin` is its output.
+   Phase 4 of §15 this project does not need.
 8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

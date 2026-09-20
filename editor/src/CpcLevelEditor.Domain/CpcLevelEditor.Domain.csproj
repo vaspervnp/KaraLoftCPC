@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The model, and nothing that does I/O. -->
+</Project>
