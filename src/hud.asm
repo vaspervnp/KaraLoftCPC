@@ -207,6 +207,27 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 ret
 
 ; ---------------------------------------------------------------------
+; HUD_DISOWN - say that nothing owns the strip's layout any more.
+;
+; WHAT A REPAINT HAS TO UNDO IS THE LAYOUT AND NOT THE NUMBERS. Every
+; group here compares a COUNT and returns when it has not moved, so a
+; health she cannot have is not enough: HUD_LEVEL finds the same six
+; cells lit by &FF as by 100 and says so with the Z flag, which is the
+; whole point of it. &FF is not a number of cells and not a number of
+; keys, so it is the layouts that are stamped and a caller that wants
+; the strip on the screen again has one call to make.
+;
+; Clobbers AF
+; ---------------------------------------------------------------------
+HUD_DISOWN:     ld   a,&FF
+                ld   (HUD_HP),a
+                ld   (HUD_LIT),a
+                ld   (HUD_AMMO_SPENT),a
+                ld   (HUD_INV_K),a          ; ... and the same for what she
+                ld   (HUD_INV_C),a          ; is carrying
+                ret
+
+; ---------------------------------------------------------------------
 ; HUD_BAR - the six health cells at the bottom LEFT.
 ;
 ; IN:  BC = the step the view has just taken, 0 if it has not moved
@@ -817,79 +838,63 @@ HUD_VACATE:     ld   a,b
 HUD_INV:        ld   a,(KEYS_COUNT)
                 ld   hl,HUD_INV_K
                 cp   (hl)
-                jr   nz,.layout
+                jr   nz,.changed
                 ld   a,(COINS_COUNT)
                 ld   hl,HUD_INV_C
                 cp   (hl)
-                jr   nz,.layout
+                jr   nz,.changed
                 ld   a,b                    ; the picture is right and the
                 or   c                      ; view has not moved: there is
                 ret  z                      ; nothing for it to be wrong at
                 jr   .copy
 
-.layout:        call HUD_INV_LAYOUT
-
-                ; THE SEAM IS DECIDED ONCE AND NOT PER LINE. Twelve
-                ; bytes a line cross the 1024-word fold at six of the
-                ; ring's start positions (CLAUDE.md 6.4), and there the
-                ; run comes back at the top of its own 2 KB block - so
-                ; the split is two counts worked out before the loop,
-                ; with the second one zero everywhere else.
-.copy:          ld   hl,(HUD_WANT)
-                ld   de,HUD_INV_BASE
-                add  hl,de
-                ld   a,h
-                and  3                      ; the circular window
-                ld   h,a
-                add  hl,hl                  ; words are two bytes
-                ld   a,h
-                cp   7
-                jr   nz,.flat
-                ld   a,l
-                cp   256 - HUD_INV_BYTES + 1
-                jr   nc,.fold
-.flat:          ld   a,HUD_INV_BYTES
-                ld   (HUD_N1),a
-                xor  a
-                ld   (HUD_N2),a
-                jr   .go
-.fold:          neg                         ; 256 - l: the BYTES left in this
-                ld   (HUD_N1),a             ; block, and the offset is always
-                ld   c,a                    ; even, being a word index doubled
-                ld   a,HUD_INV_BYTES
-                sub  c
-                ld   (HUD_N2),a
-.go:            ld   a,h
-                add  a,SCREEN_BASE >> 8
-                ld   d,a
-                ld   e,l
-                ld   (HUD_DST),de
-                ld   hl,HUD_INV_BUF
-                ld   a,HUD_LINES
-                ld   (HUD_LN),a
-.line:          ld   de,(HUD_DST)
-                ld   a,(HUD_N1)
-                ld   c,a
-                ld   b,0
-                ldir                        ; ... and HL walks the buffer
-                ld   a,(HUD_N2)
+                ; ---- AND THE LAYOUT WAITS FOR THE SECOND SWEEP, WHICH
+                ; IS THE WHOLE OF THE FRAME THIS GROUP WAS COSTING.
+                ;
+                ; The copy is 2,516 T and runs on every frame the view
+                ; moves; HUD_INV_LAYOUT is 6,480 and runs when a COUNT
+                ; changes, which is a handful of times in a level. So
+                ; the strip's cost is not what drops a frame - the
+                ; LAYOUT is, on the one frame it lands on. Measured on
+                ; the walk, sweep by sweep against the 19,968 us each
+                ; hardware sweep has:
+                ;
+                ;   sweep A, worst ordinary frame      18,582 us
+                ;   ... the frame the layout lands on  20,870   over by 902
+                ;   sweep B, worst frame               17,236   2,732 spare
+                ;
+                ; The first sweep latches the horizontal step and paints
+                ; the incoming column's tail; the second waits 40,468 T
+                ; for its head gate (9). So the layout goes where the
+                ; room is, and what that costs is that the COUNT on the
+                ; glass is a game frame behind its variable - 40 ms, the
+                ; same lag the magazine digit has had since it went in
+                ; and for the same reason.
+                ;
+                ; THE COPY STILL RUNS ON THE SWEEP THAT SKIPS THE
+                ; LAYOUT, and not only when the view moved. ENT_REPAINT_DUE
+                ; can paint over the strip and stamps these counts with
+                ; &FF to say so (entity.asm); if a stale buffer were also
+                ; a reason not to write anything, that damage would stay
+                ; on the screen until the next count change.
+.changed:       ld   a,(FRAME_HALF)
                 or   a
-                jr   z,.next
-                ld   c,a
-                ld   b,0
-                ld   a,(HUD_DST + 1)
-                and  &F8                    ; the top of this same block
-                ld   d,a
-                ld   e,0
-                ldir
-.next:          ld   a,(HUD_DST + 1)
-                add  a,8                    ; the next raster block down
-                ld   (HUD_DST + 1),a
-                ld   a,(HUD_LN)
-                dec  a
-                ld   (HUD_LN),a
-                jr   nz,.line
-                ret
+                jr   z,.copy                ; the first sweep: write the
+                                            ; buffer it has, and lay the
+                                            ; new one out in the second
+                call HUD_INV_LAYOUT
+
+                ; AND THE COPY IS THE BAR'S, NOT A SECOND ONE. Both
+                ; runs are six cells of twelve bytes on eight lines, so
+                ; there is one unrolled LDI run and two callers - see
+                ; HUD_RUN12, which is also where the 1024-word fold is
+                ; handled. This used to be a pair of LDIRs with the
+                ; destination re-read out of memory every line, 4,068 T
+                ; against 2,300, and the 1,768 T was a whole game frame
+                ; in 200 on the paths that step the camera (7.8).
+.copy:          ld   de,HUD_INV_BASE
+                ld   hl,HUD_INV_BUF
+                jp   HUD_RUN12
 
 ; ---------------------------------------------------------------------
 ; HUD_INV_LAYOUT - the six cells into HUD_INV_BUF, line by line.
@@ -976,7 +981,7 @@ HUD_INV_DIGIT:  push af
                 ret
 
 ; ---------------------------------------------------------------------
-; HUD_ALL - write all six cells, twelve contiguous bytes a line.
+; HUD_ALL - write all six cells of the health bar.
 ;
 ; SIX SEPARATE HUD_PUTs WOULD BE 4,908 T AND THIS IS 2,300, because the
 ; six cells are twelve consecutive bytes on each of the eight lines and
@@ -985,14 +990,36 @@ HUD_INV_DIGIT:  push af
 ; draw, so that her save-under captures the bar (CLAUDE.md 10), and
 ; everything spent here comes off the lead the top border gives her
 ; (9). It costs a 96-byte buffer, which HUD_LEVEL fills.
+; Clobbers AF,BC,DE,HL
+; ---------------------------------------------------------------------
+HUD_ALL:        ld   de,HUD_BASE
+                ld   hl,HUD_BUF
+                ; falls into HUD_RUN12
+
+; ---------------------------------------------------------------------
+; HUD_RUN12 - twelve contiguous bytes on each of eight lines, from a
+; buffer into a run of six cells at a word offset into the view.
+;
+; IN:  DE = the run's word offset into the view
+;      HL = the 96-byte buffer
+; Clobbers AF,BC,DE,HL
+;
+; THE INVENTORY GROUP SHARES IT, AND THAT IS WHAT THIS ROUTINE IS FOR.
+; Both runs are six cells of twelve bytes on eight lines - the bar's
+; and the icons-and-counts of 7.8 - and the second one was copying
+; itself with a pair of LDIRs and a destination re-read out of memory
+; every line: 4,068 T against this 2,300. Measured in play, that
+; difference was a whole game frame in 200 on the three paths that step
+; the camera hardest (7.8), so the second copy of the unrolled run was
+; worth 240 bytes of core image and it is cheaper to share one.
 ;
 ; The exception is the fold: at six of the ring's 1024 start positions
 ; the run crosses the 1024-word seam and comes back at the top of the
 ; same 2 KB block (6.4), and there it is two LDIRs a line.
-; Clobbers AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-HUD_ALL:        ld   hl,(HUD_WANT)
-                ld   de,HUD_BASE
+                assert HUD_INV_BYTES == HUD_BYTES
+HUD_RUN12:      ld   (HUD_SRC),hl
+                ld   hl,(HUD_WANT)
                 add  hl,de
                 ld   a,h
                 and  3
@@ -1008,7 +1035,7 @@ HUD_ALL:        ld   hl,(HUD_WANT)
                 add  a,SCREEN_BASE >> 8
                 ld   d,a
                 ld   e,l
-                ld   hl,HUD_BUF
+                ld   hl,(HUD_SRC)
                 repeat HUD_LINES, line
                 repeat HUD_BYTES
                 ldi                         ; 20 T a byte against LDIR's 24,
@@ -1036,7 +1063,7 @@ HUD_ALL:        ld   hl,(HUD_WANT)
                 ld   d,a
                 ld   e,l
                 ld   (HUD_DST),de
-                ld   hl,HUD_BUF
+                ld   hl,(HUD_SRC)
                 ld   a,HUD_LINES
                 ld   (HUD_LN),a
 .line:          ld   de,(HUD_DST)
@@ -1206,6 +1233,10 @@ HUD_HP:         db &FF          ; the health it was last drawn for, and
 HUD_AMMO_SPENT: db &FF          ; ... and the same for the rounds: &FF is
                                 ; not a number of spent rounds either
 HUD_A_MOVED:    db 0            ; what the view did: HUD_AMMO_STEP's 0-3
+; Where HUD_RUN12 keeps the buffer it was handed, because the fold's
+; slow lane reloads it once a line and the fast lane once a call.
+HUD_SRC:        dw 0
+
 HUD_INV_K:      db &FF          ; the counts the inventory's six cells were
 HUD_INV_C:      db &FF          ; ... laid out for, &FF being no layout yet
 HUD_INV_BUF:    defs HUD_INV_BYTES * HUD_LINES
