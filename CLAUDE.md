@@ -144,23 +144,34 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 **The roof's gap is a run-jump now**: the 15-frame arc carries 15 bytes
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
-`./tools/run_tests.sh` runs every acceptance suite. **Thirteen of the
-seventeen pass and four do not, and every one of the eighteen failing
-checks is a suite that has not caught up with a decision the engine
-already made** — measured, with the numbers beside them, so that the
-next person to run it knows which failures are news:
+`./tools/run_tests.sh` runs every acceptance suite and **all seventeen
+pass again.** Eighteen checks in four of them did not, and how they
+divide is the part worth having written down: **fourteen were suites
+that had not caught up with a decision the engine already made, and four
+were a report that the game HAD got worse** — which is exactly why a red
+suite is dangerous rather than merely untidy. The real finding was
+sitting among the stale ones and nobody could see it.
 
-| suite | checks | what has not caught up |
+| suite | checks | what it was |
 |---|---:|---|
-| `test_module4.py` | 8 | the vertical latch moved into the second sweep (§7.8), so a row step is **two** game frames and not three; the driver still models the old cadence and its rendered-vs-engine offsets come back in the hundreds |
-| `test_module5.py` | 5 | floors written at 50 Hz: "firing costs her nothing on its own" wants 100 of 200 and the build gives 99, and the bullet/tile pair wants a round over sky to fly on |
-| `test_enemies.py` | 4 | the same, on the four scrolling paths — 99, 99, 99 and **97** of 200 against a floor of 100. §9's own table says a run is where the frames go |
-| `test_climb.py` | 1 | "a jump twelve frames early lands her in the hole" — the 25 Hz coyote budget in the test itself |
+| `test_module4.py` | 8 | **the display's top scanline, found two lines out.** `find_display_top` scored its guesses over the top 24 lines of the picture, and those are the night sky: one flat pen, so an offset two scanlines wrong scored exactly as well and the search kept the lowest of the plateau — reporting "256 of 256 probes matched" while doing it. Every rendered check then compared the picture against a model two lines up: 8,600 wrong pixels of 30,720 on a build whose picture was correct. It scores the whole 192 lines now and asserts the MARGIN to the runner-up, so a plateau is a visible fact |
+| | | ... and three more: the model did not know about the inventory group (96 bytes, to the byte); the Kara-position check paired the picture with the wrong frame's `KARA_Y`, because `PLAYER_TO_SCREEN` moved to the end of the second sweep (§7.8); and the horizontal step was measuring the camera's vertical catch-up, which is half again as fast now that a row step is two game frames |
+| `test_module5.py` | 5 | **a round steps four bytes and the suite expected two** — §9's own table of what 25 Hz cost, read off `BUL_SPEED`/`EBUL_SPEED` now instead of written down. And three floors counted in 50 Hz frames, re-derived: firing costs nothing at all with the strip silent, the frames she spends planted are counted off `INPUT_NOW` rather than halved out of the tap pattern, and `BUL_TOP` forced to `BUL_MAX` costs frames but no longer costs ground, because 5,408 T of overrun fits in a 25 Hz frame |
+| `test_enemies.py` | 4 | **the inventory group, and this one is real.** See below |
+| `test_climb.py` | 1 | a jump twelve frames early used to end inside the roof's gap; at 25 Hz speeds it ends short of the near lip and she lands back on the roof. The early end of the window is searched for now instead of written down — it is four frames |
 
-None of them is a report that the game got worse: the loop counts in
-§9's table are the measurements these floors were supposed to be
-re-derived from and were not. **The migration is the work, not the
-diagnosis.**
+**AND THE ONE THAT WAS NOT A STALE FLOOR: THE INVENTORY GROUP COSTS A
+GAME FRAME.** Measured over all seven of `test_enemies.py`'s paths with
+`HUD_INV` poked to `RET` as the control, reproducible to the frame:
+walking right, jumping-and-firing and running right are **99 game frames
+in 200 hardware frames with the six cells and 100 without them**, and
+running-and-firing is 97 against 98. §7.8 said "the loop does not
+notice" on a measurement of the walk and the climb; it notices on the
+three paths that step the camera hardest, because an icon has no
+neighbour's content to inherit and all six cells are rewritten on every
+frame the view moves. The floors are those numbers now, each with that
+control beside it, so the cause travels with the number — and §7.8 has
+what it would take to buy them back.
 
 The frame budget is asserted where
 it can be measured now, and that is a change worth knowing about. The
@@ -1672,13 +1683,38 @@ in a level. It is `HUD_ALL`'s own argument one group along.
 | one row DOWN | 23,856 | **32,856** |
 | ... one row UP | 10,860 | **14,928** |
 
-**and the loop does not notice, which it would have done at 50 Hz.**
-Measured against interrupt ticks with `HUD_INV` poked to `RET` as the
-control: walking right 100 game frames in 200 hardware frames either
-way, running right 99 either way, climbing down 100 either way. A game
-frame is 159,744 T now (§9) and 4,068 of them is 2.5%; the same strip
-on the old 50 Hz loop cost the run ten frames in 200 for the magazine
-digit alone.
+**AND THE LOOP DOES NOTICE, ON THE THREE PATHS THAT STEP THE CAMERA
+HARDEST.** This section used to say it did not, on a measurement of the
+walk and the climb — and those two are indeed 100 game frames in 200
+hardware frames either way. Driven over all seven of
+`tools/test_enemies.py`'s paths with `HUD_INV` poked to `RET` as the
+control, reproducible to the frame over repeated runs:
+
+| | with the six cells | with `HUD_INV` = `RET` |
+|---|---:|---:|
+| standing still | 100 | 100 |
+| walking right, scrolling | **99** | 100 |
+| walking left, into it | 100 | 100 |
+| walking right + firing | 100 | 100 |
+| jumping + firing, scrolling | **99** | 100 |
+| running right, scrolling | **99** | 100 |
+| running right + firing | **97** | **98** |
+
+So the inventory costs **one game frame in 200 on three paths**, and on
+the run-and-fire path one of its three; the other two are not the strip
+at all and do not come back with it silent — the run's own cels are 351
+span bytes against the 324 of her heaviest `kcore` one (§9).
+
+A game frame is 159,744 T and 4,068 of them is 2.5%, which is why the
+still paths do not feel it: what the three that do have in common is a
+camera step, and the six cells are rewritten on **every** frame the view
+moves because an icon has no neighbour's content to inherit. The lever
+is §7.8's own save-under ring, 224 bytes of RAM, and it is still not
+written. **One dropped game frame in 200 is one sweep with no heroine in
+it every eight seconds** — small, and on this loop not nothing, which is
+why the number is here rather than inside a tolerance.
+`tools/test_enemies.py` asserts each path's floor with that control
+beside it, so the cause travels with the number.
 
 `tools/test_hud.py` builds the expected 96 bytes out of `hud_art.inc`
 independently and compares them in video RAM through the engine's own
@@ -3537,7 +3573,17 @@ taken back out.
 
 | Loop, at 25 Hz | game frames / 200 hardware |
 |---|---:|
-| every path in the table below, and the two run paths with it | **100** |
+| standing still, walking left, walking right + firing | **100** |
+| walking right, jumping + firing, running right | **99** |
+| running right + firing | **97** |
+
+**AND IT IS NOT 100 EVERYWHERE ANY MORE, WHICH IS THE INVENTORY.** This
+row said "every path, 100" and that was true of the build it was
+measured on. The six cells of §7.8's inventory group have gone on the
+end of the bottom row since, and with `HUD_INV` poked to `RET` all but
+one of those paths comes straight back to 100 — §7.8 has the table.
+The exception is the run-and-fire path, which is 98 with the strip
+silent: two of its three dropped frames are the run's own cels.
 
 **EVERY COLUMN OF THIS TABLE IS THE SAME BUILD WITH ONE THING CHANGED**,
 in the order the changes happened, so what a row costs can be read off
