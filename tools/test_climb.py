@@ -674,12 +674,32 @@ def main():
           f"she ends on the street at {spent['wy'] + KARA_BOX_H}, not the "
           f"roof at {ROOF_Y} - the counter runs out whether she uses it or "
           f"not, so a long fall cannot be rescued halfway down")
-    early, _ = jump_at(-12)
-    check("and a jump twelve frames early lands her in the hole",
-          early["wy"] + KARA_BOX_H >= STREET_Y,
-          f"she ends at {early['wy'] + KARA_BOX_H} on tile "
-          f"{early['wx'] // 4} - the gap is still a gap, and the check "
-          f"above is not passing because everything clears it")
+    # THE EARLY END IS SEARCHED FOR AND NOT HARD-CODED, because how far
+    # a take-off carries her is a SPEED and the speeds moved to 25 Hz
+    # (CLAUDE.md 9). Twelve frames early used to put the arc's end
+    # inside the hole; at two bytes a frame it ends short of the near
+    # lip instead and she lands back on the roof - which proves nothing
+    # about the gap. What the control has to show is that there IS a
+    # press that falls in, so the one at the lip is not passing because
+    # everything clears it.
+    landed = []
+    early, early_at = None, None
+    for offset in (-2, -4, -6, -8, -10, -12):
+        s_, _ = jump_at(offset)
+        landed.append((offset, s_["wx"] // 4, s_["wy"] + KARA_BOX_H))
+        if s_["wy"] + KARA_BOX_H >= STREET_Y:
+            early, early_at = s_, offset
+            break
+    print("      early take-offs (frames before the lip -> tile, feet): "
+          + ", ".join(f"{o} -> {t}, {f}" for o, t, f in landed))
+    check("and a jump early enough to end inside the gap falls in",
+          early is not None,
+          f"{early_at} frames early ends at {early['wy'] + KARA_BOX_H} on tile "
+          f"{early['wx'] // 4} - the gap is still a gap, and the check above "
+          f"is not passing because everything clears it"
+          if early else
+          f"no take-off in {[o for o, _, _ in landed]} frames before the lip "
+          f"fell in - they all land back on the roof short of it")
     # ... AND THE THIRD CONTROL IS THE SPEED ITSELF. The arc is the same
     # 15 frames whatever she is doing; what changed is how far they
     # carry her. This is a design fact and not a defect: the gap is what

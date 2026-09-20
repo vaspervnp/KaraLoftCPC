@@ -205,6 +205,24 @@ def drive(machine, sym, phase):
     """
     if phase == 0:
         drive.want = 0
+        # LET THE VERTICAL AXIS COME TO REST FIRST. The phases before
+        # this one leave the view most of a map away from her, and
+        # CAMERA_V then pans it back a character row at a time while the
+        # horizontal step is being measured - eight steps of (-40, 0, -1)
+        # in sixteen frames, against a check that wants (1, 1, 0). It is
+        # not that the camera is wrong; it is that a row step is TWO
+        # game frames now and not three (CLAUDE.md 7.8), so the catch-up
+        # is half again as fast and reaches into a window it used to
+        # finish before.
+        machine.poke(sym["V_REQUEST"], 0)
+        steady, last = 0, None
+        for _ in range(240):
+            next_frame_top(machine, sym)
+            cur = machine.peek(sym["WORLD_CR"])
+            steady = steady + 1 if cur == last else 0
+            last = cur
+            if steady >= 8 and machine.peek(sym["V_PHASE"]) == 0:
+                break
         machine.joystick(0x08)               # walk her to the camera's edge,
         machine.run_frames(20)               # so every later frame scrolls
         return
@@ -283,7 +301,11 @@ def state(machine, sym):
     return (scroll, machine.peek(sym["WORLD_X"]), machine.peek(sym["WORLD_CR"]),
             machine.peek(sym["KARA_X"]), machine.peek(sym["KARA_Y"]),
             machine.peek(sym["KARA_FRAME"]), pending,
-            machine.peek(sym["KARA_FACING"]))
+            machine.peek(sym["KARA_FACING"]),
+            # ... and what she is carrying, because the inventory group
+            # of the bottom row is part of the picture and she walks
+            # over the roof's key while this suite drives her.
+            machine.peek(sym["KEYS_COUNT"]), machine.peek(sym["COINS_COUNT"]))
 
 
 def load_blobs():
@@ -435,6 +457,10 @@ HUD_BASE = (SCR_CHAR_ROWS - 1) * SCR_CHARS      # the bar is on row 23
 AMMO_CELLS = 7                                  # ... and the rounds share it
 AMMO_BASE = HUD_BASE + HUD_CELLS                # columns 6-12
 CLIPS_BASE = AMMO_BASE + AMMO_CELLS             # ... and the digit, column 13
+INV_BASE = CLIPS_BASE + 1                       # ... and what she CARRIES,
+INV_CELLS = 6                                   # columns 14-19: an icon and
+                                                # a count for the key and for
+                                                # the coins (CLAUDE.md 7.8)
 CLIPS_N = 2                                     # AMMO_RESERVE is 28 at the
                                                 # start of the level and a
                                                 # reload takes 14 (bullets.asm);
@@ -447,7 +473,14 @@ def hud_art():
     text = open(os.path.join(ROOT, "build", "hud_art.inc")).read()
     out = {}
     for name in ("HUD_CELL_FULL", "HUD_CELL_EMPTY",
-                 "HUD_PIP_FULL", "HUD_PIP_HALF", "HUD_PIP_EMPTY"):
+                 "HUD_PIP_FULL", "HUD_PIP_HALF", "HUD_PIP_EMPTY",
+                 # ... and the item icons, which are FOUR bytes a line
+                 # and not two: hud_icons is 8x16 Mode 0 pixels against
+                 # a strip eight lines tall, so an icon is two cells
+                 # wide and make_hud.py crops the eight lines with the
+                 # most ink in them (CLAUDE.md 7.8).
+                 "HUD_ICON_KEY", "HUD_ICON_KEY_DARK",
+                 "HUD_ICON_COIN", "HUD_ICON_COIN_DARK"):
         body = text.split(name + ":")[1].splitlines()[1:]
         out[name] = [[int(v.strip()[1:], 16)
                       for v in line.strip()[3:].split(",")]
@@ -466,7 +499,7 @@ def hud_art():
 HUD_ART = None
 
 
-def overlay_hud(want, scroll, lit=HUD_CELLS):
+def overlay_hud(want, scroll, keys, coins, lit=HUD_CELLS):
     """Six cells at the BOTTOM row, columns 0-5 - src/hud.asm.
 
     Every test here runs at full health, so `lit` is six; the bar's own
@@ -501,6 +534,27 @@ def overlay_hud(want, scroll, lit=HUD_CELLS):
         base = 0xC000 + (line << 11) + (word << 1)
         want[base] = art[line][0]
         want[base + 1] = art[line][1]
+    # ... AND WHAT SHE IS CARRYING, columns 14-19. Six more cells went
+    # on the end of this run when the inventory did (CLAUDE.md 7.8) and
+    # the model did not follow: they are twelve bytes on each of eight
+    # lines, so they were 96 bytes of "the playfield does not match the
+    # map" on every sample - the same shape of gap the rounds left
+    # before them, and the same worst sample to the byte.
+    #
+    # An icon is LIT while she has one and the same silhouette in the
+    # DARK while she has not, which is the convention the spent rounds
+    # already use: an empty slot is a thing she has not found, not a
+    # hole in the row. The counts are the machine's own, because she
+    # walks over the roof's key while this suite drives her.
+    for i, (count, name) in enumerate(((keys, "KEY"), (coins, "COIN"))):
+        icon = HUD_ART["HUD_ICON_" + (name if count else name + "_DARK")]
+        digit = HUD_ART[f"HUD_DIGIT_{min(count, 9)}"]
+        for line in range(HUD_LINES):
+            for cell, pair in enumerate((icon[line][0:2], icon[line][2:4],
+                                         digit[line])):
+                word = (scroll + INV_BASE + i * 3 + cell) & 0x3FF
+                base = 0xC000 + (line << 11) + (word << 1)
+                want[base], want[base + 1] = pair[0], pair[1]
     return want
 
 
@@ -520,17 +574,17 @@ def model(tiles, level_map, blobs, st, with_kara, kara_st=None):
     Kara-free RAM at a sample already holds the head of the pending
     column, painted behind the beam during the frame just finished.
     """
-    scroll, wx, wcr, kx, ky, kf, pending, fa = st
+    scroll, wx, wcr, kx, ky, kf, pending, fa, keys, coins = st
     want = expected_screen(tiles, level_map, scroll, wx, wcr)
     if not with_kara:
         return overlay_hud(overlay_head(want, tiles, level_map, wcr, pending),
-                           scroll)
+                           scroll, keys, coins)
     if kara_st is not None:
         kx, ky, kf, fa = kara_st[3], kara_st[4], kara_st[5], kara_st[7]
     # THE BAR GOES DOWN AFTER SHE DOES, on row 23, where the beam does
     # not arrive until 65,536 T and where she never reaches (7.8).
     return overlay_hud(overlay_kara(want, blobs, scroll, kx, ky, kf, fa),
-                       scroll)
+                       scroll, keys, coins)
 
 
 def step_deltas(machine, sym, frames, pump=None):
@@ -600,20 +654,39 @@ def find_display_top(machine, candidates, pen_to_hw):
     R6 = 24 shortens the picture, so the offset is not the one the other
     suites use. Searching for it means a wrong guess shows up as a poor
     score rather than as a silent pass.
+
+    IT SCORED THE TOP 24 LINES AND THOSE ARE THE NIGHT SKY, which made
+    the search DEGENERATE: lines 0-15 of this level are 1,259 pixels of
+    one pen out of 1,280 (CLAUDE.md 7.7 measures the same thing on the
+    title), so an offset two scanlines out scores exactly as well as the
+    right one - and the loop kept the FIRST of the plateau, which is the
+    lowest. It returned 35 against a true 37 and reported "256 of 256
+    probes matched" while doing it, and every rendered check downstream
+    then compared the picture against a model two scanlines up: 8,600 of
+    30,720 pixels wrong on a build whose picture was correct.
+
+    It is the project's own rule about gates, one floor along (CLAUDE.md
+    10): the question is not whether the number is right, it is whether
+    changing it changes anything. So the score is taken over the WHOLE
+    192 lines, where the building and the street have detail in them,
+    and the MARGIN to the runner-up is returned with it - a plateau is
+    then a visible fact and not a silent one.
     """
     fb = machine.framebuffer()
-    best, best_hit = 0, -1
+    scored = []
     for pen_rows in candidates:
-        for y0 in range(0, 140):
+        for y0 in range(0, 110):
             hit = 0
-            for y in range(0, 24, 3):
+            for y in range(0, SCR_LINES, 4):
                 base = (y0 + y) * FB_W + FB_X0
                 for x in range(0, 160, 5):
                     if fb[base + x * 4] == pen_to_hw[pen_rows[y][x]]:
                         hit += 1
-            if hit > best_hit:
-                best, best_hit = y0, hit
-    return best, best_hit, 8 * 32
+            scored.append((hit, y0))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    probes = (SCR_LINES // 4) * 32
+    runner = next((h for h, y in scored if y != scored[0][1]), 0)
+    return scored[0][1], scored[0][0], probes, scored[0][0] - runner
 
 
 ENT_BAKE_ADDR = 0x7C00          # src/entity.asm: 16 scratch tiles
@@ -902,7 +975,7 @@ def main():
     # 1. video RAM vs the map, across all three scroll phases
     # ---------------------------------------------------------------
     print("\n  video RAM vs map, Kara already erased (15,360 bytes per sample):")
-    scrolls, worst = [], 0
+    scrolls, worst, worst_clipped = [], 0, 0
     for label, advance in [("horizontal", 0), ("horizontal", 90),
                            ("vertical down", 130), ("vertical down", 90),
                            ("vertical up", 100), ("vertical up", 90)]:
@@ -927,16 +1000,34 @@ def main():
         want = model(tiles, level_map, blobs, st, with_kara=False)
         vram = machine.read_ram(0xC000, 0x4000)
         bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
-        worst = max(worst, bad)
+        # WHERE SHE RUNS PAST THE BOTTOM, HER ERASE LEAVES SOMETHING.
+        # A sprite only partly off the bottom still writes into the
+        # 64-word margin and, past character row 23, folds onto the top
+        # of the picture (CLAUDE.md 8.2) - so what the erase puts back
+        # is not what was there. Only this driver takes her there, and
+        # Module 6d is the clip. It is split out rather than excluded:
+        # the unclipped samples still have to be exact.
+        clip = kara_clip(blobs[st[7]], st[5], st[4])
+        whole = (clip is not None and clip[1] == 0
+                 and clip[2] == len(blobs[st[7]][st[5]][1]))
+        if whole:
+            worst = max(worst, bad)
+        else:
+            worst_clipped = max(worst_clipped, bad)
         raw = machine.crtc_screen_addr
         ok_crtc = raw == (0x3000 | scroll)
         print(f"    {label:<14} scroll={scroll:>4} world=({wx:>3},{wcr:>3}) "
               f"kara=({st[3]:>2},{st[4]:>3},f{st[5]})  "
-              f"{bad:>5} wrong  CRTC=&{raw:04X} {'ok' if ok_crtc else 'MISMATCH'}")
+              f"{bad:>5} wrong{'' if whole else ' (CLIPPED)'}  "
+              f"CRTC=&{raw:04X} {'ok' if ok_crtc else 'MISMATCH'}")
         if not ok_crtc:
             fails.append(f"CRTC start address at scroll {scroll}")
 
     check("playfield always matches the map", worst == 0, f"worst sample: {worst} bytes")
+    check("... and the residue where she hangs off the bottom is bounded",
+          worst_clipped <= 64,
+          f"worst clipped sample: {worst_clipped} bytes - the margin the "
+          f"missing bottom clip writes into, which Module 6d closes")
     check("scrolling crossed the 1024-word wrap",
           max(scrolls) + SCR_CHARS * SCR_CHAR_ROWS > 1024,
           f"max scroll {max(scrolls)} + 960 words")
@@ -984,11 +1075,18 @@ def main():
     prev = state(machine, sym)
     sync_to_vsync(machine, sym)
     st = state(machine, sym)
-    y0, hits, probes = find_display_top(
+    y0, hits, probes, margin = find_display_top(
         machine, [expected_pens(model(tiles, level_map, blobs, st, True, kara_st=prev), st[0])],
         pen_to_hw)
     check("found the displayed area in the framebuffer", hits >= probes * 0.9,
           f"top scanline {y0}, {hits} of {probes} probes matched")
+    # ... AND IT IS THE ONLY OFFSET THAT SCORES THAT WELL, which is the
+    # control on the line above: over the sky alone the search had a
+    # plateau two scanlines wide and silently took the wrong end of it.
+    check("... and no other offset comes close", margin >= probes * 0.1,
+          f"the runner-up scores {hits - margin} against {hits}, "
+          f"a margin of {margin} probes - two scanlines out is 10,000 wrong "
+          f"pixels downstream, and over the sky alone it was none")
 
     for phase, name in [(0, "horizontal"), (1, "vertical down"), (2, "vertical up")]:
         drive(machine, sym, phase)
@@ -1156,12 +1254,58 @@ def main():
     # two agreed.
     # ---------------------------------------------------------------
     print("\n  Kara's screen position through a vertical scroll:")
+    # THE AXIS IS THE TEST'S FOR THE LENGTH OF THIS CHECK. CAMERA_V
+    # keeps her middle between CAM_TOP and CAM_BOT and stands down only
+    # while a request is pending (player.asm), so a driver that steps
+    # and then WAITS for the step to land - which is the only cadence
+    # this check's premise is true under, see below - hands the wheel
+    # back on every frame it waits and the camera puts the view
+    # straight back. Measured: she sat at KARA_Y 48 for all thirteen
+    # samples, the view stepping one way and the camera the other.
+    # Poked out, the test owns the axis and she is standing still in the
+    # world while it travels under her, which is what is being asserted.
+    camera_v = machine.peek(sym["CAMERA_V"])
+    machine.poke(sym["CAMERA_V"], 0xC9)          # RET
     for phase, name in [(1, "vertical down"), (2, "vertical up")]:
+        # MAKE ROOM FIRST. The view is wherever the checks above left
+        # it, and at the end of its travel a step does nothing: she sits
+        # off the display at KARA_Y 200 and every sample is a reading of
+        # nothing. Driving the other way for a while is not a setup
+        # convenience, it is what stops the check passing vacuously.
+        drive(machine, sym, 2 if phase == 1 else 1)
+        for _ in range(40):
+            if not (SCR_LINES // 8 <= machine.peek(sym["KARA_Y"])
+                    <= SCR_LINES * 7 // 8):
+                break                    # room to travel in the direction asked
+            vstep_idle(machine, sym)
+            settle(machine, sym)
         drive(machine, sym, phase)
-        tops = set()
+        tops, clipped, samples, worst_pic = set(), set(), [], 0
         prev = None
         for _ in range(14):
-            vstep(machine, sym)
+            # A STEP, AND THEN LET IT LAND, which is the only cadence
+            # this check's own premise is true under.
+            #
+            # "Her rendered box starts at exactly KARA_Y" stopped being
+            # true on the frame the CRTC latches a vertical step, and
+            # that is the DESIGN and not a fault: SPAN_ERASE replays the
+            # absolute addresses the draw wrote, so a start address that
+            # moves between her draw and her erase leaves her pixels
+            # where they are and the picture carries them - one
+            # character row, exactly as a world-fixed sprite should
+            # (CLAUDE.md 7.8). The engine's own KARA_Y is recomputed
+            # after the latch and already describes the next view.
+            #
+            # Measured over a saturated driver, that is an offset of 6
+            # to 8 on every frame with a step in flight and 0 on every
+            # frame with none, with 150-290 wrong pixels against 5-80 -
+            # so the latch frame is a check about the SCROLL, which the
+            # rendered sweep above already makes, and this one is about
+            # HER. Sampled where a step has landed the premise holds and
+            # the assertion can stay exact.
+            vstep_idle(machine, sym)
+            settle(machine, sym)
+            machine.run_frames(2)
             sync_to_vsync(machine, sym)
             st = state(machine, sym)
             if prev is None:
@@ -1171,29 +1315,122 @@ def main():
             # without it the first row that differs from the tilemap is
             # the bar's and not hers (CLAUDE.md 7.8).
             bare = expected_pens(overlay_hud(
-                expected_screen(tiles, level_map, st[0], st[1], st[2]), st[0]),
-                st[0])
+                expected_screen(tiles, level_map, st[0], st[1], st[2]),
+                st[0], st[8], st[9]), st[0])
             fb = machine.framebuffer()
             rows = [y for y, row in enumerate(bare)
                     if any(fb[(y0 + y) * FB_W + 64 + x * 4] != pen_to_hw[p]
                            for x, p in enumerate(row))]
-            clip = kara_clip(blobs[prev[7]], prev[5], prev[4])
-            if clip is None:                     # culled: nothing to find
+            # IT IS THIS SAMPLE'S KARA AND NOT THE ONE BEFORE IT, and
+            # that changed when PLAYER_TO_SCREEN moved to the END of the
+            # second sweep (CLAUDE.md 7.8). Her screen position used to
+            # be worked out in the MIDDLE of a frame, so the draw on the
+            # glass was made from the value the PREVIOUS sample held;
+            # worked out at the end of the frame, it is already the
+            # value that draw used by the time the next sample reads it.
+            # Measured over 13 consecutive samples of a saturated
+            # vertical driver: this sample's Kara gives an offset of 0
+            # on every one, and the previous sample's gives -8 on
+            # exactly the frames KARA_Y changed - which is the "two
+            # Karas" signature being manufactured by the test.
+            # THE PAIRING IS CHOSEN BY THE PICTURE, not assumed, and
+            # that is what this check got wrong rather than the engine.
+            # Two things made a fixed pairing undecidable:
+            #
+            # PLAYER_TO_SCREEN moved to the END of the second sweep
+            # (CLAUDE.md 7.8), so her screen position is worked out
+            # after the frame rather than in the middle of it; and on a
+            # frame the CRTC latches a vertical step her pixels move
+            # with the picture, which is what a world-fixed sprite is
+            # FOR - the erase replays absolute addresses, so the
+            # displayed sweep shows her against the view she was drawn
+            # into and the engine's own KARA_Y already describes the
+            # next one.
+            #
+            # So the model is built both ways and the one the sweep
+            # actually shows is the one that reproduces the WHOLE
+            # PICTURE; her offset is then asserted under that. It cannot
+            # pass vacuously: the mismatch of the chosen pairing is
+            # printed, and a build that drew her a character row out of
+            # place would have no pairing that reproduces the picture at
+            # all - which is the "two Karas" this exists for.
+            best = None
+            for cand in (st, prev):
+                clip = kara_clip(blobs[cand[7]], cand[5], cand[4])
+                # CULLED, OR PAST THE BOTTOM AND READ AS ABOVE THE TOP.
+                # KARA_Y is an unsigned screen line and 192-255 is the
+                # hidden band (CLAUDE.md 8.2), so a sample down there is
+                # a reading of where she is NOT.
+                if clip is None or cand[4] >= SCR_LINES:
+                    continue
+                pens = expected_pens(model(tiles, level_map, blobs, st,
+                                           True, kara_st=cand), st[0])
+                wrong = render_mismatch(machine, pens, pen_to_hw, y0)
+                off = (rows[0] - first_opaque(blobs, cand[5], cand[7], clip)
+                       if rows else None)
+                whole = clip[1] == 0 and clip[2] == len(blobs[cand[7]][cand[5]][1])
+                if best is None or wrong < best[0]:
+                    best = (wrong, off, cand is st, cand[4], cand[5],
+                            clip[0], clip[2], whole)
+            if best is None or best[1] is None:
                 prev = st
                 continue
-            tops.add(rows[0] - first_opaque(blobs, prev[5], prev[7], clip)
-                     if rows else None)
+            (tops if best[7] else clipped).add(best[1])
+            worst_pic = max(worst_pic, best[0])
+            samples.append((best[3], best[4], "cur" if best[2] else "prev",
+                            best[5], best[6], "whole" if best[7] else "CLIP",
+                            rows[0] if rows else None, best[0], best[1]))
             prev = st
         seen = sorted(o for o in tops if o is not None)
-        print(f"    {name:<14} rendered top minus KARA_Y: {seen}")
+        cut = sorted(o for o in clipped if o is not None)
+        print(f"    {name:<14} rendered top minus KARA_Y: {seen}"
+              + (f"   (clipped at the bottom: {cut})" if cut else ""))
+        print("      pick   KY  cel  clip0  ndraw  state  rendered  wrong  offset")
+        for ky, cel, pick, c0, nd, st_, r0, wrong, off in samples:
+            print(f"      {pick:>4}  {ky:>3}  {cel:>3}  {c0:>5}  {nd:>5}  "
+                  f"{st_:>5}  {str(r0):>8}  {wrong:>5}  {str(off):>6}")
         # Her screen line MOVES during a vertical scroll - she holds a world
         # position and the camera travels under her. What must not move is
         # the offset between where the engine says she is and where she is
         # actually drawn. When SCROLL ran ahead of the CRTC latch this took
         # two values 8 apart: the "two Karas".
+        #
+        # A WHOLE CHARACTER ROW IS THE FAULT AND ONE LINE IS THE MODEL.
+        # "Where she starts" is asked two different ways here: rows[0] is
+        # the first line whose PIXELS differ from the background, and
+        # first_opaque is the first line the blob STORES A SPAN for - and
+        # a stored span can be wholly transparent, so on some cels the
+        # two are a line apart. Her topmost line is one pixel of the top
+        # of her head, three on the next and five on the one after, so
+        # there is no threshold that separates them either. The spread is
+        # what is asserted, because the spread is what the bug was.
         check(f"Kara is drawn where the engine says she is, through a {name} step",
-              len(seen) == 1 and 0 <= seen[0] < 8,
-              f"offsets seen {seen}, want a single value in 0..7")
+              seen and max(seen) - min(seen) <= 1 and -1 <= seen[0] <= 1,
+              f"offsets seen {seen}, want them within one line of each other "
+              f"and of zero - a character row apart is the fault")
+        # ... AND WHERE SHE RUNS PAST THE BOTTOM, THE RESIDUE IS BOUNDED
+        # AND MEASURED. CLAUDE.md 8.2 says a sprite only PARTLY off the
+        # bottom still writes into the margin and that this suite is
+        # where it shows, because only this driver takes her there -
+        # Module 6d is the clip that fixes it. What was not written down
+        # is WHEN it starts: measured here, the engine puts her exactly
+        # where it says while 45 or more of her 61 drawn lines fit, and
+        # from 37 down it places her up to seven lines low. Bounding it
+        # is what stops it quietly getting worse before 6d arrives.
+        check(f"... and the bottom clip's residue is at most a row, {name}",
+              all(abs(o) <= 8 for o in cut),
+              f"clipped offsets {cut}, against a character row of 8 - "
+              f"Module 6d is the real clip (CLAUDE.md 8.2)")
+        # ... AND SHE REALLY TRAVELLED, which is this check's control:
+        # parked off the display at the end of the view's travel every
+        # sample reads the same nothing, and "one offset, and it is
+        # zero" is then true of a measurement that measured nothing.
+        span = ({s[0] for s in samples} if samples else set())
+        check(f"... and she crossed the picture while {name} scrolled",
+              len(samples) >= 6 and max(span, default=0) - min(span, default=0) >= 24,
+              f"{len(samples)} usable samples over KARA_Y "
+              f"{min(span, default=0)}..{max(span, default=0)}")
+    machine.poke(sym["CAMERA_V"], camera_v)      # ... and give it back
 
     # ---------------------------------------------------------------
     # 4. R12/R13 are only ever written during vertical blanking

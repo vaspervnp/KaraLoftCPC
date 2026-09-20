@@ -90,14 +90,21 @@ def main():
     SY = m.peek(sym["KARA_WY"]) + 17 - m.peek(sym["WORLD_CR"]) * 8
     print(f"  her muzzle line is screen {SY}; WORLD_X={m.peek(sym['WORLD_X'])}")
 
-    for pool, live, upd, name in (("BULLETS", "BUL_LIVE", "UPDATE_BULLETS",
-                                   "her rounds"),
-                                  ("EBULLETS", "EBUL_LIVE", "EBUL_UPDATE",
-                                   "their rounds")):
+    for pool, live, upd, name, speed in (
+            ("BULLETS", "BUL_LIVE", "UPDATE_BULLETS", "her rounds", "BUL_SPEED"),
+            ("EBULLETS", "EBUL_LIVE", "EBUL_UPDATE", "their rounds",
+             "EBUL_SPEED")):
         print(f"\n  {name}:")
         # ---- over sky, it flies on --------------------------------
+        # THE STEP IS THE ENGINE'S OWN CONSTANT AND NOT THE NUMBER 2.
+        # At 50 Hz a round moved two bytes on two frames in three; a
+        # game frame is two hardware frames now, so it moves FOUR and
+        # takes every frame, and both pools say so themselves
+        # (CLAUDE.md 9's table of what 25 Hz cost). Read off the build,
+        # the next re-timing re-derives this instead of failing it.
+        step = sym[speed]
         sx = 40
-        cell = cell_of(m, sym, sx + 2, SY)
+        cell = cell_of(m, sym, sx + step, SY)
         was = m.peek(cell)
         m.poke(cell, TILE_SKY)
         fire(m, sym, pool, live, sx, SY)
@@ -113,8 +120,8 @@ def main():
         m.poke(cell, was)
 
         check(f"{name}: a round over sky flies on",
-              alive_sky == 1 and moved == sx + 2,
-              f"active={alive_sky}, x {sx} -> {moved}")
+              alive_sky == 1 and moved == sx + step,
+              f"active={alive_sky}, x {sx} -> {moved}, and {speed} is {step}")
         check(f"{name}: a round that reaches a solid tile dies",
               alive_wall == 0, f"active={alive_wall}")
         check(f"{name}: and the pool's live count comes down with it",
@@ -124,7 +131,7 @@ def main():
         # A probe that ignored WORLD_X would read the map 2*WORLD_X
         # bytes to the left, which at this position is a different
         # cell: put a brick THERE and the round must NOT die.
-        wrong = cell_of(m, sym, sx + 2, SY) - (m.peek(sym["WORLD_X"]) * 2 >> 2)
+        wrong = cell_of(m, sym, sx + step, SY) - (m.peek(sym["WORLD_X"]) * 2 >> 2)
         if wrong != cell:
             wwas = m.peek(wrong)
             m.poke(wrong, TILE_BRICK)
@@ -147,6 +154,7 @@ def main():
 
 
 JOY_RIGHT, JOY_FIRE = 0x08, 0x10
+IN_FIRE = 0x10          # input.asm bit 4 - the same bit AIM_ROOTS_HER reads
 FRAMES = 200
 
 
@@ -170,7 +178,7 @@ def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False,
     m.run_frames(5)
     f0 = m.peek(sym["FRAME_COUNT"])
     x0 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
-    peak = 0
+    peak, aim_frames, last_fc = 0, 0, m.peek(sym["FRAME_COUNT"])
     for t in range(frames):
         m.joystick(pattern(t))
         if kill_enemies:
@@ -182,10 +190,29 @@ def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False,
         # the mark back to 0 the moment the pool empties, so the last
         # frame of a burst reports a pool that never existed.
         peak = max(peak, m.peek(sym["BUL_TOP"]))
+        # ... AND THE FRAMES SHE SPENT PLANTED ARE COUNTED OFF THE
+        # ENGINE AND NOT OFF THE PATTERN. The tap is written in HARDWARE
+        # frames and AIM_ROOTS_HER refuses her step on a GAME frame,
+        # which is two of them (CLAUDE.md 9) - so "half the aiming
+        # frames" is only right when the tap's windows happen to line up
+        # with the game's clock, and it was two bytes out when they did
+        # not.
+        #
+        # IT IS THE INPUT BYTE AND NOT KARA_STATE, because the input
+        # byte is what AIM_ROOTS_HER reads: `ld a,c / and IN_FIRE`
+        # (player.asm). KARA_STATE spends fewer frames in KST_AIM than
+        # the trigger spends down - the release runs four cels of KST_FIRE
+        # and she walks through those - so counting the STATE came out
+        # eleven bytes short of what she actually lost.
+        fc = m.peek(sym["FRAME_COUNT"])
+        if fc != last_fc:
+            last_fc = fc
+            if m.peek(sym["INPUT_NOW"]) & IN_FIRE:
+                aim_frames += 1
     loops = (m.peek(sym["FRAME_COUNT"]) - f0) % 256
     x1 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
     m.joystick(0)
-    return loops, x1 - x0, peak
+    return loops, x1 - x0, peak, aim_frames
 
 
 def firing_costs_her_nothing(sym):
@@ -212,10 +239,10 @@ def firing_costs_her_nothing(sym):
             check(f"the engine has {n}", False, "rebuild first")
             return
 
-    plain, plain_x, _ = walk(sym, lambda t: JOY_RIGHT)
-    held, held_x, held_top = walk(sym, lambda t: JOY_RIGHT | JOY_FIRE)
+    plain, plain_x, _, _ = walk(sym, lambda t: JOY_RIGHT)
+    held, held_x, held_top, _ = walk(sym, lambda t: JOY_RIGHT | JOY_FIRE)
     tap = (lambda t: JOY_RIGHT | (JOY_FIRE if (t % 12) < 4 else 0))
-    fired, fired_x, peak = walk(sym, tap)
+    fired, fired_x, peak, _ = walk(sym, tap)
 
     aiming = sum(1 for t in range(FRAMES) if tap(t) & JOY_FIRE)
 
@@ -239,10 +266,11 @@ def firing_costs_her_nothing(sym):
     # with nothing else on the screen; the drone's two unmissable frames
     # - the one it comes into view on and the one it leaves on (8.7) -
     # land on frames already carrying the heaviest cel in the game (9).
-    alone, alone_x, _ = walk(sym, tap, kill_enemies=True)
-    steady, steady_x, _ = walk(sym, tap, kill_enemies=True, no_hud=True)
-    base, base_x, _ = walk(sym, lambda t: JOY_RIGHT,
-                           kill_enemies=True, no_hud=True)
+    alone, alone_x, _, _ = walk(sym, tap, kill_enemies=True)
+    steady, steady_x, _, aim_game = walk(sym, tap, kill_enemies=True,
+                                          no_hud=True)
+    base, base_x, _, _ = walk(sym, lambda t: JOY_RIGHT,
+                              kill_enemies=True, no_hud=True)
     print(f"    ... and with no drone   {alone} loops, {alone_x} bytes")
     print(f"    ... and no HUD either   {steady} loops, {steady_x} bytes")
     print(f"    ... the same, not firing {base} loops, {base_x} bytes")
@@ -253,11 +281,20 @@ def firing_costs_her_nothing(sym):
     # written again - and on a frame that also stepped the camera, the
     # word the strip left behind has to come back off the TILEMAP at
     # ~59 T a byte (CLAUDE.md 7.8).
-    check("firing costs her nothing on its own", alone >= 196,
-          f"{alone} loop iterations in {FRAMES} hardware frames with the "
-          f"level's drones taken off, against {steady} with the HUD off as "
-          f"well - so what the encounter costs below is the encounter and "
-          f"not the gun, and what these four frames cost is the strip")
+    # IT IS A COMPARISON AND NOT A FLOOR, and that is what 25 Hz changed
+    # about it. "196 of 200" was a 50 Hz number - the lock was one loop
+    # iteration per hardware frame - and the lock is 100 of 200 now
+    # (CLAUDE.md 9), so the threshold measured nothing except the
+    # migration it had not had. What the paragraph above actually claims
+    # is a difference: the gun costs nothing, and the few frames that do
+    # go are the strip. Measured that way it is sharper than the floor
+    # ever was - with the strip silent, firing costs EXACTLY nothing.
+    check("firing costs her nothing on its own",
+          steady == base and alone >= steady - 2,
+          f"{steady} loop iterations tap-firing against {base} walking, on "
+          f"the same drone-free screen with the HUD silent - so the gun is "
+          f"free; with the strip back it is {alone}, and that difference is "
+          f"the strip (CLAUDE.md 7.8)")
 
     # AND THE PROPERTY IS MEASURED WITHOUT THE DRONE, which is the whole
     # point of having the drone-free run. "She loses exactly the frames
@@ -291,13 +328,31 @@ def firing_costs_her_nothing(sym):
     # TRIGGER - same drone-free screen, same silent HUD - because a
     # walk measured under a different load is a different number of
     # game frames and the difference would then be two things at once.
-    costs = aiming // 2
+    # AND THE COUNT IS THE ENGINE'S. "Half the aiming frames" was the
+    # right arithmetic for a tap written in hardware frames against a
+    # 50 Hz loop; against a 25 Hz one it is right only when the tap's
+    # windows happen to line up with the game's clock, and when they do
+    # not it is two bytes out - one game frame she was planted on that
+    # the halving did not count. walk() reads KARA_STATE on each game
+    # frame instead, so what is subtracted is the frames the engine
+    # actually refused her step on.
+    # AND A FRAME COSTS 0 OR P_PUSH, NOT ALWAYS ONE BYTE. In the camera's
+    # push zone she moves P_PUSH = 2 bytes on the camera's frame and
+    # nothing on the frames between (CLAUDE.md 8.2), so a trigger-down
+    # frame that lands on an off-frame costs her nothing and one that
+    # lands on an on-frame costs two. One byte apiece is the AVERAGE,
+    # and the sum is therefore right to within a single push step -
+    # which is what is asserted, on a run whose loop dropped nothing so
+    # that a dropped frame cannot be hiding inside the slack.
+    costs = aim_game
+    push = sym["P_PUSH"]
     check("and tapping costs her the aiming frames and nothing else",
-          abs(steady_x - (base_x - costs)) <= 1,
-          f"{steady_x} bytes against {base_x} walking less {costs} - half of "
-          f"{aiming} aiming frames, one step's worth each - "
-          f"= {base_x - costs} expected, on the same drone-free screen with "
-          f"the HUD silent, where the loop holds {steady} of {FRAMES}")
+          steady == FRAMES // 2 and abs((base_x - steady_x) - costs) <= push,
+          f"{steady_x} bytes against {base_x} walking - she lost "
+          f"{base_x - steady_x} to {costs} game frames with the trigger down, "
+          f"which is within one push step of {push}; the loop held "
+          f"{steady} of {FRAMES // 2} game frames, so none of it is a "
+          f"dropped frame")
     check("... and the strip's dropped frames move it by no more than they can",
           abs(alone_x - steady_x) <= 2 * abs(steady - alone) + 2,
           f"{alone_x} bytes in play against {steady_x} with the HUD off, over "
@@ -354,13 +409,24 @@ def firing_costs_her_nothing(sym):
           f"{fat - lean} T between a walk bounded at the deepest slot taken "
           f"and one bounded at BUL_MAX")
 
-    stuck, stuck_x, _ = walk(sym, tap, top=BUL_MAX)
+    stuck, stuck_x, _, _ = walk(sym, tap, top=BUL_MAX)
     print(f"    ... and in play, with BUL_TOP forced to BUL_MAX: "
           f"{stuck} loops, {stuck_x} bytes")
-    check("... and in play it still costs her frames and ground",
-          stuck < fired and stuck_x < fired_x,
-          f"{stuck} loops and {stuck_x} bytes against {fired} and {fired_x} "
-          f"on the SAME tap pattern")
+    # AND IN PLAY IT COSTS FRAMES AND NO LONGER COSTS GROUND, which is
+    # the entry in CLAUDE.md 8.5 arriving: "the in-play numbers are not
+    # the negative control any more". With 160 T of headroom the dead
+    # slots dropped 43 frames in 200 and 40 bytes of ground with them;
+    # with a 159,744 T game frame the same 5,408 T of overrun mostly
+    # fits, so it costs frames and she still covers her full distance.
+    # The T-state bench above is the control now - that is why it was
+    # written - and this stays as the in-play corroboration it can
+    # honestly be.
+    check("... and in play it still costs her frames",
+          stuck < fired,
+          f"{stuck} loops against {fired} on the SAME tap pattern, and "
+          f"{stuck_x} bytes against {fired_x} - the ground no longer moves, "
+          f"because 5,408 T of overrun fits in a 25 Hz frame where it did "
+          f"not fit in a 50 Hz one")
 
 
 if __name__ == "__main__":
