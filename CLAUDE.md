@@ -11,8 +11,10 @@ which now carries its own §0 of five corrections this file forced (§8.3).
 **Modules 1-4 done, Module 5 all but its last test, Module 6 DONE —
 all four of its slices — and the LEVEL FSM's spine runs (§8.1): she
 dies, the screen fades and the level comes back out of the pristine
-copy at `&B000`;
-the garage opens, the title goes back up and the game starts again.
+copy at `&B000`; **the garage opens and she goes to the NEXT LEVEL**,
+which inside one environment is a map read of one sector and no art at
+all — 54 hardware frames, fade and all. Four levels an environment,
+six environments.
 What says the restart is a level start is not a reading of the code
 but 32,448 bytes of engine RAM compared with a machine that has just
 booted, with a line of `LEVEL_RESET` knocked out as the control.
@@ -271,7 +273,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-one pass**, the editor's own among them. Eighteen checks in
+twenty-two pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -336,8 +338,9 @@ src/unpack.asm    ZX0 into a bank, into VRAM, and LEVEL_LOAD
 src/intro.asm     the title picture and its blinking prompt (7.7)
 src/hud.asm       the energy bar, redrawn wherever the view goes (7.8)
 src/fade.asm      the palette to black and back - a 3x3x3 cube (6.6)
-src/flow.asm      the level's own state machine: she dies, the level
-                  comes back; the way out opens, the game starts again
+src/flow.asm      the level's own state machine: she dies and the level
+                  comes back; the way out opens and the NEXT one loads,
+                  which is a map and only sometimes an environment (8.1)
 src/disc.asm      the uPD765 driver - raw sectors, no firmware.
                   READ docs/AmstradDskReadHowTo.md BEFORE TOUCHING IT
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
@@ -417,7 +420,10 @@ tools/test_flow.py         where she starts, the fade, and a restart
                            compared with a fresh boot byte for byte
 tools/test_xclip.py        the X clip: the clipped lane against the same
                            v-model, and the running game at both edges
-tools/test_*.py            acceptance suites, twenty-one of them
+tools/test_transition.py   the level after this one: a map read inside an
+                           environment, an art read across one, and what
+                           she carries through the door
+tools/test_*.py            acceptance suites, twenty-two of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -617,8 +623,10 @@ once, and at that point level 2 had 65 bytes of slack and level 5 was
   `desert_informant` are the only two in the game whose sheets have no
   movement tag. 8,214 bytes, and level 5 does not fit without them.
 
-**The banks are reloaded from disc at every level transition, and that
-is what makes this fit.** The earlier map gave a bank to each PAIR of
+**The banks are reloaded from disc at every ENVIRONMENT change, and
+that is what makes this fit.** Not at every level transition: four
+levels share a bank set and `LEVEL_GOTO` reads the art only when the
+level it is going to wants a different one (§8.1). The earlier map gave a bank to each PAIR of
 levels' tiles, which only works while the tiles are the only large
 asset. Kara alone is 53 KB across both facings (§7.1) and the seven
 characters another 23 KB; one level's tiles are 3 KB. Since only one
@@ -2296,6 +2304,25 @@ overwritten. `DATA_TRACK` is **9** now: the first data block is 40, the
 files have four 1 KB blocks of room left, and the data ends at sector
 346 of 360. Both ends are checked by the build.
 
+#### And what it leaves for the levels, now that there can be twenty-four
+
+A level's own bytes are **358 packed — one sector** — so the maps are
+not what fills this disc; the art is. Counted on the shipped image:
+
+| | sectors |
+|---|---:|
+| the data area, from track 9 of a 42-track image | 297 |
+| the art, the title and level 1's map | 266 |
+| **spare** | **31** |
+| ... staying inside a standard 40-track disc | **13** |
+
+Twenty-four maps is twenty-four of those, so four levels an environment
+fits with eight to spare **and needs the extended pair of tracks**,
+which is what the image already carries and what many drives will not
+read. `tools/dskdata.py` says so rather than leaving it to the drive:
+past 40 tracks it prints how many sectors are out there, and past 42 it
+is an error with the arithmetic in it.
+
 `tools/test_loader.py` compares **video RAM with the artist's file byte
 for byte** — the AMSDOS header, BASIC's `LOAD` at &C000 and the file
 itself, three transformations at once — with the mistake that looks
@@ -2309,7 +2336,9 @@ that ignored the key would give the same number twice.
 
 ### 8.1 Level flow
 
-Six levels, each with its own scroll axis:
+**Six ENVIRONMENTS of four levels each**, and an environment is what
+has its own scroll axis and its own bank set — see the section after
+the table for why those are different things:
 
 | # | Level | Scroll | Bank | Signature mechanic |
 |---|---|---|---|---|
@@ -2321,6 +2350,8 @@ Six levels, each with its own scroll axis:
 | 6 | Space station | horizontal L→R | C6 | laser traps, keycards, boss |
 
 FSM: `STATE_LEVEL_PLAY → STATE_LEVEL_CLEAR → STATE_CUTSCENE → STATE_LOAD_NEXT`.
+The cutscene is the one piece of that not written; `STATE_LOAD_NEXT` is
+`LEVEL_GOTO` and it is usually not a load at all.
 
 #### That spine exists now, with the cutscenes left out and one state the diagram had no room for
 
@@ -2391,14 +2422,100 @@ they were dead and clearing them changes no behaviour at all — but half
 a record cleared and half left is the shape of every bug in §10, and
 nine bytes once a level is not a price.
 
-**And there is nowhere to go when a level is CLEARED, which is a level's
-problem and not the FSM's.** Five of the six levels have their art on
-the disc and no map on it (`tools/make_level_image.py`), so
-`LEVEL_MAP_LOAD` would refuse and `MAP_INSTALL` would parse whatever
-`&B000` held. Rather than pretend, the game fades out, puts its **title
-back up and waits for the press**, and starts again — a loop a player
-can see the end of, and one line to change the day a second level
-exists.
+#### A LEVEL IS A MAP AND AN ENVIRONMENT IS A BANK SET
+
+This section used to end "there is nowhere to go when a level is
+CLEARED, and one line to change the day a second level exists". There
+is somewhere to go now, and the line was not the interesting part —
+**what a level IS was**.
+
+| | what it is | what it costs off the disc |
+|---|---|---|
+| an **environment** | a bank set: the tiles, the characters, the machines. Six of them, one art directory each | 5 banks, **16-20 KB, ~1.6 s** (§7.5) |
+| a **level** | one map, its entity table and its tile flags | **358 packed bytes — ONE SECTOR** |
+
+So **several levels share an environment's art**, and a transition
+between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
+is **4**, which is six environments of four levels: 24 maps, 24
+sectors, against the 31 the disc has spare (§7.9).
+
+**`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
+
+```
+LEVEL_GOTO   A = level number, 0 based
+  LEVEL_MAP_LOAD        one sector, always
+  the map's own byte 9  which environment it wants
+  LEVEL_LOAD            ... only if that is not the art already there
+```
+
+**The environment comes out of the level's OWN header** — byte 9,
+`LVL_TILESET`, which the editor writes as its `TilesetId` — and not out
+of a table beside `DISC_LEVEL_MAPS`. That makes the level file the
+single statement of it: a table saying the same thing is a second place
+to get it wrong, and the day they disagreed the engine would follow one
+and the build the other. It also means a level with no map never spends
+1.6 s loading art for a level that cannot be drawn, which is why the
+boot does it in this order too.
+
+`LEVEL_ENV` is which environment's art is in the banks, `&FF` for none
+— and it is claimed **before** the read rather than after, because a
+read that fails leaves the banks dirty either way, so nothing may be
+believed about them until one succeeds.
+
+**AND SHE CARRIES WHAT SHE IS CARRYING.** `LEVEL_RESET` is what a
+DEATH puts back and `LEVEL_ENTER` is what every level start means; the
+first falls into the second, and which one runs is the only difference
+between a restart and a transition:
+
+| | crosses a door | and why |
+|---|---|---|
+| `PLAYER_HP` | **yes** | a level that handed out a full bar on the way in would make every door a medkit |
+| both magazines, `AMMO_RESERVE` | **yes** | one that emptied her guns would make the last room of an environment the one she cannot fight out of |
+| `COINS_COUNT` | **yes** | it is a currency, and level 5's NPCs spend it |
+| `KEYS_COUNT`, `STATUES_HELD`, `CURRENT_BOOK_ID` | no | each is a thing a designer placed for the door at the end of the level it is in. A level that started with the last one's key in her hand is a level whose lock is already open |
+| the bullet pools, `RELOAD_TIMER`, `ACTIVE_GUN` | no | a round in the air belongs to the screen it was fired at, and so does a reload half way through |
+| everything in "what she is doing" and "the frame" | no | **`KARA_LAST_CNT` is the load-bearing one**: `SPAN_ERASE` replays a list of ABSOLUTE addresses the draw wrote (§9), and the screen has just been repainted from a different tilemap — an erase that still believed in the last level's draw would stamp the old background over the new picture |
+
+**Measured, on the machine, with two levels of one environment on the
+disc**: a transition is **54 hardware frames, fade and all** — and 36
+of those are the fade itself (§6.6), so the map read is about 18. An
+art reload is 1.6 s on top. `tools/test_transition.py` drives it and
+carries the control that makes the claim mean anything: **a level of
+another environment, where `LEVEL_ENV` must move and bank C4 must come
+back holding the forest's tiles instead of the City's** — without it, a
+`LEVEL_GOTO` that never loaded art at all would pass every other check
+in the suite.
+
+**AND `FLOW_STEP` TURNS THE INTERRUPTS BACK ON, WHICH IT DID NOT NEED
+TO.** `LEVEL_GOTO` is a disc read and returns with them off (§7.5).
+Measured without an `EI` anywhere on the path, the loop still came back
+at **100 game frames of 200 with `IRQ_TICKS` advancing its full 1,200**
+— because `di / call INPUT_SCAN / ei` in the loop body turns them on
+again a routine later, for the AY's address latch and for nothing to do
+with levels. That is a true fact about today's loop and a bad thing to
+rest a transition on: everything between `WAIT_VSYNC` and `INPUT_SCAN`
+runs with them off, and the day a raster gate moves above that line the
+transition hangs with nothing to say why. The `EI` is four T and it
+shows in the measurement — the frame after a transition goes from
++170 ticks to +177.
+
+**AND OFF THE END IT GOES BACK TO THE TITLE AND STARTS AGAIN**, which
+is also what an UNPAINTED level looks like: `DISC_LEVEL_MAPS` carries a
+zero for every level nobody has made yet and `LEVEL_GOTO` refuses,
+rather than letting `MAP_INSTALL` parse whatever `&B000` held. That is
+a full `LEVEL_RESET` and not a transition — starting the game over is
+not walking through a door — and the suite checks both halves.
+
+**What is NOT solved is where the view starts.** `SCROLL_INIT` puts it
+at the top left and the camera pans to find her, which was invisible
+while every level's start was in the first screen: level 1's is at byte
+43 and the camera settles in about eight frames. A start placed further
+along pans for longer — measured at a start 64 bytes in, **about 40
+game frames, 1.6 s, with her at the right-hand edge** (clipped now
+rather than folded, §8.2). It is a pre-existing behaviour that four
+levels an environment makes reachable, and the fix is to place the view
+where `CAM_TRAIL` says before the playfield is painted rather than
+after.
 
 ### 8.2 Scrolling — implemented and measured
 
@@ -2715,6 +2832,22 @@ refuses**, **give it a map of another shape and it refuses**, and
 it too**. The five cells where RAM and file disagree are the pickups
 `ENT_BAKE` stamps into scratch tiles (§8.6), and the test says so by
 name.
+
+#### Byte 3 and byte 9 are DIFFERENT NUMBERS, and they were the same one
+
+`level id` (byte 3) is **which level** and `tileset id` (byte 9) is
+**which environment**, and while there was one level an environment the
+editor wrote the art package's directory number into both. They part
+company now (§8.1): the engine reads **byte 9** to decide whether it
+has to load art, and `DISC_LEVEL_MAPS` is indexed by **byte 3**.
+
+The numbering is blocks of `LEVELS_PER_ENV` = 4 — the City is levels
+1-4, the forest 5-8 — which is what lets the two be **checked against
+each other** rather than merely coexisting: `EngineLimits.EnvironmentOf`
+is the rule, the editor refuses a level number outside its own
+environment's block on the stroke, and `tools/make_level_image.py`
+pairs a `level_<n>.lvl` with its tile flags by reading byte 9 out of
+the file rather than by parsing its name.
 
 **Those are what a tile DOES; `tile_table.json` says how it is DRAWN**
 (§7.3), and the two are independent — `ladder` is an overlay in level 3
@@ -5571,11 +5704,26 @@ the next one starts.
    measurement also showed is how much of a level's correctness the
    editor was not checking at all, and this is that half.
 
-   **What is left**: a second level, which is now a LEVEL's work and not
-   the editor's — the art is there and the editor will paint it, and
-   what is missing is on the other side: `main.asm` INCBINs
-   `level_1.lvl` alone and there is no transition to a second one, which
-   is step 8's. Phase 4 of §15 this project does not need.
+   **AND A PROJECT HAS A LEVEL NUMBER OF ITS OWN NOW, SEPARATE FROM ITS
+   ENVIRONMENT.** `EditorProject` always had `LevelId` and `TilesetId`
+   as two fields and the controller wrote the same number into both,
+   which was right while there was one level an environment. The
+   environment still comes from the art package's directory; the level
+   starts at the first of that environment's block of four and a
+   `level-id` op moves it, refused on the stroke if it leaves the block
+   — because `DISC_LEVEL_MAPS` is indexed by that number and two
+   projects sharing one would put two maps at one disc entry, with the
+   build keeping whichever it wrote last and nothing saying so (§8.1).
+
+   The integration suite drives both halves: a new forest project
+   exports `level_5.lvl` and not `level_2.lvl`, and moving it to level
+   7 works while moving it to level 3 — the City's — is a 400.
+
+   **What is left**: maps. Twenty-three of the twenty-four levels have
+   nobody's work in them yet, and that is a DESIGNER's job rather than
+   the editor's or the engine's — the art is there, the editor paints
+   it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
+   of §15 this project does not need.
 8. **Level FSM + cutscenes** — **started, and its spine runs.** §8.1 has
    the states and the measurements; what is here is what each piece is
    and what is still owed.
@@ -5598,14 +5746,27 @@ the next one starts.
      against a machine that has just booted, and none of them differ**,
      with a line of `LEVEL_RESET` knocked out as the control.
 
+   * ~~**A second level to go to**~~ — done, and it turned out to be a
+     question about what a level IS rather than one line. An
+     ENVIRONMENT is a bank set and a LEVEL is a map; four levels share
+     each environment's art, `LEVEL_GOTO` reads the map and takes the
+     environment out of its own header, and a transition inside one
+     environment is **54 hardware frames of which 36 are the fade**
+     (§8.1). `tools/test_transition.py` drives it with a level of
+     another environment as the control.
+   * ~~**What crosses a door**~~ — `LEVEL_RESET` is what a DEATH puts
+     back and `LEVEL_ENTER` is what a level start means: her health,
+     her magazines, her reserve and her coins travel and this level's
+     key does not (§8.1).
+
    **What is still owed**: the cutscenes, which need dialogue tables and
-   a screen; the raster-interrupt water rise, which is level 4's; and
-   **a second level to go to** — `FLOW_STEP`'s clear branch returns to
-   the title because five of the six levels have art on the disc and no
-   map on it, and the day one has a map that is one line. Nothing here
-   saves anything between levels either: `LEVEL_RESET` puts her health,
-   her magazines and her reserve back at every start, which is right for
-   a restart and is a decision rather than a fact for a transition.
+   a screen; the raster-interrupt water rise, which is level 4's; **maps
+   for the other twenty-three levels**, which is a designer's work and
+   not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
+   carries a zero for each one nobody has made; and **where the view
+   starts**, which is §8.1's last paragraph: `SCROLL_INIT` puts it at
+   the top left and the camera pans to find her, which is eight frames
+   for level 1's start and 1.6 s for one placed further along.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
 

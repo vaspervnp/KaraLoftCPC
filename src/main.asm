@@ -164,18 +164,18 @@ SCROLL_DEMO:    di
                 ; tiles the art package ships need the addressing rewrite
                 ; of CLAUDE.md 8.3, so the demo still scrolls the 16x16
                 ; stand-ins while Kara herself is the drawn sprite.
+                ; ---- THE FIRST LEVEL, MAP AND ART ------------------
+                ; One call, because a level and an environment are
+                ; different things now (src/flow.asm): LEVEL_GOTO reads
+                ; the map, takes the environment out of the map's own
+                ; header and reads the art only if the banks do not
+                ; already hold it. At boot they never do, so this is the
+                ; same two reads it always was - and in the other order,
+                ; which is the better one: a level with no map never
+                ; spends 1.6 s loading art for a level that cannot be
+                ; drawn.
                 xor  a                      ; 0 = level 1, gameplay
-                call LEVEL_LOAD
-                jr   nc,.failed
-                ; ... AND THE LEVEL'S OWN BYTES, which used to be in the
-                ; binary. Both are disc reads with interrupts off and
-                ; nothing on the screen but the title, so they go one
-                ; after the other; the map has to be second only because
-                ; a failed art read leaves the banks full of noise and
-                ; there is no point reading a map for a level that
-                ; cannot be drawn.
-                xor  a                      ; 0 = level 1
-                call LEVEL_MAP_LOAD
+                call LEVEL_GOTO
                 ld   a,1
                 jr   c,.loaded
                 ; IT FAILED, AND THAT MUST NOT BE A BLACK SCREEN. The
@@ -185,10 +185,10 @@ SCROLL_DEMO:    di
                 ; on the top of the screen so the failure can be read off
                 ; a photograph. See docs/AmstradDskReadHowTo.md.
                 ;
-                ; AND A MISSING MAP IS THE SAME ANSWER. LEVEL_MAP_LOAD
-                ; returns carry clear for a level with no map on the
-                ; disc as well as for a read that failed, and neither is
-                ; a level: MAP_INSTALL would parse whatever &B000 holds.
+                ; AND A MISSING MAP IS THE SAME ANSWER. LEVEL_GOTO
+                ; returns carry clear for a level nobody has painted as
+                ; well as for a read that failed, and neither is a
+                ; level: MAP_INSTALL would parse whatever &B000 holds.
 .failed:        xor  a
 .loaded:        ld   (LEVEL_OK),a
                 ; Full guns for the level: the Module 1-3 screen fires

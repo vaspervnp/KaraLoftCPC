@@ -70,6 +70,26 @@ public sealed class Level
                        + $"and this is {Width}x{Height}: MAP_CELL scales the row out of the "
                        + "base address at compile time, so MAP_INSTALL refuses any other shape";
 
+        if (LevelId < 1 || LevelId > EngineLimits.MaxLevels)
+            yield return $"level {LevelId} is outside 1..{EngineLimits.MaxLevels}: "
+                       + "DISC_LEVEL_MAPS has one entry a level and nothing "
+                       + "indexes past its end";
+
+        if (TilesetId < 1 || TilesetId > EngineLimits.Environments)
+            yield return $"tileset {TilesetId} is outside "
+                       + $"1..{EngineLimits.Environments}: LEVEL_GOTO takes it "
+                       + "as the environment's bank set and there are six";
+
+        else if (LevelId >= 1 && LevelId <= EngineLimits.MaxLevels
+                 && EngineLimits.EnvironmentOf(LevelId) != TilesetId)
+            yield return $"level {LevelId} is in environment "
+                       + $"{EngineLimits.EnvironmentOf(LevelId)}'s block and "
+                       + $"the header says tileset {TilesetId}. The engine "
+                       + "believes the tileset - it is what LEVEL_GOTO loads "
+                       + "art from - and the build believes it too, so the "
+                       + "number would be the only thing that was wrong, and "
+                       + "nothing on the hardware would say so";
+
         if (Entities.Count > EngineLimits.MaxEntities)
             yield return $"{Entities.Count} entities against ENT_MAX = {EngineLimits.MaxEntities}";
 

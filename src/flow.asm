@@ -102,27 +102,62 @@ FLOW_STEP:      cp   GS_CLEAR
                 call LEVEL_RESTART
                 jr   .back
 
-                ; ---- the level is over -----------------------------
-                ; AND THERE IS NOWHERE TO GO YET, WHICH IS A LEVEL'S
-                ; PROBLEM AND NOT THIS ROUTINE'S. Five of the six
-                ; levels have their art on the disc and no map on it
-                ; (tools/make_level_image.py), so LEVEL_MAP_LOAD would
-                ; refuse and MAP_INSTALL would parse whatever &B000
-                ; held. Rather than pretend, the game goes back to its
-                ; title and starts again - which is a loop a player can
-                ; see the end of, and the one line to change the day a
-                ; second level exists.
+                ; ---- the level is over, so go to the next one ------
+                ; AND WHAT THAT COSTS DEPENDS ON WHETHER IT IS IN THE
+                ; SAME ENVIRONMENT. LEVEL_GOTO reads the map either way
+                ; - one sector - and the art only when the level it is
+                ; going to wants a different set. Four levels of one
+                ; environment are therefore three free transitions and
+                ; one 1.6 s read to arrive.
+                ;
+                ; SHE KEEPS WHAT SHE IS CARRYING, which is LEVEL_ENTER
+                ; rather than LEVEL_RESET: her health, her magazines,
+                ; her reserve and her coins cross the door, and only a
+                ; death puts them back. A level that handed out a full
+                ; bar on the way in would make every door a medkit.
 .clear:         ld   hl,PALETTE_DATA
                 call FADE_OUT
-                call INTRO_SHOW             ; ... a disc read, so interrupts
+                ld   a,(LEVEL_CUR)
+                inc  a
+                cp   DISC_LEVEL_N
+                jr   nc,.over
+                call LEVEL_GOTO
+                jr   nc,.over               ; no map there: that was the last
+                call LEVEL_ADVANCE
+                jr   .back
+
+                ; ---- ... and when there is no next one -------------
+                ; The game goes back to its title and starts again from
+                ; the first level, which is a loop a player can see the
+                ; end of. It is also what an UNPAINTED level looks like:
+                ; DISC_LEVEL_MAPS carries a zero for every level nobody
+                ; has made yet, and LEVEL_GOTO refuses rather than
+                ; letting MAP_INSTALL parse whatever &B000 held.
+.over:          call INTRO_SHOW             ; ... a disc read, so interrupts
                 call INTRO_WAIT             ; are off and the tick has stood
                                             ; still; the loop's own
                                             ; WAIT_VSYNC re-anchors it
                 xor  a
                 call SCREEN_CLS
+                xor  a                      ; back to the first level, and
+                call LEVEL_GOTO             ; its art if this is not it
                 call LEVEL_RESTART
 
-.back:          ; THE PALETTE IS BLACK AND THE PICTURE IS FINISHED, so
+.back:          ; INTERRUPTS BACK ON, AND IT IS FOUR T TO NOT DEPEND ON AN
+                ; ACCIDENT. LEVEL_GOTO is a disc read and returns with
+                ; them off (src/unpack.asm); measured, the loop comes
+                ; back anyway at 100 of 200 with IRQ_TICKS advancing its
+                ; full 1,200 - because `di / call INPUT_SCAN / ei` in
+                ; the loop body turns them on again a routine later, for
+                ; the AY's address latch and nothing to do with this.
+                ; That is a true fact about today's loop and a bad thing
+                ; to rest a level transition on: everything between
+                ; WAIT_VSYNC and INPUT_SCAN runs with them off, and the
+                ; day a raster gate moves above that line the transition
+                ; hangs and nothing here would say why.
+                ei
+
+                ; THE PALETTE IS BLACK AND THE PICTURE IS FINISHED, so
                 ; the fade in is the whole of what is left. She is on
                 ; the screen the moment it starts: LEVEL_RESTART has
                 ; painted the playfield but not her, and the first loop
@@ -141,38 +176,129 @@ FLOW_STEP:      cp   GS_CLEAR
                 jp   WAIT_VSYNC_END
 
 ; ---------------------------------------------------------------------
-; LEVEL_RESTART - the level as it was when it was loaded.
+; LEVEL_GOTO - put a level in memory: its map always, its art only if
+; that is not the art already in the banks.
+;
+; IN : A = level number, 0 based
+; OUT: carry SET and the level is in RAM, LEVEL_CUR is it. Carry clear
+;      means there is no such level - no map painted for it, or a read
+;      that failed - and nothing has moved but the staging buffer.
+;      destroys everything, INTERRUPTS OFF ON RETURN
+;
+; A LEVEL IS A MAP AND AN ENVIRONMENT IS A BANK SET, and keeping them
+; apart is the whole of this routine. The map is 358 packed bytes, ONE
+; SECTOR; the art is 16-20 KB and 1.6 s (CLAUDE.md 7.5). So four levels
+; of one environment cost one read to arrive and a sector each after
+; that, and the player crosses a door in the time the fade takes.
+;
+; THE MAP IS READ FIRST AND THE ENVIRONMENT COMES OUT OF IT. Byte 9 of
+; the header is the level's own word for which tileset it wants, which
+; makes the level file the single statement of it - a table here saying
+; the same thing is a second place to get it wrong, and the day they
+; disagreed the engine would follow one and the build the other. It
+; also means a level with no map never loads art for a level that
+; cannot be drawn.
+; ---------------------------------------------------------------------
+LEVEL_GOTO:     ld   (.want + 1),a
+                call LEVEL_MAP_LOAD
+                ret  nc
+                ld   a,(LEVEL_LVL + LVL_TILESET)
+                dec  a                      ; 1-6 in the file, 0-5 here
+                ld   hl,LEVEL_ENV
+                cp   (hl)
+                jr   z,.have                ; the art is already in the banks
+                ld   (hl),a                 ; ... and it is claimed BEFORE the
+                add  a,a                    ; read, because a read that fails
+                call LEVEL_LOAD             ; leaves the banks dirty either way
+                jr   c,.have
+                ld   a,&FF                  ; so nothing may be believed about
+                ld   (LEVEL_ENV),a          ; them, and the next GOTO reloads
+                ret                         ; carry clear, from LEVEL_LOAD
+.have:
+.want:          ld   a,0
+                ld   (LEVEL_CUR),a
+                scf
+                ret
+
+LEVEL_CUR:      db 0
+LEVEL_ENV:      db &FF          ; which environment's art is in the banks,
+                                ; and &FF is "none of them yet"
+
+; ---------------------------------------------------------------------
+; LEVEL_RESTART - the same level, as it was when it was loaded.
+; LEVEL_ADVANCE - a DIFFERENT level, with what she is carrying intact.
 ;                                destroys everything
+;
+; The only difference is which of the two resets runs; what follows is
+; the same, because SCROLL_INIT does not care how the image at &B000
+; got there.
 ; ---------------------------------------------------------------------
 LEVEL_RESTART:  call LEVEL_RESET
-                call SCROLL_INIT
+                jr   LEVEL_SHOW
+
+LEVEL_ADVANCE:  call LEVEL_ENTER
+
+LEVEL_SHOW:     call SCROLL_INIT
                 ret  nc
-                ; MAP_INSTALL refused, which after a level has been
-                ; PLAYED means the image at &B000 has been damaged -
-                ; nothing else can make a file that parsed once stop
-                ; parsing. There is no recovering from that here, so it
-                ; is said the way a failed load is said (src/main.asm)
-                ; and the loop runs on without her.
+                ; MAP_INSTALL refused. After a RESTART that means the
+                ; image at &B000 has been damaged - nothing else can
+                ; make a file that parsed once stop parsing - and after
+                ; an ADVANCE it means the level that just came off the
+                ; disc is not one this engine can read. There is no
+                ; recovering from either here, so it is said the way a
+                ; failed load is said (src/main.asm) and the loop runs
+                ; on without her.
                 xor  a
                 ld   (LEVEL_OK),a
                 ret
 
 ; ---------------------------------------------------------------------
-; LEVEL_RESET - everything a level start means that SCROLL_INIT does
-; not own.
+; LEVEL_RESET - what a DEATH puts back, and then a level start.
+;                                destroys AF,BC,DE,HL
+;
+; WHAT IS HERE RATHER THAN IN LEVEL_ENTER IS WHAT SHE CARRIES THROUGH A
+; DOOR. Health, both magazines, the reserve and her coins cross a
+; transition and only dying restores them: a level that handed out a
+; full bar on the way in would make every door a medkit, and one that
+; emptied her guns would make the last room of an environment the one
+; she cannot fight her way out of. It falls straight into LEVEL_ENTER,
+; which is everything that is per LEVEL whichever way she arrived.
+;
+; tools/test_flow.py compares the whole of the engine's RAM after a
+; restart against a machine that has just booted, so this list is
+; measured rather than reasoned about - and it knocks a line out of it
+; as the control.
+; ---------------------------------------------------------------------
+LEVEL_RESET:    ld   a,HP_MAX
+                ld   (PLAYER_HP),a
+                ld   a,MAG_SIZE
+                ld   (MAG_LEFT),a
+                ld   (MAG_RIGHT),a
+                ld   a,AMMO_START
+                ld   (AMMO_RESERVE),a
+                xor  a
+                ld   (COINS_COUNT),a
+                ; ... and on into the rest of a level start
+
+; ---------------------------------------------------------------------
+; LEVEL_ENTER - everything a level start means that SCROLL_INIT does
+; not own and that she does NOT take with her.
 ;                                destroys AF,BC,DE,HL
 ;
 ; SCROLL_INIT and MAP_INSTALL between them put back the view, the map,
 ; the entity table, the tile flags, the pickup bake, the enemies, their
 ; rounds and where she stands. What is left is the state that belongs
-; to HER and to the FRAME, and it is in four groups.
+; to THIS LEVEL and to the FRAME, and it is in four groups.
 ; ---------------------------------------------------------------------
-LEVEL_RESET:    ; ---- what she is carrying --------------------------
-                ld   a,HP_MAX
-                ld   (PLAYER_HP),a
+LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
+                ; A KEY OPENS ONE GARAGE. The statues are level 2's and
+                ; the book is level 3's, and each of them is a thing a
+                ; designer placed for the door at the end of the level
+                ; it is in - so they do not travel, and a level that
+                ; started with the last one's key in her hand would be
+                ; a level whose lock is already open.
                 xor  a
                 ld   (KEYS_COUNT),a
-                ld   (COINS_COUNT),a
                 ld   (STATUES_HELD),a
                 ld   (CURRENT_BOOK_ID),a
                 ld   (ENT_RESULT),a         ; ER_NOTHING, and it MUST be
@@ -181,13 +307,10 @@ LEVEL_RESET:    ; ---- what she is carrying --------------------------
                                             ; would clear the level again
                                             ; on the first frame back
 
-                ; ---- the guns --------------------------------------
-                ld   a,MAG_SIZE
-                ld   (MAG_LEFT),a
-                ld   (MAG_RIGHT),a
-                ld   a,AMMO_START
-                ld   (AMMO_RESERVE),a
-                xor  a
+                ; ---- the guns' STATE, but not what is in them ------
+                ; A round in the air belongs to the screen it was fired
+                ; at, and so does a reload half way through; what is in
+                ; the magazines is LEVEL_RESET's and crosses the door.
                 ld   (ACTIVE_GUN),a
                 ld   (RELOAD_TIMER),a
                 ld   (BUL_LIVE),a

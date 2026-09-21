@@ -100,10 +100,13 @@ def disc_checks(sym, lvl):
     marked = os.path.join(scratch, "marked.dsk")
     shutil.copy(os.path.join(BUILD, "kara.dsk"), marked)
     layout, _ = dskdata.plan()
-    where = [b for lvl_name, kind, b in layout if kind == "map"]
+    # `map_1` AND NOT `map`: an environment carries up to four levels
+    # now and each map is its own stream, named by the global level
+    # number (CLAUDE.md 8.1). This suite is about level 1's.
+    where = [b for lvl_name, kind, b in layout if kind == "map_1"]
     if not where:
         check("the disc carries a level image at all", False,
-              "dskdata.py planned no map stream")
+              "dskdata.py planned no map_1 stream")
         return
     _, track, sect, n, _ = where[0][0]
     img = bytearray(open(marked, "rb").read())

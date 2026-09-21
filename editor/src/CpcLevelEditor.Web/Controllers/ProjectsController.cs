@@ -71,8 +71,14 @@ public sealed class ProjectsController(
                 // The package's directory name says which level this is, and
                 // the file is named after it. Nothing reads the tileset id
                 // yet — MAP_INSTALL parses past it — so it follows.
-                LevelId = EditorProject.LevelIdFor(request.AssetLevel),
+                // The ENVIRONMENT comes from the art package's own
+                // directory name; the LEVEL starts at the first of that
+                // environment's block and the designer moves it with a
+                // `level-id` op. Both the same number was right while there
+                // was one level an environment (CLAUDE.md 8.1).
                 TilesetId = EditorProject.LevelIdFor(request.AssetLevel),
+                LevelId = (byte)EngineLimits.FirstLevelOf(
+                    EditorProject.LevelIdFor(request.AssetLevel)),
                 Map = new byte[EngineLimits.MapWidth * EngineLimits.MapHeight],
                 TileFlags = new Dictionary<string, TileFlags>(
                     LevelFlagSeeds.For(request.AssetLevel)),

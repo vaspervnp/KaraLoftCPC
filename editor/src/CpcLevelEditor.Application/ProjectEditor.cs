@@ -99,6 +99,24 @@ public static class ProjectEditor
                 project.Name = op.Name ?? project.Name;
                 return null;
 
+            // WHICH LEVEL THIS IS, as against which ENVIRONMENT it is in.
+            // The environment is the art package the project was started on
+            // and never changes; the number is the designer's, and it is what
+            // DISC_LEVEL_MAPS is indexed by, so two projects sharing one
+            // would put two maps at one disc entry and the build would keep
+            // whichever it wrote last.
+            case "level-id":
+                if (op.Index < 1 || op.Index > EngineLimits.MaxLevels)
+                    return $"level {op.Index} is outside 1..{EngineLimits.MaxLevels}";
+                if (EngineLimits.EnvironmentOf(op.Index) != project.TilesetId)
+                    return $"level {op.Index} belongs to environment "
+                         + $"{EngineLimits.EnvironmentOf(op.Index)} and this "
+                         + $"project is environment {project.TilesetId}: the "
+                         + $"numbering is blocks of "
+                         + $"{EngineLimits.LevelsPerEnvironment}";
+                project.LevelId = (byte)op.Index;
+                return null;
+
             case "entity-add":
                 if (op.Entity is not { } added)
                     return "an entity-add op needs an entity";

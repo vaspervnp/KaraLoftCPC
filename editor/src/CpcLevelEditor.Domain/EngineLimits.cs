@@ -25,6 +25,37 @@ public static class EngineLimits
     public const int MapHeight = 16;
 
     /// <summary>
+    /// <b>A LEVEL AND AN ENVIRONMENT ARE DIFFERENT THINGS.</b> An environment
+    /// is a bank set — the tiles, the characters, the machines — and there are
+    /// six of them in <c>assets/sprites/</c>. A level is one map, and several
+    /// levels share an environment's art: the art is 16-20 KB and ~1.6 s off
+    /// the disc, the map is one sector, so a transition inside an environment
+    /// costs nothing a player can see (CLAUDE.md 8.1).
+    /// <para>
+    /// The level's number is <c>LevelId</c> (header byte 3) and its
+    /// environment is <c>TilesetId</c> (byte 9), and the engine reads the
+    /// SECOND one to decide whether it has to load art. The numbering is
+    /// blocks of <see cref="LevelsPerEnvironment"/>, which is what lets the
+    /// two be checked against each other instead of merely coexisting.
+    /// </para>
+    /// </summary>
+    public const int Environments = 6;
+
+    /// <inheritdoc cref="Environments"/>
+    public const int LevelsPerEnvironment = 4;
+
+    /// <inheritdoc cref="Environments"/>
+    public const int MaxLevels = Environments * LevelsPerEnvironment;
+
+    /// <summary>Which environment a level number belongs to, both 1-based.</summary>
+    public static int EnvironmentOf(int levelId) =>
+        (levelId - 1) / LevelsPerEnvironment + 1;
+
+    /// <summary>The first level number of an environment, both 1-based.</summary>
+    public static int FirstLevelOf(int environment) =>
+        (environment - 1) * LevelsPerEnvironment + 1;
+
+    /// <summary>
     /// <c>ENT_MAX</c> — slots in the table the engine clears at install.
     /// A level may carry fewer; it may not carry more.
     /// </summary>

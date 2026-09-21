@@ -272,12 +272,16 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     }
 
     /// <summary>
-    /// <b>Any level of the package, not only the City.</b> A blank project
-    /// takes its tile sheet from the art and its level NUMBER from the
-    /// package's own directory name — a level 2 that exported itself as
-    /// <c>level_1.lvl</c> would go over the City — and it starts with no
-    /// tile flags at all, because nothing in the package says what a tile
-    /// does (CLAUDE.md 11 step 7).
+    /// <b>Any environment of the package, not only the City.</b> A blank
+    /// project takes its tile sheet from the art, its ENVIRONMENT from the
+    /// package's own directory name, and its LEVEL number from the first
+    /// slot of that environment's block — the forest is environment 2 and
+    /// its levels are 5 to 8. It starts with no tile flags at all, because
+    /// nothing in the package says what a tile does (CLAUDE.md 11 step 7).
+    /// <para>
+    /// This used to expect <c>level_2.lvl</c>, from when there was one level
+    /// an environment and the two numbers were the same one.
+    /// </para>
     /// </summary>
     [Fact]
     public async Task A_new_project_can_be_started_on_any_level_of_the_package()
@@ -299,11 +303,48 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         var exported = await client.PostAsync($"/api/projects/{id}/export", null);
         var result = await exported.Content.ReadFromJsonAsync<ExportDto>(Json);
         Assert.Equal(
-            new[] { "level_2.lvl", "tileflags_level2_forest.bin",
+            new[] { "level_5.lvl", "tileflags_level2_forest.bin",
                     "foresttiles.bin", "forest_baked.json" },
             result!.Files.Select(f => f.Name));
-        Assert.Equal(2, new BinaryLevelReader()
-            .Read(Convert.FromBase64String(result.Files[0].Bytes)).LevelId);
+        var level = new BinaryLevelReader()
+            .Read(Convert.FromBase64String(result.Files[0].Bytes));
+        Assert.Equal(EngineLimits.FirstLevelOf(2), level.LevelId);
+        Assert.Equal(2, level.TilesetId);       // ... and the two are separate
+    }
+
+    /// <summary>
+    /// <b>And the level number is the designer's, inside its own block.</b>
+    /// <c>DISC_LEVEL_MAPS</c> has one entry a level, so the number is what
+    /// the disc is indexed by; the environment is what <c>LEVEL_GOTO</c>
+    /// loads art from. Moving a forest project to level 7 is allowed and
+    /// moving it to level 3 is not, because 3 is the City's and nothing on
+    /// the hardware would say which map had been overwritten.
+    /// </summary>
+    [Fact]
+    public async Task A_level_can_be_renumbered_inside_its_own_environment()
+    {
+        var client = app.As(EditorApp.Admin);
+        var id = "forest-" + Guid.NewGuid().ToString("N")[..8];
+
+        (await client.PostAsJsonAsync("/api/projects", new
+        {
+            id, name = "the forest", assetLevel = "level2_forest", sheet = "forest_tiles",
+        }, Json)).EnsureSuccessStatusCode();
+
+        var moved = await client.PatchAsJsonAsync($"/api/projects/{id}",
+            new { version = 0, ops = new[] { new { op = "level-id", index = 7 } } }, Json);
+        moved.EnsureSuccessStatusCode();
+
+        var exported = await client.PostAsync($"/api/projects/{id}/export", null);
+        var result = await exported.Content.ReadFromJsonAsync<ExportDto>(Json);
+        Assert.Equal("level_7.lvl", result!.Files[0].Name);
+
+        // ... and the control: the City's block is refused, on the stroke.
+        var project = await client.GetFromJsonAsync<ProjectDto>($"/api/projects/{id}", Json);
+        var refused = await client.PatchAsJsonAsync($"/api/projects/{id}",
+            new { version = project!.Version, ops = new[] { new { op = "level-id", index = 3 } } },
+            Json);
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
     }
 
     private static byte[] Picture(byte[] map, byte[] tiles)

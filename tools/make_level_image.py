@@ -42,14 +42,42 @@ sys.path.insert(0, HERE)
 from build_levels import zx0                                   # noqa: E402
 
 FLAGS_BYTES = 256               # = TILE_ATTR_N
+MAX_LEVELS = 24                 # = dskdata.MAX_LEVELS, 6 environments x 4
+LVL_TILESET = 9                 # header byte 9 - which ENVIRONMENT it is
 
-# Which level's files are which. Only the City has a map; the other five
-# have their art on the disc already and nothing to put in it yet, and
-# this says so by leaving them out rather than by writing an empty one -
-# DISC_LEVEL_MAPS carries a zero and LEVEL_MAP_LOAD refuses.
-LEVELS = {
-    "level1_city": ("level_1.lvl", "tileflags_level1_city.bin"),
-}
+
+def environments():
+    """{environment number: its directory in build/levels}"""
+    out = {}
+    for d in os.listdir(LEV):
+        if d.startswith("level") and os.path.isdir(os.path.join(LEV, d)):
+            n = d[5:].split("_")[0]
+            if n.isdigit():
+                out[int(n)] = d
+    return out
+
+
+def found():
+    """[(level number, its .lvl, its environment directory)], in order.
+
+    A LEVEL IS A MAP AND AN ENVIRONMENT IS A BANK SET, and which one a
+    level belongs to is the level's OWN word - byte 9 of its header,
+    which the editor writes as its TilesetId. Pairing them off the file
+    name instead would be a second statement of the same thing, and the
+    day they disagreed the engine would follow the file and the build
+    would follow the name.
+    """
+    envs, out = environments(), []
+    for n in range(1, MAX_LEVELS + 1):
+        lvl = os.path.join(BUILD, f"level_{n}.lvl")
+        if not os.path.exists(lvl):
+            continue
+        env = open(lvl, "rb").read(LVL_TILESET + 1)[LVL_TILESET]
+        if env not in envs:
+            raise SystemExit(f"level_{n}.lvl says tileset {env} and there is "
+                             f"no build/levels/level{env}_* to put it in")
+        out.append((n, lvl, envs[env]))
+    return out
 
 
 def image(lvl_path, flags_path):
@@ -83,23 +111,38 @@ def write_inc(biggest, which):
 
 def main():
     made, biggest, which = 0, 0, "none"
-    for level, (lvl, flags) in sorted(LEVELS.items()):
-        lvl_path, flags_path = os.path.join(BUILD, lvl), os.path.join(BUILD, flags)
-        if not (os.path.exists(lvl_path) and os.path.exists(flags_path)):
-            continue
-        out = os.path.join(LEV, level, "map.bin")
+    # ... and clear out any map this build did NOT make. A level that
+    # was renumbered or deleted would otherwise keep its old stream on
+    # the disc and its old entry in DISC_LEVEL_MAPS, which is a level
+    # the game can still walk into and nothing says so.
+    keep = set()
+    for n, lvl_path, envdir in found():
+        flags_path = os.path.join(BUILD, f"tileflags_{envdir}.bin")
+        if not os.path.exists(flags_path):
+            raise SystemExit(f"level_{n}.lvl is {envdir} and there is no "
+                             f"{os.path.basename(flags_path)} for it")
+        out = os.path.join(LEV, envdir, f"map_{n}.bin")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         blob = image(lvl_path, flags_path)
         open(out, "wb").write(blob)
         zx0(out)
+        keep.add(os.path.abspath(out.replace(".bin", ".zx0")))
         packed = os.path.getsize(out.replace(".bin", ".zx0"))
-        print(f"-> {level}/map.bin  {len(blob)} bytes "
+        print(f"-> {envdir}/map_{n}.bin  {len(blob)} bytes "
               f"({os.path.getsize(flags_path)} tile flags padded to "
               f"{FLAGS_BYTES}, {os.path.getsize(lvl_path)} of level) "
               f"-> {packed} packed, {packed / len(blob):.0%}")
         if len(blob) > biggest:
-            biggest, which = len(blob), level
+            biggest, which = len(blob), f"level_{n} in {envdir}"
         made += 1
+    for d in environments().values():
+        for f in os.listdir(os.path.join(LEV, d)):
+            q = os.path.join(LEV, d, f)
+            if (f.startswith("map_") and f.endswith(".zx0")
+                    and os.path.abspath(q) not in keep):
+                os.remove(q)
+                os.remove(q.replace(".zx0", ".bin"))
+                print(f"   (removed {d}/{f} - no level_*.lvl claims it)")
     if not made:
         raise SystemExit("no level image was made: build/ has no level file")
     write_inc(biggest, which)

@@ -42,13 +42,49 @@ DATA_TRACK = 9              # ... and it was 8 until the label screen went on
 SECT_FIRST = 0xC1
 SECTORS = 9
 SECT_SIZE = 512
+
+# A LEVEL AND AN ENVIRONMENT ARE DIFFERENT THINGS NOW (CLAUDE.md 8.1).
+# An environment is a bank set - the tiles, the characters, the machines
+# - and it is read at a transition that changes it, 16-20 KB and ~1.6 s.
+# A level is one map, and it is 358 packed bytes: ONE SECTOR. So several
+# levels share an environment's art and cost a sector each, which is why
+# the maps are indexed by LEVEL here and the sets by ENVIRONMENT.
+#
+# The global number is in the FILE NAME - map_<n>.zx0 - because
+# DISC_LEVEL_MAPS is indexed by it and a sidecar saying so would be a
+# second place to get it wrong.
+ENVIRONMENTS = 6
+LEVELS_PER_ENV = 4
+MAX_LEVELS = ENVIRONMENTS * LEVELS_PER_ENV
+
+# WHAT THE DISC HOLDS, AND THE TWO NUMBERS ARE NOT THE SAME. A CPC DATA
+# disc is 40 tracks and that is what every drive reads; the .dsk this
+# build makes is 42, and the last two are the extended pair that many
+# drives and some emulators will not touch. So crossing 40 tracks is a
+# WARNING with the number in it and crossing 42 is an error - because
+# the second one is data that is simply not on the disc, and the
+# symptom would be a level that loads noise.
+STD_TRACKS = 40
+IMG_TRACKS = 42
 # the RAM configuration each bank image is unpacked into
 CFG = {"C0": 0xC0, "C4": 0xC4, "C5": 0xC5, "C6": 0xC6, "C7": 0xC7}
 
 
 def levels():
+    """The ENVIRONMENT directories, in order - one bank set each."""
     return sorted(x for x in os.listdir(LEV)
                   if x.startswith("level") and os.path.isdir(os.path.join(LEV, x)))
+
+
+def maps_in(d):
+    """The global level numbers this environment has a map for."""
+    out = []
+    for f in os.listdir(d):
+        if f.startswith("map_") and f.endswith(".zx0"):
+            n = f[4:-4]
+            if n.isdigit():
+                out.append(int(n))
+    return sorted(out)
 
 
 def plan():
@@ -72,11 +108,13 @@ def plan():
         # (tools/make_level_image.py); it is one "bank" whose RAM
         # configuration is never used, because LEVEL_MAP_LOAD unpacks it
         # into base RAM at LEVEL_IMAGE and pages nothing.
-        for kind in ("map", "lvl", "set"):
+        kinds = [f"map_{n}" for n in maps_in(d)] + ["lvl", "set"]
+        for kind in kinds:
             banks = []
-            names = ["."] if kind == "map" else ["C0", "C4", "C5", "C6", "C7"]
+            names = ["."] if kind.startswith("map") else ["C0", "C4", "C5",
+                                                          "C6", "C7"]
             for cfg in names:
-                p = (os.path.join(d, "map.zx0") if kind == "map"
+                p = (os.path.join(d, f"{kind}.zx0") if kind.startswith("map")
                      else os.path.join(d, f"{kind}_{cfg}.zx0"))
                 if not os.path.exists(p):
                     continue
@@ -116,19 +154,42 @@ def write_inc(layout, end):
             lines.append(f"                dw {s if s else 0}"
                          f"{'':<12}; {lvl} {kind}")
     lines.append("")
-    lines.append("; And the level's OWN bytes - one entry a level, no stride to")
-    lines.append("; get wrong. A zero means that level has no map yet, which is")
-    lines.append("; five of the six: their art is on the disc and nothing has")
-    lines.append("; painted them (CLAUDE.md 11 step 7).")
+    lines.append("; And the level's OWN bytes - one entry a LEVEL, indexed by")
+    lines.append("; the global level number less one, with no stride to get")
+    lines.append("; wrong. A zero means no map has been painted for that")
+    lines.append("; level, and LEVEL_GOTO treats it as the end of the game.")
+    lines.append("; Which ENVIRONMENT a level belongs to is not here: it is")
+    lines.append("; byte 9 of the level's own header, which LEVEL_GOTO reads")
+    lines.append("; after the map lands (CLAUDE.md 8.1).")
+    lines.append(f"DISC_LEVEL_N            equ {MAX_LEVELS}")
     lines.append("DISC_LEVEL_MAPS:")
+    owner = {}
     for lvl in levels():
-        s = syms.get((lvl, "map"))
-        lines.append(f"                dw {s if s else 0}"
-                     f"{'':<12}; {lvl}")
+        for n in maps_in(os.path.join(LEV, lvl)):
+            owner[n] = (lvl, f"map_{n}")
+    for n in range(1, MAX_LEVELS + 1):
+        who = owner.get(n)
+        sym = syms.get(who) if who else None
+        lines.append(f"                dw {sym if sym else 0}"
+                     f"{'':<12}; level {n}"
+                     f"{'  ' + who[0] if who else ''}")
     path = os.path.join(LEV, "disc.inc")
     open(path, "w").write("\n".join(lines) + "\n")
+    used = end - DATA_TRACK * SECTORS
+    std = (STD_TRACKS - DATA_TRACK) * SECTORS
+    img = (IMG_TRACKS - DATA_TRACK) * SECTORS
     print(f"  -> {path}  {sum(len(b) for _, _, b in layout)} streams, "
-          f"tracks {DATA_TRACK}-{(end - 1) // SECTORS}")
+          f"tracks {DATA_TRACK}-{(end - 1) // SECTORS}, "
+          f"{used} of {img} data sectors")
+    if used > img:
+        raise SystemExit(
+            f"the level data is {used} sectors and the disc holds {img} "
+            f"from track {DATA_TRACK} - over by {used - img}. A map is one "
+            f"sector and a bank set is 30-40, so this is art, not levels.")
+    if used > std:
+        print(f"     ... and {used - std} of them are past track {STD_TRACKS}, "
+              f"on the extended pair many drives will not read. The image is "
+              f"{IMG_TRACKS} tracks; a standard DATA disc is {STD_TRACKS}.")
 
 
 def dsk_offsets(img):
