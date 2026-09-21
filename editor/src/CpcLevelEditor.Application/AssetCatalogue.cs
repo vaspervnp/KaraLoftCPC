@@ -30,6 +30,10 @@ public sealed class AssetCatalogue(string spritesRoot, string paletteAsmPath)
         [.. Directory.GetDirectories(SpritesRoot, "level*_*")
             .Select(Path.GetFileName).OfType<string>().Order()];
 
+    /// <summary>The tile sheets of one level.</summary>
+    public IReadOnlyList<string> Sheets(string assetLevel) =>
+        AssetPack.TileSheetNames(Path.Combine(SpritesRoot, assetLevel));
+
     public Tileset TilesetFor(EditorProject project) =>
         Tileset(project.AssetLevel, project.Sheet, project.TileFlags);
 

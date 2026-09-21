@@ -38,6 +38,19 @@ same 51 bytes of tile flags. `tools/test_format.py` then loads the editor's
 own file on the emulator and passes all 21 of its checks. The golden file
 §11 step 7 was waiting for now runs both ways (§8.3).
 
+**AND THERE IS A PAINTER.** `dotnet run` in
+`editor/src/CpcLevelEditor.Web` puts the City on a canvas — the drawn
+tiles, the entity markers, the collision overlay and the 20x11 screen
+box with its HUD strip — and a designer paints on it with a brush, a
+rectangle, a flood fill and a dropper, edits what a tile DOES, and
+exports the three files the engine reads. **The level the game already
+plays opens in it**, which the format cannot do on its own: a map cell
+is a finished tile and nothing in `level_1.lvl` says which cells were an
+overlay on a wall, so the bake's own sidecar is read with it and the
+pairing comes back (§8.3). Taken apart, painted and exported, it is the
+same picture — checked as 2,048 cells of 64 bytes and as the attribute
+under every one of them.
+
 **AND THE TILES COME OFF THE ARTIST'S SHEET NOW, NOT OUT OF THE BUILD'S
 OWN OUTPUT.** The editor imports the asset package — the PNG, its frame
 boxes, the names in `tile_table.json` and the draw table — quantises it
@@ -241,9 +254,16 @@ editor/                    the level editor (§11 step 7), C# / ASP.NET Core
   src/...Assets/           the artist's package in: a PNG decoder with no
                            package behind it, the palette out of palette.asm,
                            and the tile sheets of all six levels
+  src/...Application/      the level as a DESIGNER holds it - the artist's
+                           tiles with an overlay layer over them - its store,
+                           the validator, the export, and the un-bake that
+                           opens a shipped level
   src/...Exporters/        level_<n>.lvl, tileflags_<level>.bin, and the
                            build-time bake of the overlay pairs
+  src/...Web/              the painter: ASP.NET Core, a JSON API and a
+                           canvas in wwwroot/ (no build step - see 11.7)
   tests/...Tests/          xUnit, against build/'s own golden files
+  tests/...IntegrationTests/  the API over real HTTP, into a real host
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
@@ -4692,8 +4712,78 @@ the next one starts.
    `LevelFlagSeeds` is where level 1's start, and
    `tileflags_<level>.bin` is the output.
 
-   **What is left is phase 3 of editor.md §15**: the painter itself.
-   Phase 4 this project does not need.
+   **AND PHASE 3 IS THE PAINTER, WHICH RUNS.**
+
+   ```bash
+   /home/vasilhs/.dotnet/dotnet run --project editor/src/CpcLevelEditor.Web
+   ```
+
+   ASP.NET Core serving a JSON API and a canvas: the map at 128x16 tiles
+   with brush, rectangle, flood fill and dropper, the overlay layer, the
+   tile-flag editor, the collision overlay, entity markers and the
+   screen box. Six integration tests drive it over real HTTP into a real
+   host, and the one that matters is the last: **a level opened through
+   the API and exported through the API is the same picture the game
+   ships** — 2,048 cells of 64 bytes, compared as pixels, with the
+   attribute under every one of them and the entity records byte for
+   byte. Confirmed again outside C# with `tools/make_level.py`'s own
+   reader on the HTTP-exported file.
+
+   **THE SHIPPED LEVEL OPENS, WHICH THE FORMAT CANNOT DO ON ITS OWN.**
+   A map cell is a finished tile, so nothing in `level_1.lvl` says which
+   cells were an overlay on a wall; opened flat, the lamp post could
+   never be taken off the brick again. `LevelUnbaker` reads the bake's
+   own sidecar with the level and gives the layer back, chained pairs
+   included — the water tank's corner over the air-conditioning unit,
+   which level 1 places in three cells. **One pair does not come back
+   and does not need to**: `tank_10`'s composite came out byte for byte
+   the overlay, so the bake spent no tile on it and a cell holding that
+   index is the plain tile or the dropped pair with nothing to tell them
+   apart — and re-exporting gives the same byte either way, which is
+   what "the composite came out the overlay" means.
+
+   **THE SAME PICTURE AND NOT THE SAME MAP BYTES, AND §8.3 SAYS SO
+   ALREADY.** A pair takes its index the first time it is placed, so the
+   numbering follows the order the placements arrive in:
+   `make_city_map.py` sweeps prop by prop and a painter lays them down
+   row by row. The first version of that test demanded byte equality and
+   was asserting something this file has written down as NOT part of the
+   contract.
+
+   **Three things it does NOT have, each a deliberate answer to
+   editor.md §6**:
+
+   * **No TypeScript, because there is no Node on this machine.** The
+     canvas is plain ES modules, so there is no build step between the
+     source and the browser — the same answer §7.2 gave about Aseprite,
+     and for the same reason: what the spec assumed is not here and the
+     work does not need it.
+   * **No database.** §6.3 makes SQLite the default and names the
+     alternative — "easy to git diff, but no concurrency and no
+     queries". The trade goes the other way here: the editor's output is
+     files the build reads and the repository versions, there is one
+     designer, and a database would add migrations and a connection
+     string to a tool whose correctness is entirely in its bytes. It is
+     behind `IProjectStore`.
+   * **No Identity.** §6.4 opens with users, roles, antiforgery and a
+     rate limiter — the shape of a tool several people share over a
+     network. This one runs on the designer's own machine against the
+     repository's own files, so a login page on localhost is a thing to
+     click through rather than a control. What IS kept is the version
+     check: an edit made against a stale version is refused rather than
+     merged, because two windows on one level is where a lost stroke is
+     silent.
+
+   **The bytes go on disk as well as down the wire**, into
+   `editor/workspace/<id>.export/`, because a designer who has to fish
+   three files out of a downloads folder has a step that can be got
+   wrong.
+
+   **What is left**: entity and region editing on the canvas (they are
+   drawn and read-only), a second level to paint, and the emulator run
+   on a level whose tileset the painter numbered — every earlier check
+   has gone through `tools/test_format.py` on the hardware, and this one
+   has not yet. Phase 4 of §15 this project does not need.
 8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

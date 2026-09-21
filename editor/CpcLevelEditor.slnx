@@ -4,8 +4,10 @@
     <Project Path="src/CpcLevelEditor.Application/CpcLevelEditor.Application.csproj" />
     <Project Path="src/CpcLevelEditor.Assets/CpcLevelEditor.Assets.csproj" />
     <Project Path="src/CpcLevelEditor.Exporters/CpcLevelEditor.Exporters.csproj" />
+    <Project Path="src/CpcLevelEditor.Web/CpcLevelEditor.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CpcLevelEditor.IntegrationTests/CpcLevelEditor.IntegrationTests.csproj" />
     <Project Path="tests/CpcLevelEditor.Tests/CpcLevelEditor.Tests.csproj" />
   </Folder>
 </Solution>

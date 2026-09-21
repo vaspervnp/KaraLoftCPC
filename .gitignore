@@ -7,3 +7,7 @@ __pycache__/
 *.zx0
 # emulator screenshots kept while chasing a bug
 errors/
+
+# the level editor's local run configuration
+.claude/
+editor/workspace/

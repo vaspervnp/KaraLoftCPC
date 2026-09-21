@@ -133,6 +133,19 @@ public static class AssetPack
         return [.. order.Split(',').Select(n => n.Trim())];
     }
 
+    /// <summary>
+    /// The tile sheets a level has. Most have one; level 3 carries the
+    /// quake's flood and level 6 the laser beams as a second sheet.
+    /// </summary>
+    public static IReadOnlyList<string> TileSheetNames(string levelDir)
+    {
+        using var manifest = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(levelDir, "manifest.json")));
+        return [.. manifest.RootElement.GetProperty("sheets").EnumerateArray()
+            .Where(s => s.TryGetProperty("kind", out var kind) && kind.GetString() == "tiles")
+            .Select(s => s.GetProperty("name").GetString()!)];
+    }
+
     /// <summary>The frame boxes, which Aseprite writes as a list or as an object.</summary>
     public static IReadOnlyList<SheetFrame> Frames(string sheetJsonPath)
     {
