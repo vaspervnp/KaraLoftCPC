@@ -1,10 +1,11 @@
+using CpcLevelEditor.Assets;
 using CpcLevelEditor.Domain;
 
 namespace CpcLevelEditor.Tests;
 
 /// <summary>
 /// Level 1's tileset as the artist drew it — 41 tiles, before anything was
-/// baked — assembled from the shipped blob and the manifest.
+/// baked — imported from the art package.
 /// </summary>
 internal static class Level1City
 {
@@ -12,60 +13,21 @@ internal static class Level1City
     public const int ArtistTileCount = 41;
 
     /// <summary>
-    /// <b>What a tile DOES, and there is no file to import it from.</b>
-    /// <c>tile_table.json</c> says how a tile is DRAWN — opaque or overlay,
-    /// its pen-0 count, its bounding box — and carries no collision at all;
-    /// today the only statement of this anywhere is a dict written by hand
-    /// in <c>tools/make_city_map.py</c>. So it is data the EDITOR owns, and
-    /// this is the seed it starts level 1 from.
+    /// The 41 tiles, <b>out of the artist's own sheet</b> — the PNG, its
+    /// frame boxes, the names in the manifest's prose and the draw table,
+    /// quantised against <c>src/palette.asm</c>.
     /// <para>
-    /// Anything not named here is scenery. That includes the whole face of
-    /// the building: <c>brick</c> and its windows have no attributes, because
-    /// made solid the foot of every ladder is a place she arrives INSIDE a
-    /// wall (CLAUDE.md 8.8).
+    /// They used to be taken out of the front of the shipped blob, which was
+    /// safe (the bake only ever appends) and quietly circular: the bake test
+    /// then compared 3,264 bytes of which the first 2,624 had been copied
+    /// from the file being compared against, so only the ten baked tiles
+    /// were really under test. Imported, all 51 are.
     /// </para>
     /// </summary>
-    public static readonly IReadOnlyDictionary<string, TileFlags> Flags =
-        new Dictionary<string, TileFlags>
-        {
-            ["concrete"] = TileFlags.Solid,
-            ["roof_l"] = TileFlags.Solid,
-            ["roof_m"] = TileFlags.Solid,
-            ["roof_r"] = TileFlags.Solid,
-            // The top rung is in the ROOF's own row and is a platform as well
-            // as a ladder, so she walks over it like any other roof tile and
-            // DOWN steps her onto the shaft (CLAUDE.md 8.8).
-            ["ladder"] = TileFlags.Ladder | TileFlags.Platform,
-            ["sidewalk"] = TileFlags.Solid,
-            ["curb"] = TileFlags.Solid,
-            ["street"] = TileFlags.Solid,
-            ["street_line"] = TileFlags.Solid,
-            ["crate"] = TileFlags.Solid,
-        };
-
-    /// <summary>
-    /// The 41 tiles, with their pixels taken out of the front of the shipped
-    /// blob — which is safe to do because the bake only ever APPENDS, so the
-    /// artist's tiles are still the first 41 of it.
-    /// </summary>
-    public static Tileset ArtistTiles()
-    {
-        var names = Golden.CityTileNames();
-        Assert.Equal(ArtistTileCount, names.Length);
-        var blob = Golden.CityTiles;
-
-        var tiles = new List<Tile>(names.Length);
-        for (var i = 0; i < names.Length; i++)
-        {
-            tiles.Add(new Tile
-            {
-                Name = names[i],
-                Bytes = blob[(i * Tile.ByteCount)..((i + 1) * Tile.ByteCount)],
-                Flags = Flags.GetValueOrDefault(names[i]),
-            });
-        }
-        return new Tileset(tiles);
-    }
+    public static Tileset ArtistTiles() => AssetPackImporter.ImportTileset(
+        Golden.Asset("sprites", "level1_city"),
+        Golden.PaletteAsm,
+        LevelFlagSeeds.City);
 
     /// <summary>
     /// Replays the placements that produced <c>build/city_baked.json</c>:

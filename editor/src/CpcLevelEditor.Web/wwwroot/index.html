@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Kara Loft — level editor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="editor.css">
+
+<header>
+  <strong>Kara Loft</strong>
+  <select id="projects" title="open a project"></select>
+  <button id="open-shipped" title="open the level the game already plays">Open the City</button>
+  <span class="spacer"></span>
+  <label>zoom <input id="zoom" type="range" min="1" max="4" step="1" value="2"></label>
+  <button id="save">Save</button>
+  <button id="validate">Validate</button>
+  <button id="export">Export</button>
+</header>
+
+<main>
+  <aside>
+    <div class="tools" id="tools">
+      <button data-tool="brush" class="on">Brush</button>
+      <button data-tool="rect">Rect</button>
+      <button data-tool="fill">Fill</button>
+      <button data-tool="pick">Pick</button>
+      <button data-tool="overlay">Overlay +</button>
+      <button data-tool="overlay-clear">Overlay −</button>
+    </div>
+    <div class="layers">
+      <label><input type="checkbox" id="show-grid" checked> grid</label>
+      <label><input type="checkbox" id="show-screen" checked> screen</label>
+      <label><input type="checkbox" id="show-overlays" checked> overlays</label>
+      <label><input type="checkbox" id="show-entities" checked> entities</label>
+      <label><input type="checkbox" id="show-solid"> solid</label>
+    </div>
+    <div id="palette" class="palette"></div>
+    <div id="tile-detail" class="detail"></div>
+  </aside>
+
+  <section class="stage">
+    <div class="canvas-wrap"><canvas id="map"></canvas></div>
+    <pre id="report"></pre>
+  </section>
+</main>
+
+<footer id="status">no project open</footer>
+<script type="module" src="editor.js"></script>

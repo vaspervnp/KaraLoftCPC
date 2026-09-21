@@ -4,7 +4,7 @@ Z80 assembly game for the Amstrad CPC 6128. The design document is [plan.md](pla
 (written in Greek); this file holds the technical contract that code must satisfy.
 **Where this file and plan.md disagree, this file wins** — see §11 for the specific
 corrections and why. The same holds for [docs/editor.md](docs/editor.md),
-which now carries its own §0 of four corrections this file forced (§8.3).
+which now carries its own §0 of five corrections this file forced (§8.3).
 
 ## 1. Status
 
@@ -30,14 +30,60 @@ touch sweep takes one frame in four instead of one in two, and which of
 the two odd phases it takes was worth more than the quartering (§9).
 
 **AND THE LEVEL EDITOR HAS STARTED, FROM THE EXPORTER RATHER THAN FROM A
-SCREEN.** `editor/` is a .NET 10 solution — a Domain, an Exporters library
-and an xUnit suite — and what it does today is read `build/level_1.lvl`
-and write it back **byte for byte**, bake level 1's ten overlay pairs into
-the same `citytiles.bin` the build ships, and emit the same 51 bytes of
-tile flags. `tools/test_format.py` then loads the editor's own file on the
-emulator and passes all 21 of its checks. The golden file §11 step 7 was
-waiting for now runs both ways (§8.3); what is left is the asset import
-and the painter.
+SCREEN.** `editor/` is a .NET 10 solution — a Domain, an Assets library, an
+Exporters library and an xUnit suite — and what it does today is read
+`build/level_1.lvl` and write it back **byte for byte**, bake level 1's ten
+overlay pairs into the same `citytiles.bin` the build ships, and emit the
+same 51 bytes of tile flags. `tools/test_format.py` then loads the editor's
+own file on the emulator and passes all 21 of its checks. The golden file
+§11 step 7 was waiting for now runs both ways (§8.3).
+
+**AND THERE IS A PAINTER.** `dotnet run` in
+`editor/src/CpcLevelEditor.Web` puts the City on a canvas — the drawn
+tiles, the entity markers, the collision overlay and the 20x11 screen
+box with its HUD strip — and a designer paints on it with a brush, a
+rectangle, a flood fill and a dropper, edits what a tile DOES, and
+exports the files the engine reads. **The level the game already
+plays opens in it**, which the format cannot do on its own: a map cell
+is a finished tile and nothing in `level_1.lvl` says which cells were an
+overlay on a wall, so the bake's own sidecar is read with it and the
+pairing comes back (§8.3). Taken apart, painted and exported, it is the
+same picture — checked as 2,048 cells of 64 bytes and as the attribute
+under every one of them.
+
+**AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
+editor is one piece of software against another; `tools/test_painter.py`
+puts the editor's own four files into `build/`, relinks the disc and
+boots a 6128 off it. **The picture is the same picture** — all 2,048 map
+cells resolved through the tile blob the ZX0 depacker left in bank C4,
+131,072 bytes, with the same attribute under every cell, the same entity
+records and **the same 16,384 bytes of video RAM at the same game
+frame** — while 25 of the 2,048 map bytes name a different tile, which
+is §8.3's numbering and is the point rather than a tolerance. Its two
+controls are the mistakes that look almost right: the editor's level
+over the SHIPPED tile blob, where every file is real and the level loads
+and 25 cells draw something else, and one cell painted in the editor,
+where exactly that cell changes and nothing else does. The loader's own
+three controls run on the editor's bytes as well (§8.3).
+
+**AND IT EXPORTS A FOURTH FILE NOW, WHICH IS A GAP FOUND BY ASKING THE
+EDITOR TO OPEN ITS OWN OUTPUT.** The three binaries the engine reads say
+nothing about which cells were an overlay on a wall, so a level exported
+without the bake's record is a level the editor can paint once and never
+re-open. The export writes `city_baked.json` in the generator's own
+shape, which makes the two interchangeable in both directions — and an
+export opened and exported again is byte for byte itself.
+
+**AND THE TILES COME OFF THE ARTIST'S SHEET NOW, NOT OUT OF THE BUILD'S
+OWN OUTPUT.** The editor imports the asset package — the PNG, its frame
+boxes, the names in `tile_table.json` and the draw table — quantises it
+against `src/palette.asm`'s sixteen pens and packs it column-major, and
+**level 1's 41 tiles come out as the first 2,624 bytes of `citytiles.bin`
+exactly**. That is not a new comparison so much as an honest one: until the
+import existed those 41 tiles were *taken from* the blob they were checked
+against, so only the ten baked ones were really under test. All 51 are now,
+and the importer reads all nine tile sheets of all six levels — 275 tiles,
+34 overlays, which is §7.3's own table. What is left is the painter.
 
 **`RUN"DISC` opens on the title picture and then starts on the
 rooftop.** The core boots, self-tests its banks, puts the artist's
@@ -144,13 +190,14 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 **The roof's gap is a run-jump now**: the 15-frame arc carries 15 bytes
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all seventeen
-pass again.** Eighteen checks in four of them did not, and how they
-divide is the part worth having written down: **fourteen were suites
-that had not caught up with a decision the engine already made, and four
-were a report that the game HAD got worse** — which is exactly why a red
-suite is dangerous rather than merely untidy. The real finding was
-sitting among the stale ones and nobody could see it.
+`./tools/run_tests.sh` runs every acceptance suite and **all nineteen
+pass**, the editor's own among them. Eighteen checks in four of them
+did not, and how they divide is the part worth having written down:
+**fourteen were suites that had not caught up with a decision the engine
+already made, and four were a report that the game HAD got worse** —
+which is exactly why a red suite is dangerous rather than merely untidy.
+The real finding was sitting among the stale ones and nobody could see
+it.
 
 | suite | checks | what it was |
 |---|---:|---|
@@ -228,9 +275,21 @@ build/kara.bas    ... and the PLAYER's one, generated: the label screen
 editor/                    the level editor (§11 step 7), C# / ASP.NET Core
   src/...Domain/           the model: the level, the entity record, the tile
                            and its flags, and Mode 0's bit interleaving
+  src/...Assets/           the artist's package in: a PNG decoder with no
+                           package behind it, the palette out of palette.asm,
+                           and the tile sheets of all six levels
+  src/...Application/      the level as a DESIGNER holds it - the artist's
+                           tiles with an overlay layer over them - its store,
+                           the validator, the export, and the un-bake that
+                           opens a shipped level
   src/...Exporters/        level_<n>.lvl, tileflags_<level>.bin, and the
                            build-time bake of the overlay pairs
+  src/...Web/              the painter: ASP.NET Core, a JSON API and a
+                           canvas in wwwroot/ (no build step - see 11.7)
+  src/...Cli/              the same export without the browser - what a
+                           build step calls, and what test_painter.py drives
   tests/...Tests/          xUnit, against build/'s own golden files
+  tests/...IntegrationTests/  the API over real HTTP, into a real host
 
 tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
                            place the bit interleaving is written down
@@ -260,7 +319,9 @@ tools/test_loader.py       RUN"KARA: the label screen in video RAM, and
                            the hold from both ends
 tools/test_format.py       the level file, the engine's reading of it,
                            and the overlay bake
-tools/test_*.py            acceptance suites, seventeen of them
+tools/test_painter.py      the EDITOR's own level, on the emulator: the
+                           same picture out of different bytes
+tools/test_*.py            acceptance suites, nineteen of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -315,6 +376,15 @@ The project uses the two-step route, wrapped in `build.sh`:
 ```bash
 ./build.sh
 ```
+
+**`./build.sh --relink` regenerates no asset at all** — it assembles and
+images whatever `build/` already holds. It exists for
+`tools/test_painter.py`, which puts the EDITOR's own level in `build/`
+and needs a disc made of it: `make_city_map.py` and `make_level.py`
+would write the generator's straight back over it. Nothing else should
+use it, and a disc built that way is exactly as current as whatever
+happened to be in `build/` when it ran. Measured: with nothing swapped
+it produces the same `kara.dsk`, byte for byte, as a full build.
 
 `-t 1` = binary, `-c` = load address, `-e` = execution address, `-f` = overwrite.
 
@@ -2406,14 +2476,68 @@ order the C# baker reproduces `city_baked.json` exactly, which is what the
 suite drives; what a golden test may assert in general is a pair's CONTENT
 and the map's consistency, not the number it was given.
 
-**`docs/editor.md` had four things wrong and they are written into its own
+#### AND THE ENGINE HAS READ THE EDITOR'S OWN FILE, ON THE MACHINE
+
+`tools/test_painter.py` is the run §11 step 7 was still owing: the
+editor's four files into `build/`, `./build.sh --relink`, and a 6128
+booted off the disc that comes out. What it compares is the PICTURE,
+because the bytes are not the thing that has to agree:
+
+| | |
+|---|---|
+| every map cell resolved through the blob in bank C4 | **2,048 x 64 = 131,072 bytes identical** |
+| the attribute under every one of them | identical |
+| the entity table and `ENT_COUNT` | identical |
+| video RAM at the same game frame | **16,384 bytes identical** |
+| the map bytes themselves | **25 of 2,048 differ** - the numbering |
+
+**The tiles are read with `peek` and not with `read_ram`, and that is not
+a detail.** `cpc.py`'s `read_ram` is documented as "base 64K RAM (banks
+0-3), ignoring ROM paging", so at `&4000` it hands back bank 1 whatever
+the gate array has selected — the same wrong bytes on every machine,
+which is a picture check that passes without looking at a single tile.
+It was written that way first and the suite now carries the check that
+caught it: the blob in bank C4 must be the blob on the disc. A tile
+index is also an address in that window for all 256 of them — the blob
+is at `&4000` and the bake's scratch tiles at `&7C00`, which is exactly
+`&4000 + 240 * 64` (§8.6) — so every cell resolves at one stride and the
+pickups are in the picture too.
+
+**And `tools/test_format.py` CANNOT be pointed at the editor's file**,
+which is why this is a second suite and not a flag on the first. Its
+first two checks compare the `.lvl` against `build/city_map.bin` and
+`build/city_entities.bin` — `make_city_map.py`'s own intermediates,
+which the editor does not produce — and comparing the editor's file
+against the editor's own statement of it would prove nothing. The half
+that IS about the engine runs here instead, on the editor's bytes, with
+the same three controls: break the magic and the loader refuses, give it
+a map of another shape and it refuses, and zero the ladder's flags in
+the file and `TILE_ATTR` loses `TA_CLIMB` with them. The ladder is found
+in the file rather than looked up — it is the one tile the editor marked
+`Ladder|Platform`.
+
+**THE FOURTH FILE IS THE BAKE'S RECORD AND IT IS NOT OPTIONAL.** The
+export used to write the three binaries the engine reads, which is
+everything the ENGINE needs and not everything a LEVEL is: nothing in
+them says which cells were an overlay on a wall, so an export without
+the record is a level the editor can never open again — its own
+included. `ProjectExporter` writes `city_baked.json` in the generator's
+own shape, so the editor opens what the build baked and the build's own
+suites can read what the editor exported, and an export opened and
+exported again is byte for byte itself.
+
+**`docs/editor.md` had five things wrong and they are written into its own
 §0 now**, because a spec that is read after the code is written is read by
 somebody who does not know which half to believe: the HUD band and the
-level size are §8.3's two corrections below, and the two the exporter
+level size are §8.3's two corrections below; the two the exporter
 found are the entity flags byte (editor.md says bit 0 is "facing left";
 the engine and the shipped file both say `EF_ACTIVE`, and there is no
 facing bit at all) and the enemy's `param0`/`param1`, which were the wrong
-way round in `src/entity.asm`'s own header comment as well.
+way round in `src/entity.asm`'s own header comment as well; and the fifth
+is its §9.1 export table, which lists **two** binaries. Two is what the
+ENGINE reads. A level is also the tile blob its cells point into and the
+bake's own record, and without the second of those it can be painted once
+and never opened again.
 
 #### Two corrections to editor.md, both forced by the CRTC
 
@@ -4623,20 +4747,158 @@ the next one starts.
    composite done the wrong way round, and the same ten flags moved one
    tile along — which keeps every count right and the file wrong.
 
-   **What is left is phases 2 and 3 of editor.md §15**: importing the
-   asset pack, and the painter itself. Three things the import will have
-   to be written around, all of them found by reading the shipped pack
-   rather than the spec — the manifest's `file` fields point at
-   `out/frames_*.txt` that do not exist and `city_agent` is missing from
-   level 1's manifest altogether, so the sheets are found by scanning the
-   directory; `tile_names` exists only in levels 3 and 5, so level 1's
-   names come out of the sheet's `description` ("frame order: ...") the
-   way `make_city_map.py` reads them; and **there is no file anywhere
-   that carries collision flags.** `tile_table.json` says how a tile is
-   DRAWN and the only statement of what it DOES is a dict written by hand
-   in `make_city_map.py` — so the flags are data the EDITOR owns, seeded
-   once from that dict, and `tileflags_<level>.bin` is its output.
-   Phase 4 of §15 this project does not need.
+   **AND PHASE 2 IS DONE: THE ASSET PACK GOES IN.**
+   `CpcLevelEditor.Assets` reads the artist's package and builds a
+   tileset out of it — and the measurement that says it is right is the
+   one the bake test was already making, only honestly. Level 1's 41
+   tiles used to be taken out of the front of `citytiles.bin`, so the
+   blob comparison had 2,624 of its 3,264 bytes copied from the file it
+   was compared against; imported from the PNG, **all 3,264 are under
+   test and they still agree byte for byte.** Four transformations at
+   once: the decoder, the quantiser, the column-major packing and the
+   frame order.
+
+   | | |
+   |---|---|
+   | level 1's tiles, imported against `citytiles.bin` | **2,624 bytes identical**, and the whole baked blob with them |
+   | every tile sheet in the package | **9 sheets, 6 levels, 275 tiles, 34 overlays** — §7.3's table, re-derived |
+   | `tileflags_level1_city.bin`'s artist half | **41 bytes identical** |
+   | every `*_sheet.png`, against the size Aseprite recorded | 56 of 56 |
+
+   **THE PNG DECODER IS WRITTEN HERE AND THAT IS DELIBERATE.** An image
+   package is a NuGet restore between this repository and a build, for
+   two hundred lines that can be checked against the shipped sheets byte
+   for byte. It does 8-bit colour types 2, 3 and 6, non-interlaced,
+   **which is every one of the 137 PNGs in `assets/` — 77, 58 and 2,
+   counted rather than assumed** — and refuses everything else with the
+   header it found in the message, because a decoder that guessed would
+   return a picture and a wrong picture quantises to a plausible
+   tileset. Its own tests hand it all five scanline filters
+   on a picture whose pixels are known, since a wrong Paeth decodes most
+   real images almost correctly.
+
+   Each check carries a negative control: the palette as it was before
+   §7.1 gave pens 1 and 5 to the art produces different bytes (so the
+   check would notice which palette was read), and the same 64 bytes
+   row-major instead of column-major do too.
+
+   **Four things the import had to be written around**, all found by
+   reading the shipped pack rather than the spec: the manifest's `file`
+   fields point at `out/frames_*.txt` that do not exist and `city_agent`
+   is missing from level 1's manifest altogether, so the sheet is found
+   through `tile_table.json` and then by scanning the directory;
+   **only `tile_table.json` names every tile** — two sheets of the nine
+   carry `tile_names`, one states the frame order in prose, and **five
+   say nothing at all** — so the table is the source and the manifest is
+   kept as a cross-check, which for level 1 is two independent
+   statements of the same order that have to agree; **which tiles are
+   overlays is the table's word and never the pixels'**, and level 1
+   alone shows why — counted on the bytes the engine gets, its eleven
+   overlays run from 32 to 94 transparent pixels of 128 and its thirty
+   opaque tiles from 0 to 128, so the best threshold there is still gets
+   twelve of the forty-one wrong; and **there is no file anywhere that
+   carries collision flags.** `tile_table.json` says how a tile is DRAWN
+   and the only statement of what it DOES was a dict written by hand in
+   `make_city_map.py` — so the flags are data the EDITOR owns,
+   `LevelFlagSeeds` is where level 1's start, and
+   `tileflags_<level>.bin` is the output.
+
+   **AND PHASE 3 IS THE PAINTER, WHICH RUNS.**
+
+   ```bash
+   /home/vasilhs/.dotnet/dotnet run --project editor/src/CpcLevelEditor.Web
+   ```
+
+   ASP.NET Core serving a JSON API and a canvas: the map at 128x16 tiles
+   with brush, rectangle, flood fill and dropper, the overlay layer, the
+   tile-flag editor, the collision overlay, entity markers and the
+   screen box. Six integration tests drive it over real HTTP into a real
+   host, and the one that matters is the last: **a level opened through
+   the API and exported through the API is the same picture the game
+   ships** — 2,048 cells of 64 bytes, compared as pixels, with the
+   attribute under every one of them and the entity records byte for
+   byte. Confirmed again outside C# with `tools/make_level.py`'s own
+   reader on the HTTP-exported file.
+
+   **THE SHIPPED LEVEL OPENS, WHICH THE FORMAT CANNOT DO ON ITS OWN.**
+   A map cell is a finished tile, so nothing in `level_1.lvl` says which
+   cells were an overlay on a wall; opened flat, the lamp post could
+   never be taken off the brick again. `LevelUnbaker` reads the bake's
+   own sidecar with the level and gives the layer back, chained pairs
+   included — the water tank's corner over the air-conditioning unit,
+   which level 1 places in three cells. **One pair does not come back
+   and does not need to**: `tank_10`'s composite came out byte for byte
+   the overlay, so the bake spent no tile on it and a cell holding that
+   index is the plain tile or the dropped pair with nothing to tell them
+   apart — and re-exporting gives the same byte either way, which is
+   what "the composite came out the overlay" means.
+
+   **THE SAME PICTURE AND NOT THE SAME MAP BYTES, AND §8.3 SAYS SO
+   ALREADY.** A pair takes its index the first time it is placed, so the
+   numbering follows the order the placements arrive in:
+   `make_city_map.py` sweeps prop by prop and a painter lays them down
+   row by row. The first version of that test demanded byte equality and
+   was asserting something this file has written down as NOT part of the
+   contract.
+
+   **Three things it does NOT have, each a deliberate answer to
+   editor.md §6**:
+
+   * **No TypeScript, because there is no Node on this machine.** The
+     canvas is plain ES modules, so there is no build step between the
+     source and the browser — the same answer §7.2 gave about Aseprite,
+     and for the same reason: what the spec assumed is not here and the
+     work does not need it.
+   * **No database.** §6.3 makes SQLite the default and names the
+     alternative — "easy to git diff, but no concurrency and no
+     queries". The trade goes the other way here: the editor's output is
+     files the build reads and the repository versions, there is one
+     designer, and a database would add migrations and a connection
+     string to a tool whose correctness is entirely in its bytes. It is
+     behind `IProjectStore`.
+   * **No Identity.** §6.4 opens with users, roles, antiforgery and a
+     rate limiter — the shape of a tool several people share over a
+     network. This one runs on the designer's own machine against the
+     repository's own files, so a login page on localhost is a thing to
+     click through rather than a control. What IS kept is the version
+     check: an edit made against a stale version is refused rather than
+     merged, because two windows on one level is where a lost stroke is
+     silent.
+
+   **The bytes go on disk as well as down the wire**, into
+   `editor/workspace/<id>.export/`, because a designer who has to fish
+   four files out of a downloads folder has a step that can be got
+   wrong.
+
+   **AND THE EMULATOR RUN IS DONE, WHICH IS WHAT THIS STEP WAS STILL
+   OWING.** `tools/test_painter.py` puts the editor's own four files
+   into `build/`, relinks the disc and boots a 6128 off it, and the
+   picture that comes out is the shipped picture — 2,048 cells of 64
+   bytes through the blob in bank C4, the attribute under every one, the
+   entity table, and 16,384 bytes of video RAM at the same game frame —
+   out of map bytes that differ in 25 places. §8.3 has the table, the
+   two controls, the reason `tools/test_format.py` cannot be the suite
+   that does it, and the `read_ram`-against-`peek` trap that would have
+   made the whole comparison vacuous.
+
+   **Two things had to be built for it and both are worth having
+   anyway.** `CpcLevelEditor.Cli` is the export without the browser —
+   one verb, `export`, through the same Application layer the web app
+   uses, so a build step can call the editor and a suite does not have
+   to drive a canvas to get a level onto the machine. And
+   `./build.sh --relink` assembles and images what `build/` already
+   holds (§3), which with nothing swapped produces the same `kara.dsk`
+   byte for byte.
+
+   **And it found the export's one real gap.** Asked to open its own
+   output the editor could not: the three binaries the engine reads say
+   nothing about which cells were an overlay on a wall. The export
+   writes the bake's record beside them now, in the generator's own
+   shape (§8.3).
+
+   **What is left**: entity and region editing on the canvas (they are
+   drawn and read-only) and a second level to paint. Phase 4 of §15 this
+   project does not need.
 8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

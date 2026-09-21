@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CpcLevelEditor.Assets\CpcLevelEditor.Assets.csproj" />
+    <ProjectReference Include="..\CpcLevelEditor.Domain\CpcLevelEditor.Domain.csproj" />
+    <ProjectReference Include="..\CpcLevelEditor.Exporters\CpcLevelEditor.Exporters.csproj" />
+  </ItemGroup>
+</Project>

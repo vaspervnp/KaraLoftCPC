@@ -1,0 +1,51 @@
+:root {
+  color-scheme: dark;
+  --ink: #e8e6e3;
+  --dim: #9a958e;
+  --bg: #16151a;
+  --panel: #1f1e25;
+  --line: #34323c;
+  --hot: #f0a000;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  height: 100vh; display: flex; flex-direction: column;
+}
+header, footer {
+  display: flex; gap: .6rem; align-items: center;
+  padding: .45rem .7rem; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+footer { border: 0; border-top: 1px solid var(--line); color: var(--dim); }
+.spacer { flex: 1; }
+button, select, input[type=range] {
+  font: inherit; color: var(--ink); background: #2a2932;
+  border: 1px solid var(--line); border-radius: 3px; padding: .2rem .5rem;
+}
+button:hover { border-color: var(--hot); cursor: pointer; }
+button.on { border-color: var(--hot); color: var(--hot); }
+main { flex: 1; display: flex; min-height: 0; }
+aside {
+  width: 260px; flex: none; overflow-y: auto; padding: .6rem;
+  background: var(--panel); border-right: 1px solid var(--line);
+}
+.tools { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; }
+.layers { margin: .6rem 0; display: grid; grid-template-columns: 1fr 1fr; gap: .1rem; color: var(--dim); }
+.palette { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.palette canvas {
+  width: 100%; aspect-ratio: 1; image-rendering: pixelated;
+  border: 1px solid var(--line); border-radius: 2px; cursor: pointer; background: #000;
+}
+.palette canvas.on { border-color: var(--hot); }
+.palette canvas.overlay { border-style: dashed; }
+.detail { margin-top: .6rem; color: var(--dim); }
+.detail label { display: block; color: var(--ink); }
+.stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.canvas-wrap { flex: 1; overflow: auto; padding: .6rem; }
+canvas#map { image-rendering: pixelated; display: block; }
+pre#report {
+  margin: 0; max-height: 11rem; overflow: auto; padding: .5rem .7rem;
+  border-top: 1px solid var(--line); color: var(--dim); white-space: pre-wrap;
+}
+pre#report .error { color: #ff6b6b; }

@@ -23,6 +23,12 @@ internal static class Golden
 
     public static byte[] Bytes(string path) => File.ReadAllBytes(path);
 
+    /// <summary>
+    /// The engine's own sixteen pens. Art is quantised against these and
+    /// never against the colours an image happens to contain (CLAUDE.md 7.1).
+    /// </summary>
+    public static string PaletteAsm => Path.Combine(RepoRoot, "src", "palette.asm");
+
     /// <summary>The level's own file: 21 bytes of header, 2,048 of map, 80 of entities.</summary>
     public static byte[] Level1 => Bytes(Build("level_1.lvl"));
 

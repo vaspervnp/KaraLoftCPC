@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NO PACKAGE REFERENCES, AND THAT IS THE POINT OF Png.cs. An image
+       library would be one NuGet restore between this repository and a
+       build, for a decoder that is two hundred lines and can be checked
+       against the shipped sheets byte for byte. -->
+  <ItemGroup>
+    <ProjectReference Include="..\CpcLevelEditor.Domain\CpcLevelEditor.Domain.csproj" />
+  </ItemGroup>
+</Project>

@@ -11,6 +11,23 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$ROOT/build"
 DSK="kara.dsk"
 
+# --relink: ASSEMBLE AND IMAGE WHAT build/ ALREADY HOLDS. Every generator
+# below - the sprite export, the City's map, level_1.lvl, the title, the
+# HUD - is skipped, and only the steps that turn build/'s own bytes into a
+# disc are run: the bank layout, the sector map, RASM and iDSK.
+#
+# It is here for tools/test_painter.py, which puts the EDITOR's own three
+# files into build/ and needs a disc made of them - make_city_map.py and
+# make_level.py would write the generator's straight back over them.
+# Nothing else should use it: a disc built this way is exactly as current
+# as whatever happened to be in build/ when it ran.
+RELINK=0
+if [ "${1:-}" = "--relink" ]; then
+    RELINK=1
+    echo "=== --relink: nothing is regenerated; build/ is taken as it stands ==="
+fi
+gen() { [ "$RELINK" = 1 ] && return 0; "$@"; }
+
 mkdir -p "$BUILD"
 rm -f "$BUILD/$DSK" "$BUILD/game.bin"
 
@@ -31,8 +48,8 @@ rm -f "$BUILD/$DSK" "$BUILD/game.bin"
 # where the thing turns to face her), and tools/level_banks.py lays the
 # blobs out into banks and ZX0-packs one stream per bank. See
 # CLAUDE.md 6.2, 7.1 and 7.4.
-rm -rf "$BUILD/levels"
-python3 "$ROOT/tools/build_levels.py"
+gen rm -rf "$BUILD/levels"
+gen python3 "$ROOT/tools/build_levels.py"
 
 # The City map, over the DRAWN 8x16 tiles. The tiles themselves are no
 # longer generated or linked: build_levels.py exported them into the
@@ -43,20 +60,20 @@ python3 "$ROOT/tools/build_levels.py"
 # the level's tile blob (CLAUDE.md 7.3) and the banking has to see them.
 # It re-packs that blob's .zx0 itself, since build_levels.py packed it
 # before there was anything appended.
-python3 "$ROOT/tools/make_city_map.py"
+gen python3 "$ROOT/tools/make_city_map.py"
 
 # ... and then the same bytes in the EDITOR's format. make_level.py is
 # the reference implementation of docs/editor.md 9.2 and the engine's
 # LEVEL_PARSE reads what it writes, so the format has a golden file and
 # a level that is played on real hardware before the editor exists.
-python3 "$ROOT/tools/make_level.py"
+gen python3 "$ROOT/tools/make_level.py"
 
 python3 "$ROOT/tools/level_banks.py"
 
 # Where a shot leaves each firing frame, against the BLOB's numbering.
-python3 "$ROOT/tools/spawns.py"
+gen python3 "$ROOT/tools/spawns.py"
 
-python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
+gen python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
         -o "$BUILD/overscan.bin" \
         --inc "$BUILD/title_palette.asm" \
         --dither
@@ -68,10 +85,10 @@ python3 "$ROOT/tools/png2screen.py" "$ROOT/assets/title/title_render.png" \
 # order, ZX0-packed for the disc, plus its palette and the two strips the
 # PRESS SPACE OR FIRE prompt blinks between. Must run BEFORE dskdata.py,
 # which lays the packed streams out on the disc from their sizes.
-python3 "$ROOT/tools/make_intro.py"
+gen python3 "$ROOT/tools/make_intro.py"
 
 # The HUD's two health cells, as raw Mode 0 bytes for the core image.
-python3 "$ROOT/tools/make_hud.py"
+gen python3 "$ROOT/tools/make_hud.py"
 
 python3 "$ROOT/tools/dskdata.py" --inc
 
@@ -81,7 +98,7 @@ python3 "$ROOT/tools/dskdata.py" --inc
 # ships on BOTH ratio and depack speed - see tools/pack.py for the nine
 # that were measured - and it buys disc space and load time, not frame
 # time: the blitter reads uncompressed bytes out of a bank.
-python3 "$ROOT/tools/pack.py" city_map.bin overscan.bin
+gen python3 "$ROOT/tools/pack.py" city_map.bin overscan.bin
 # ... and it has to come AFTER everything it packs. It used to run
 # before the tile exporter and quietly shipped the PREVIOUS build's tiles.
 
