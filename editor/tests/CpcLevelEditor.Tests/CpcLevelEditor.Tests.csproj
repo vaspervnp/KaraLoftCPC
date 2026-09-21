@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\CpcLevelEditor.Application\CpcLevelEditor.Application.csproj" />
     <ProjectReference Include="..\..\src\CpcLevelEditor.Assets\CpcLevelEditor.Assets.csproj" />
     <ProjectReference Include="..\..\src\CpcLevelEditor.Domain\CpcLevelEditor.Domain.csproj" />
     <ProjectReference Include="..\..\src\CpcLevelEditor.Exporters\CpcLevelEditor.Exporters.csproj" />
