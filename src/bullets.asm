@@ -7,6 +7,8 @@
 ; =====================================================================
 
 MAG_SIZE        equ 7
+AMMO_START      equ 28          ; spare rounds a level starts her with,
+                                ; two magazines of them
 BUL_MAX         equ MAG_SIZE * 2        ; 14
 BUL_STRIDE      equ 5
 BUL_ACTIVE      equ 0                   ; slot layout
@@ -436,7 +438,9 @@ BUL_LIVE:       db 0            ; rounds in the air
 BUL_DREW:       db 0            ; ... as BUL_DRAW found it
 BUL_TOP:        db 0            ; slots used, one past the deepest ever taken
 BUL_DREW_TOP:   db 0            ; ... as BUL_DRAW found THAT
-AMMO_RESERVE:   db 28
+AMMO_RESERVE:   db AMMO_START   ; ... and the level FSM puts it back here
+                                ; on a restart, which is why it is a
+                                ; constant now and not a literal
 
 MUZZLE_X:       db 18           ; where the current firing cel's shot leaves,
 MUZZLE_Y:       db 17           ; in pixels/lines inside her box - ACT_MUZZLE

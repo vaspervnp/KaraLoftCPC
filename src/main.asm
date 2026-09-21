@@ -74,17 +74,12 @@ BOOT:           di
                 ld   bc,CORE_SIZE
                 ldir
 
-                ; ... and the level image after it, which is NOT part of
-                ; the core and must not be: see the note by LEVEL_IMAGE.
-                ; Its source straddles &8000 and its destination is well
-                ; clear of it, so this is the same plain LDIR - but it
-                ; can only run here, while the window is still the
-                ; configuration the line above set and before LEVEL_LOAD
-                ; pages a bank over it.
-                ld   hl,LEVEL_FILE
-                ld   de,LEVEL_IMAGE
-                ld   bc,LEVEL_SIZE
-                ldir
+                ; ... AND THERE IS NO LEVEL IMAGE TO RELOCATE ANY MORE.
+                ; A second LDIR used to bring level_1.lvl and its tile
+                ; flags down to &B000 out of the binary. A level the
+                ; game LOADS cannot come out of a binary, so they are on
+                ; the disc with the art and LEVEL_MAP_LOAD reads them -
+                ; see the note by LEVEL_IMAGE.
 
                 jp   CORE_ENTRY             ; no way back to BASIC from here
 
@@ -171,6 +166,16 @@ SCROLL_DEMO:    di
                 ; stand-ins while Kara herself is the drawn sprite.
                 xor  a                      ; 0 = level 1, gameplay
                 call LEVEL_LOAD
+                jr   nc,.failed
+                ; ... AND THE LEVEL'S OWN BYTES, which used to be in the
+                ; binary. Both are disc reads with interrupts off and
+                ; nothing on the screen but the title, so they go one
+                ; after the other; the map has to be second only because
+                ; a failed art read leaves the banks full of noise and
+                ; there is no point reading a map for a level that
+                ; cannot be drawn.
+                xor  a                      ; 0 = level 1
+                call LEVEL_MAP_LOAD
                 ld   a,1
                 jr   c,.loaded
                 ; IT FAILED, AND THAT MUST NOT BE A BLACK SCREEN. The
@@ -179,7 +184,12 @@ SCROLL_DEMO:    di
                 ; without her instead, and the controller's own words go
                 ; on the top of the screen so the failure can be read off
                 ; a photograph. See docs/AmstradDskReadHowTo.md.
-                xor  a
+                ;
+                ; AND A MISSING MAP IS THE SAME ANSWER. LEVEL_MAP_LOAD
+                ; returns carry clear for a level with no map on the
+                ; disc as well as for a read that failed, and neither is
+                ; a level: MAP_INSTALL would parse whatever &B000 holds.
+.failed:        xor  a
 .loaded:        ld   (LEVEL_OK),a
                 ; Full guns for the level: the Module 1-3 screen fires
                 ; on a timer for a minute and leaves both magazines dry,
@@ -195,7 +205,10 @@ SCROLL_DEMO:    di
                 xor  a
                 call SCREEN_CLS
                 call SCROLL_INIT            ; ... which installs the map
-                ld   a,(LEVEL_OK)
+                jr   nc,.installed
+                xor  a                      ; it refused: the bytes arrived
+                ld   (LEVEL_OK),a           ; and were not a level
+.installed:     ld   a,(LEVEL_OK)
                 or   a
                 call z,DISC_DIAG
                 call INPUT_INIT
@@ -313,6 +326,12 @@ SCROLL_DEMO:    di
                 call PLAYER_UPDATE
                 call ENT_UPDATE             ; what she has walked into
                 call ACT_UPDATE             ; ... which cel that makes her,
+                ; ... AND WHETHER THE LEVEL IS OVER. Here because both
+                ; of the things it reads are THIS frame's and neither
+                ; lasts: ENT_RESULT is written by the sweep above on
+                ; every frame, and KARA_DONE is ACT_UPDATE's word that
+                ; her `die` run has finished playing (src/flow.asm).
+                call FLOW_CHECK
                 call ENEMY_UPDATE           ; the one in view, and their fire
                 call UPDATE_BULLETS         ; and whether one just left
                 call ENEMY_SHOT_CHECK       ; ... and whether it landed
@@ -605,7 +624,16 @@ SCROLL_DEMO:    di
                 dec  (hl)
                 jr   nz,.phased
                 ld   (hl),BUL_SLOW
-.phased:        jp   .loop
+                ; AND IF THE LEVEL ENDED, IT ENDS HERE - at the bottom
+                ; of the frame, with every sprite lifted off and the
+                ; background finished, which is the only moment a fade
+                ; and a repaint can have the machine to themselves.
+                ; A game frame's worth of work is nothing to it: the
+                ; fade alone is 36 of them.
+.phased:        ld   a,(GAME_STATE)
+                or   a
+                call nz,FLOW_STEP
+                jp   .loop
 
 ; ---------------------------------------------------------------------
 ; RASTER_WAIT - spin until the beam has FINISHED display line A.
@@ -861,6 +889,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "bank.asm"
                 include "screen.asm"
                 include "palette.asm"
+                include "fade.asm"
                 include "sprite.asm"
                 include "spanblit.asm"
                 include "unpack.asm"
@@ -889,6 +918,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "player.asm"
                 include "tilemap.asm"
                 include "hud.asm"
+                include "flow.asm"
 
 ; ---------------------------------------------------------------------
 ; Cross-module invariants. They live here, after every include, because
@@ -1041,51 +1071,47 @@ CORE_SIZE       equ  CORE_END - CORE_START
                 assert CORE_END <= BOOT_ADDR
 
 ; =====================================================================
-; THE LEVEL IMAGE - the map and its entity table, 2,240 bytes.
+; THE LEVEL IMAGE - a level's own bytes, READ OFF THE DISC.
 ;
 ; DATA, not code: copied into their working addresses at every level
-; init and never executed, so there is no reason for them to be in an
-; image that has to fit under &4000. The bootstrap drops them in base
-; RAM at LEVEL_IMAGE and MAP_INSTALL takes its working copy from there -
-; a working copy and not the original, because ENT_BAKE stamps each
-; pickup into the map and a re-init needs the map it started with.
+; init and never executed. MAP_INSTALL takes its working copy from
+; here - a working copy and not the original, because ENT_BAKE stamps
+; each pickup into the map and a re-init needs the map it started with.
 ;
-; Module 6 reads both out of level_<n>.lvl instead, which is the same
-; LDIR from a different source (see MAP_INSTALL).
+; ~~The bootstrap drops them in base RAM at LEVEL_IMAGE~~ - IT DID, AND
+; THAT ONLY EVER WORKED FOR ONE LEVEL. level_1.lvl and its tile flags
+; were INCBINed here and LDIRed down at boot, which costs 2,200 bytes
+; of a binary that loads at &4000 and relocates below it. Six levels is
+; 13 KB of that and there is no 13 KB - and a level the game LOADS
+; cannot come out of an image that was assembled before it existed.
+;
+; So a level's own bytes go on the disc with its art, packed as one
+; stream, and LEVEL_MAP_LOAD reads them here (tools/make_level_image.py,
+; src/unpack.asm). Nothing of a level is in the core image any more.
+;
+;   LEVEL_IMAGE + 0     256 bytes   the tile flags, ZERO-PADDED
+;   LEVEL_IMAGE + 256   ...         level_<n>.lvl, as the editor writes it
+;
+; THE FLAGS ARE FIRST AND PADDED so that MAP_INSTALL's copy into
+; TILE_ATTR is ONE LDIR of a constant length with no clear in front of
+; it: the table is 256 entries because a map byte is an index and every
+; one of the 256 has to answer, so filling it exactly is both simpler
+; and faster than clearing it and copying a length the engine would
+; have to be told. The padding is free on the disc - ZX0 eats a zero
+; run - and the whole image packs to 354 bytes of one sector.
 ; =====================================================================
 LEVEL_IMAGE     equ  &B000      ; above the map and its table, below the stack
-LEVEL_FILE      equ  BOOT_END + CORE_SIZE   ; where the loader left the bytes
+LEVEL_TILEFLAGS equ  LEVEL_IMAGE
+LEVEL_TILEFLAGS_N equ TILE_ATTR_N
+LEVEL_LVL       equ  LEVEL_IMAGE + LEVEL_TILEFLAGS_N
 
-                org  LEVEL_IMAGE, LEVEL_FILE
-
-LEVEL_START:
-                ; THE TILES DO NOT COME THIS WAY ANY MORE. They are the
-                ; level's own, unpacked into bank C4 by LEVEL_LOAD
-                ; (tools/level_banks.py pins them at &4000 of it), and
-                ; the 2 KB the stand-in sheet used to take of the core
-                ; image goes back to the engine.
-                ;
-                ; AND THE MAP AND THE ENTITIES ARE ONE FILE IN THE
-                ; EDITOR'S OWN FORMAT. tools/make_level.py writes the
-                ; bytes docs/editor.md 9.2 fixes - header, map,
-                ; entities, links, regions - and LEVEL_PARSE reads them.
-                ; The editor's whole output is this file, so the format
-                ; gets a reference implementation and a level the engine
-                ; already plays before a web application is built
-                ; against it (CLAUDE.md 11).
-LEVEL_LVL:      incbin "level_1.lvl"
-                ; ... and what each tile DOES, which is the tileset's
-                ; and not the level's: one byte a tile, in the artist's
-                ; frame order, in the format's own bit order so that
-                ; this file IS src/collide.asm's table.
-LEVEL_TILEFLAGS:
-                incbin "tileflags_level1_city.bin"
-LEVEL_TILEFLAGS_N equ $ - LEVEL_TILEFLAGS
-LEVEL_END:
-LEVEL_SIZE      equ  LEVEL_END - LEVEL_START
-
-                assert LEVEL_LVL == LEVEL_IMAGE
-                assert LEVEL_TILEFLAGS_N <= TILE_ATTR_N
-                assert LEVEL_IMAGE + LEVEL_SIZE < STACK_TOP - 1024
+                ; LEVEL_IMAGE_SIZE is the biggest image the build made,
+                ; written by tools/make_level_image.py - so the one
+                ; number is generated from the data and the assembler
+                ; does the checking, the way banks.inc and disc.inc
+                ; already work. A level that grew past the stack would
+                ; otherwise corrupt it at the moment it loaded.
+                include "levels/mapimage.inc"
+                assert LEVEL_IMAGE + LEVEL_IMAGE_SIZE < STACK_TOP - 1024
                 ; and it must not land on top of what it is copied INTO
                 assert LEVEL_IMAGE >= ENT_TABLE + ENT_MAX * ENT_STRIDE

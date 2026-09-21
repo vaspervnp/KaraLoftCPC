@@ -1086,6 +1086,91 @@ VIEW_NEXT_CR:   ld   a,(V_PHASE)
                 ret
 
 ; ---------------------------------------------------------------------
+; PLAYER_SPAWN - put her where the LEVEL says, not where the assembler
+; did.
+;
+; IN : the entity table, installed - so after MAP_INSTALL and not before
+; OUT: carry SET if the level carried an EK_PLAYER_START, and she is at
+;      it with every byte of her movement state back to what a start
+;      means. Carry CLEAR if it did not, and then NOTHING has been
+;      touched: a level with no start record honestly leaves her where
+;      she was, which at boot is the assembler's own numbers.
+;                                        destroys AF,BC,DE,HL
+;
+; KARA_WX AND KARA_WY WERE INITIALISERS AND THAT IS ONE LEVEL AND ONE
+; LIFE. They are applied when the bootstrap relocates the core image
+; and never again - the image at &4027 is under bank C4 by the time a
+; level has loaded - so a second level would start her on the first
+; one's roof and a death has nowhere to put her back to. The level FSM
+; needs both.
+;
+; THE RECORD'S Y IS THE BASE OF THE HITBOX AND KARA_WY IS ITS TOP (8.6),
+; so the height comes off here. That is make_city_map.py's own
+; conversion run backwards, and it is why the editor's marker hangs in
+; the row above the line it stands on.
+;
+; X IS WORLD PIXELS AND KARA_WX IS A BYTE COLUMN, which is the one other
+; unit in the record. One right shift, in 16 bits, because the map is
+; 1,024 pixels across and 511 byte columns.
+; ---------------------------------------------------------------------
+PLAYER_SPAWN:   ld   a,(ENT_COUNT)
+                or   a
+                ret  z                      ; ... and OR leaves carry clear
+                ld   b,a
+                ld   hl,ENT_TABLE
+                ld   de,ENT_STRIDE
+.find:          ld   a,(hl)
+                or   a                      ; EK_PLAYER_START is 0, so the
+                jr   nz,.next               ; test for it is the test for zero
+                push hl
+                ld   bc,ENT_FLAGS
+                add  hl,bc
+                bit  0,(hl)                 ; EF_ACTIVE - a slot is told by
+                pop  hl                     ; its flags and not by its kind
+                jr   nz,.found
+.next:          add  hl,de
+                djnz .find
+                or   a                      ; no start record in this level
+                ret
+
+.found:         inc  hl
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)                 ; DE = x, world pixels
+                inc  hl
+                ld   a,(hl)                 ; y, and only the low byte can
+                                            ; mean anything: the map is 256
+                                            ; pixels tall and KARA_WY a byte
+                sub  KARA_BOX_H             ; the record's y is the BASE
+                ld   (KARA_WY),a
+                ld   (FALL_TOP),a           ; ... and she is not falling from
+                                            ; anywhere yet, so the mark is
+                                            ; her own line (FALL_MARK)
+                ex   de,hl
+                srl  h
+                rr   l
+                ld   (KARA_WX),hl
+
+                ; ---- and the state a start means --------------------
+                ; Everything PLAYER_UPDATE keeps between frames. She is
+                ; off the ground on purpose: KARA_GROUND = 0 lets her
+                ; fall onto whatever the record stands her over, which
+                ; is what the City's own start has always done, and it
+                ; costs nothing when the record is already on a floor.
+                xor  a
+                ld   (KARA_VY),a
+                ld   (KARA_GROUND),a
+                ld   (KARA_CLIMB),a
+                ld   (KARA_COYOTE),a
+                ld   (KARA_HANG),a
+                ld   (KARA_HANG_T),a
+                ld   (KARA_FELL),a
+                ld   (KARA_FACING),a        ; 0 = right, and every level in
+                                            ; this game runs left to right
+                scf
+                ret
+
+; ---------------------------------------------------------------------
 ; PLAYER_TO_SCREEN - refresh KARA_X / KARA_Y, which is what the blitter
 ; draws from at the top of the NEXT frame - so they are resolved against
 ; the view that frame will show, not the one on screen now. Getting that

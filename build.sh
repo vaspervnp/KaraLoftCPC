@@ -70,6 +70,16 @@ gen python3 "$ROOT/tools/make_level.py"
 
 python3 "$ROOT/tools/level_banks.py"
 
+# A level's OWN bytes - its map, its entity table and its tile flags -
+# as one packed stream for the disc. They used to be INCBINed into the
+# core image, which is 2,200 bytes for one level and no room at all for
+# six (CLAUDE.md 7.5).
+#
+# UNGATED, like level_banks.py above and for the same reason: it is not
+# a generator, it is the container the two files travel in, and
+# --relink has to carry whatever build/ holds onto the disc.
+python3 "$ROOT/tools/make_level_image.py"
+
 # Where a shot leaves each firing frame, against the BLOB's numbering.
 gen python3 "$ROOT/tools/spawns.py"
 
@@ -89,6 +99,12 @@ gen python3 "$ROOT/tools/make_intro.py"
 
 # The HUD's two health cells, as raw Mode 0 bytes for the core image.
 gen python3 "$ROOT/tools/make_hud.py"
+
+# The fade ramp: one step toward black for every hardware colour, out
+# of the 3x3x3 cube the CPC palette is (CLAUDE.md 6.6). Generated
+# because the cube is a fact about the hardware and a table typed from
+# it would be a second copy of docs/cpc_palette.md.
+gen python3 "$ROOT/tools/make_fade.py"
 
 python3 "$ROOT/tools/dskdata.py" --inc
 

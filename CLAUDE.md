@@ -8,8 +8,14 @@ which now carries its own §0 of five corrections this file forced (§8.3).
 
 ## 1. Status
 
-**Modules 1-4 done, Module 5 all but its last test, and Module 6
-started: the engine reads `level_1.lvl` and `tileflags_level1_city.bin`
+**Modules 1-4 done, Module 5 all but its last test, Module 6
+started, and the LEVEL FSM's spine runs (§8.1): she dies, the screen
+fades and the level comes back out of the pristine copy at `&B000`;
+the garage opens, the title goes back up and the game starts again.
+What says the restart is a level start is not a reading of the code
+but 32,448 bytes of engine RAM compared with a machine that has just
+booted, with a line of `LEVEL_RESET` knocked out as the control.
+Module 6: the engine reads `level_1.lvl` and `tileflags_level1_city.bin`
 off the disc (6a), the level's overlay tiles are composited into the
 tileset at build time rather than masked at run time (6b, §7.3), and
 her health is on the screen — six cells at the bottom left, her fourteen
@@ -261,7 +267,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 **The roof's gap is a run-jump now**: the 15-frame arc carries 15 bytes
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all nineteen
+`./tools/run_tests.sh` runs every acceptance suite and **all twenty
 pass**, the editor's own among them. Eighteen checks in four of them
 did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
@@ -324,6 +330,9 @@ src/spanblit.asm  the span-compressed blitter and its erase script
 src/unpack.asm    ZX0 into a bank, into VRAM, and LEVEL_LOAD
 src/intro.asm     the title picture and its blinking prompt (7.7)
 src/hud.asm       the energy bar, redrawn wherever the view goes (7.8)
+src/fade.asm      the palette to black and back - a 3x3x3 cube (6.6)
+src/flow.asm      the level's own state machine: she dies, the level
+                  comes back; the way out opens, the game starts again
 src/disc.asm      the uPD765 driver - raw sectors, no firmware.
                   READ docs/AmstradDskReadHowTo.md BEFORE TOUCHING IT
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
@@ -380,6 +389,8 @@ tools/png2screen.py        image         -> overscan.bin / 16K screen
 tools/make_intro.py        the title .scr -> the CRTC's screen order,
                            packed, plus its palette and the prompt (7.7)
 tools/make_hud.py          the artist's health cells -> Mode 0 bytes
+tools/make_fade.py         one step toward black for every hardware
+                           colour, out of the cube the palette is (6.6)
 tools/make_loader.py       the label screen's palette note -> kara.bas,
                            the disc's front door (7.9)
 tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
@@ -397,7 +408,9 @@ tools/test_format.py       the level file, the engine's reading of it,
                            and the overlay bake
 tools/test_painter.py      the EDITOR's own level, on the emulator: the
                            same picture out of different bytes
-tools/test_*.py            acceptance suites, nineteen of them
+tools/test_flow.py         where she starts, the fade, and a restart
+                           compared with a fresh boot byte for byte
+tools/test_*.py            acceptance suites, twenty of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -748,6 +761,45 @@ hardware colour value; the verified ink/hardware/port table is in
 `src/palette.asm`. Fades walk each pen through a luminance-ordered ramp toward
 black and back; keep the ramp as a table, not as arithmetic on colour codes.
 
+**AND THE TABLE IS THE CUBE, WHICH IS WHY IT IS GENERATED.** Read off
+the RGB column above, every channel of every one of the 27 hardware
+colours falls in one of three clusters — **0-15, 105-128, 240-255 — and
+all 27 combinations are present**, so the palette IS a 3×3×3 cube. A
+colour is therefore a triple of levels and one step darker is each
+non-zero level decremented: hue is preserved by construction, no
+distance is measured, and nothing has to be chosen.
+
+The first ramp written here did measure distance — scale a colour's RGB
+by a factor, take the nearest of the 27 — and it is instructive that it
+came out wrong in a way that looks plausible: `Pastel Cyan → White →
+Cyan → Green → Black`, because a **grey sits nearer a dimmed cyan than a
+dim cyan does**. Greys are between the axes. That is not a fade, it is a
+colour cycle.
+
+**SO A FADE HAS EXACTLY TWO STEPS AND THERE IS NO THIRD** — three levels
+a channel is three levels of brightness. What makes it read as a fade
+rather than two cuts is the HOLD, `FADE_HOLD` = 6 hardware frames, so
+the whole ramp is 0.36 s. Anything smoother would be dithering in time,
+which at 25 Hz is a flicker.
+
+`tools/make_fade.py` emits the 32-byte `FADE_DARKER` and asserts the
+cube both ways — no two colours on one triple, no triple without a
+colour — because a ramp with a hole in it is a fade that sticks.
+`src/fade.asm` walks **k steps down from the target palette** for both
+directions rather than stepping the live colours, and that is not waste:
+the gate array cannot be read back, and the ramp is not invertible
+anyway — three colours darken onto Black and nothing says which one to
+come back to.
+
+`tools/test_flow.py` measures it **where it shows**, since the pen
+registers cannot be read back here or on the machine (§7.7): a scratch
+palette is poked into RAM with the colour under test as its BORDER
+entry — the one palette entry that is also half the picture — and the
+border is read out of the framebuffer, which is indexed by hardware
+colour. **All 27 colours at all three levels, 81 readings, against an
+independent reading of the cube**, with `k = 0` leaving every colour
+alone and `k = FADE_STEPS` black for all of them.
+
 ### 6.7 AY-3-8912
 
 Accessed through PPI port A (`&F4`) with control on `&F6`. Register set: R0-R5 tone
@@ -898,15 +950,19 @@ from a velocity that looks the same halfway down (§8.4). Its two cels
 are a line apart vertically, which is the shake; the body is placed
 from the hips like `jump`, not from the ground.
 
-**`die` runs once and then holds its last cel for ever.** Its first cel
+**`die` runs once and then holds its last cel — and now something is
+waiting for it.** Its first cel
 is a recoil, drawn so it can be cut to from any standing state, so it
 pre-empts even the committed states of §8.4; the body walks BACKWARD
 inside the frame as she kneels, so **nothing in the engine may move her
 while it plays** — the movement is in the art. She keeps her input
 locked out and gravity keeps her, so a death in mid-air still reaches
-the floor. There is no way out of it yet because there is no respawn:
-`ACT_UPDATE` chooses it from `PLAYER_HP == 0` and will stop choosing it
-the moment something puts her hit points back.
+the floor. `ACT_UPDATE` chooses it from `PLAYER_HP == 0`, and the level FSM
+(§8.1) watches `KARA_DONE` — the animator's word that the run has
+finished, including the 600 ms hold — and fades the level out and back
+in from the pristine `LEVEL_IMAGE`. **Not `PLAYER_HP`**: that is true on
+the frame the round lands, and a fade started there takes the screen
+away before the six cels have played.
 
 **Which frames a level carries is not the same question as which frames
 exist.** Only levels 1 and 3 have a `ladder` tile in their tileset, and
@@ -2259,6 +2315,84 @@ Six levels, each with its own scroll axis:
 
 FSM: `STATE_LEVEL_PLAY → STATE_LEVEL_CLEAR → STATE_CUTSCENE → STATE_LOAD_NEXT`.
 
+#### That spine exists now, with the cutscenes left out and one state the diagram had no room for
+
+`src/flow.asm`. **She dies.** The diagram has no death in it, and the
+engine had no answer to one: `die` played once, held its last cel for
+ever, and `ACT_UPDATE` kept choosing it.
+
+| | |
+|---|---|
+| `GS_PLAY` | the loop is the game |
+| `GS_DEAD` | her `die` run has played through and held its last cel |
+| `GS_CLEAR` | the way out has been opened — `CHECK_KEY_DOOR`'s `ER_OPENED` |
+
+**The check is cheap and the step is not.** `FLOW_CHECK` runs every game
+frame, immediately after `ACT_UPDATE`, and is about forty T of
+comparisons; `FLOW_STEP` runs once, at the bottom of the frame with
+every sprite lifted off, and takes as long as it takes — a fade is 36
+hardware frames and a title screen is a disc read.
+
+**IT IS AFTER `ACT_UPDATE` BECAUSE BOTH THINGS IT READS ARE THAT
+FRAME'S.** `ENT_UPDATE` clears `ENT_RESULT` at the top of every frame,
+so "the door gave way" is a fact with a lifetime of one frame; and
+**death is `KARA_DONE` and not `PLAYER_HP`** — zero hit points is the
+instant she is hit, and what the player has to see is the six cels of
+the run and the 600 ms the artist holds the last one for (§7.1).
+Reading `PLAYER_HP` here would take the screen away on the frame the
+round landed.
+
+#### A RESTART IS `SCROLL_INIT` AND NOT A DISC READ, AND THAT IS WHAT `LEVEL_IMAGE` IS FOR
+
+The map at `&A000`, the entity table at `&A800` and the tile flags at
+`&A900` are **working** copies, made by `MAP_INSTALL` out of the image
+at `&B000` that came off the disc (§7.5). Play writes on every one of
+them — a taken pickup's cell goes back to the plain tile, a dead drone's
+record is marked `EF_TAKEN`, a baked pickup owns a scratch tile — and
+**the image is never touched**. So a re-init is `MAP_INSTALL` again, and
+`SCROLL_INIT` is that plus the view back to the top left and a repainted
+playfield, which is the whole of what a restart means on the screen. It
+re-bakes the pickups and re-spawns the enemies for free, because
+`MAP_INSTALL` calls `ENT_BAKE` and `ENEMY_SPAWN`.
+
+**What it does not own is `LEVEL_RESET`'s, and that list is not one to
+reason about.** A restart that forgets a byte is a level that plays
+slightly wrong in a way nobody can see. So the instrument has no model
+in it: **play the level — walk, shoot, take the key, scroll the view —
+kill her, and compare EVERY BYTE of the engine's RAM against a machine
+that has just booted and run the same number of game frames.**
+
+| | |
+|---|---:|
+| engine RAM compared | **32,448 bytes** |
+| bytes the restart forgot | **0** |
+| ... with one line of `LEVEL_RESET` knocked out | the key is still in her hand at **14 of 14 alignments** |
+
+**THE ALIGNMENT IS SEARCHED, BECAUSE IT HAS TO BE.** Both machines are
+found by polling — run two frames, look — so each marker is up to two
+game frames late and the pair up to four apart, which is four pixels of
+drone patrol and a cel of her idle. Neither is a fault. What "a restart
+is a level start" means is that there EXISTS an alignment at which the
+two are the same machine, and a restart that forgot a byte has no such
+alignment — which is exactly what the control shows.
+
+The first run of it found one real thing and it was nine bytes:
+`ENEMY_SPAWN` cleared `ENEMY_DREW`, `ENEMY_LIVE`, `ENEMY_LAST_CNT` and
+`ENEMY_CUR` and left `ENEMY_LAST_BOT`, `ENEMY_DREW_W` and
+`ENEMY_DREW_WX` behind. `ENEMY_DREW` gates every read of those three, so
+they were dead and clearing them changes no behaviour at all — but half
+a record cleared and half left is the shape of every bug in §10, and
+nine bytes once a level is not a price.
+
+**And there is nowhere to go when a level is CLEARED, which is a level's
+problem and not the FSM's.** Five of the six levels have their art on
+the disc and no map on it (`tools/make_level_image.py`), so
+`LEVEL_MAP_LOAD` would refuse and `MAP_INSTALL` would parse whatever
+`&B000` held. Rather than pretend, the game fades out, puts its **title
+back up and waits for the press**, and starts again — a loop a player
+can see the end of, and one line to change the day a second level
+exists.
+
 ### 8.2 Scrolling — implemented and measured
 
 Scrolling is two `OUT`s to CRTC R12/R13 plus a repaint of the one edge that is
@@ -2784,10 +2918,9 @@ from anything she is standing in, so the `PLAYER_HP == 0` test is the
 first thing `ACT_UPDATE` does — 30 T a frame. While it plays she takes
 no input but gravity still owns her, so a death in mid-air reaches the
 floor; **nothing moves her sprite**, because the body's own walk
-backward as she kneels is inside the frames. It has no exit: the run
-holds its last cel and the test keeps choosing it, so she stays down
-until something puts her hit points back. **There is no respawn and no
-game over yet** — that is §11 step 8's, and this is the hook it needs.
+backward as she kneels is inside the frames. The run holds its last cel and the test keeps
+choosing it until the FSM takes the level away from under her — which is
+§11 step 8's, and this was the hook it needed.
 
 **The gun is draw-hold-release, not a trigger.** SPACE going down plays
 `shoot_draw` and then holds its last frame; SPACE coming up plays
@@ -3094,6 +3227,46 @@ empty hand are not the same message.
 **A slot is told by its FLAGS, not by its kind.** Kind 0 is
 `EK_PLAYER_START`, so an all-zero record is a real entity at (0,0)
 unless `EF_ACTIVE` decides it.
+
+**AND KIND 0 IS WHERE SHE STARTS, WHICH NOTHING READ UNTIL NOW.**
+`KARA_WX` and `KARA_WY` were assembler initialisers — applied once, when
+the bootstrap relocates the core image, and never again, since the image
+at `&4027` is under bank C4 by the time a level has loaded. That is one
+level and one life. `PLAYER_SPAWN` reads the first active
+`EK_PLAYER_START` instead and converts both units: the record's **x is
+world pixels** against her byte column, and its **y is the BASE of the
+hitbox** against her box's top, which is `make_city_map.py`'s own
+conversion run backwards. The City's record is `(86, 80)` — exactly the
+43 and 16 the initialisers held, so **nothing moved**, which is what
+makes the change measurable: with the initialisers poked to (256, 200)
+she still lands at (43, 32), and with `PLAYER_SPAWN` turned into a `RET`
+she lands at (256, 13).
+
+**IT IS NOT ON THE TILE GRID AND IT DOES NOT HAVE TO BE.** Only a pickup
+does, because `ENT_BAKE` stamps it into the cell its top-left falls in;
+she is drawn by the span blitter at a byte column. 86 is ten tiles and
+six pixels.
+
+**AND A PLAYER START IS A MARKER, NOT A THING TO WALK INTO.** The
+interact pass asks `ENTITY_COLLISION_CHECK` for NO flag bits — a door
+carries `EF_SOLID` and an NPC nothing, so there is no bit they share to
+ask for — and it stops at the first box it meets. Her own start record
+overlaps her exactly, by construction and for as long as she is standing
+on it, so without a test for it an UP press at the start of a level
+finds a record `ENT_ON_INTERACT` has no handler for and **hides whatever
+she is really standing over**. The test is one comparison, and it goes
+**after** the flags and not before them: `tools/test_entities.py`'s
+control is that an all-zero slot must be rejected for being INACTIVE,
+and a kind test in front of that would reject it twice and prove
+neither.
+
+**`SCROLL_INIT`'S CARRY IS ITS VERDICT AND `PLAYER_SPAWN`'S IS NOT.**
+The spawn says "the level had a start record" with the carry and
+`SCROLL_INIT` says "the level was refused" with it, so called inside it
+without an `OR A` after, a level that HAS one came back as a level that
+could not be read: `LEVEL_OK` went to 0 and **the only thing that says
+so is that the heroine is not drawn**. It cost half a session of
+measurements taken on a machine with nobody in the picture.
 
 #### Pickups are drawn by being baked into the tilemap
 
@@ -5247,7 +5420,36 @@ the next one starts.
    what is missing is on the other side: `main.asm` INCBINs
    `level_1.lvl` alone and there is no transition to a second one, which
    is step 8's. Phase 4 of §15 this project does not need.
-8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
+8. **Level FSM + cutscenes** — **started, and its spine runs.** §8.1 has
+   the states and the measurements; what is here is what each piece is
+   and what is still owed.
+
+   * ~~**Where she starts**~~ — `PLAYER_SPAWN` reads the first active
+     `EK_PLAYER_START` and the City carries one at exactly her old
+     initialisers, so nothing moved and the change is measurable (§8.6).
+     Two controls: the initialisers poked somewhere impossible, and the
+     same poke with the routine turned into a `RET`.
+   * ~~**The palette fade**~~ — `src/fade.asm` and `tools/make_fade.py`.
+     The palette is a 3×3×3 cube, so the ramp is each non-zero channel
+     down one level, a fade is exactly two steps, and the hue is
+     preserved by construction. Measured on the gate array, 27 colours
+     × 3 levels (§6.6).
+   * ~~**`GAME_STATE`, `FLOW_CHECK`, `FLOW_STEP`**~~ — `src/flow.asm`.
+     She dies and the level comes back; the garage opens and the game
+     goes to its title and starts again.
+   * ~~**`LEVEL_RESET`**~~ — and the instrument for it, which is the
+     part worth having: **32,448 bytes of engine RAM after a restart
+     against a machine that has just booted, and none of them differ**,
+     with a line of `LEVEL_RESET` knocked out as the control.
+
+   **What is still owed**: the cutscenes, which need dialogue tables and
+   a screen; the raster-interrupt water rise, which is level 4's; and
+   **a second level to go to** — `FLOW_STEP`'s clear branch returns to
+   the title because five of the six levels have art on the disc and no
+   map on it, and the day one has a map that is one line. Nothing here
+   saves anything between levels either: `LEVEL_RESET` puts her health,
+   her magazines and her reserve back at every start, which is right for
+   a restart and is a decision rather than a fact for a transition.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
 

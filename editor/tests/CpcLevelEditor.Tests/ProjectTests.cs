@@ -172,12 +172,27 @@ public class ProjectTests
         var project = CitySource.Open();
         var findings = LevelValidator.Check(project, CitySource.ArtistTiles(project));
 
-        Assert.DoesNotContain(findings, f => f.Severity == Severity.Error);
+        // NOTHING AT ALL NOW, AND IT USED TO BE ONE WARNING. The shipped
+        // City had no EK_PLAYER_START - its ten records were pickups, a
+        // door, an NPC and three drones - because KARA_WX and KARA_WY
+        // were assembler initialisers and nothing read a start record.
+        // PLAYER_SPAWN does (CLAUDE.md 11 step 8), so the City carries
+        // one and the level is clean.
+        Assert.Empty(findings);
+    }
 
-        // ... and it does carry one warning, which is true of the shipped
-        // level: its ten records are pickups, a door, an NPC and three
-        // drones, and none of them is kind 0.
-        Assert.Contains(findings, f => f.Rule == "player-start");
+    [Fact]
+    public void A_level_with_no_start_record_is_a_level_that_says_so()
+    {
+        // ... and the rule that used to be exercised BY the shipped City
+        // needs its own case now that the City satisfies it. A warning
+        // and not an error: the engine leaves her where SCROLL_INIT last
+        // put her, which is somewhere rather than nowhere.
+        var project = CitySource.Open();
+        project.Entities.RemoveAll(e => e.Kind == EntityKind.PlayerStart);
+        Assert.Contains(LevelValidator.Check(
+            project, CitySource.ArtistTiles(project)),
+            f => f.Rule == "player-start" && f.Severity == Severity.Warning);
     }
 
     [Fact]

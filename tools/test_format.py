@@ -48,6 +48,91 @@ def check(name, ok, detail=""):
         fails.append(name)
 
 
+def disc_checks(sym, lvl):
+    """... and it came off the DISC, which nothing above would notice.
+
+    A level's map, its entity table and its tile flags used to be
+    INCBINed into the core image and LDIRed to &B000 by the bootstrap:
+    2,200 bytes of a binary that loads at &4000 and relocates below it,
+    which is fine for exactly one level and impossible for six. They
+    are raw sectors now, packed as one stream with the art
+    (tools/make_level_image.py, LEVEL_MAP_LOAD) - and every check above
+    would pass unchanged if they had never moved, because they compare
+    RAM against the same build/ files either way.
+
+    So this one writes a DIFFERENT level onto a copy of the disc and
+    asks the machine what it drew. Nothing but the bytes on that disc
+    can account for the answer.
+    """
+    import shutil
+    import subprocess
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import dskdata
+    from build_levels import zx0
+    from make_level_image import FLAGS_BYTES
+
+    print("\n  and it came off the DISC, not out of the binary:")
+    scratch = os.environ.get("KARA_SCRATCH") or os.path.join(
+        "/tmp", f"kara-format-{os.getuid()}")
+    os.makedirs(scratch, exist_ok=True)
+
+    # The same image the build makes, with one map cell changed. Cell 0
+    # is the top-left of the sky and is `sky_stars`; `crate` is the last
+    # tile of the artist's sheet and nothing else in the level uses it
+    # up there, so finding it in RAM at cell 0 can only have come from
+    # these bytes.
+    names = city.tile_names()[1]
+    marker = names.index("crate")
+    flags = open(os.path.join(BUILD, "tileflags_level1_city.bin"), "rb").read()
+    raw_lvl = bytearray(open(os.path.join(BUILD, "level_1.lvl"), "rb").read())
+    off_map = raw_lvl[13] | (raw_lvl[14] << 8)
+    was = raw_lvl[off_map]
+    raw_lvl[off_map] = marker
+    image = flags + bytes(FLAGS_BYTES - len(flags)) + bytes(raw_lvl)
+    src = os.path.join(scratch, "marked.bin")
+    open(src, "wb").write(image)
+    zx0(src)
+    packed = open(src.replace(".bin", ".zx0"), "rb").read()
+
+    # ... onto a copy of the disc, at the sectors dskdata.py put the
+    # real one on. The layout is worked out from the stream sizes, so
+    # asking it again is asking the build where it wrote them.
+    marked = os.path.join(scratch, "marked.dsk")
+    shutil.copy(os.path.join(BUILD, "kara.dsk"), marked)
+    layout, _ = dskdata.plan()
+    where = [b for lvl_name, kind, b in layout if kind == "map"]
+    if not where:
+        check("the disc carries a level image at all", False,
+              "dskdata.py planned no map stream")
+        return
+    _, track, sect, n, _ = where[0][0]
+    img = bytearray(open(marked, "rb").read())
+    off = dskdata.dsk_offsets(img)
+    for i in range(n):
+        sector = dskdata.SECT_FIRST + (sect - dskdata.SECT_FIRST + i) % dskdata.SECTORS
+        t = track + (sect - dskdata.SECT_FIRST + i) // dskdata.SECTORS
+        chunk = packed[i * 512:(i + 1) * 512]
+        img[off[(t, sector)]:off[(t, sector)] + 512] = chunk + bytes(512 - len(chunk))
+    open(marked, "wb").write(bytes(img))
+
+    check("the marked level fits the sectors the real one has",
+          len(packed) <= n * 512,
+          f"{len(packed)} bytes into {n} sector(s) at track {track}")
+
+    m = boot(sym, scroll=True, disc=marked)
+    got = m.peek(sym["MAP_ADDR"])
+    check("the map the engine drew is the map on THAT disc",
+          got == marker and m.peek(sym["LEVEL_OK"]) == 1,
+          f"cell 0 is tile {got} - `{names[marker]}` - where the build's "
+          f"own level has {was}, `{names[was]}`")
+    check("... and the binary has no level in it to fall back on",
+          subprocess.run(["grep", "-c", "incbin \"level_", 
+                          os.path.join(ROOT, "src", "main.asm")],
+                         capture_output=True, text=True).stdout.strip() == "0",
+          "main.asm INCBINs no level file, so &B000 is whatever the disc "
+          "put there")
+
+
 def main():
     sym = symbols()
     for n in ("LEVEL_LVL", "LEVEL_TILEFLAGS", "MAP_INSTALL", "MAP_ADDR",
@@ -251,6 +336,8 @@ def main():
           m.peek(sym["TILE_ATTR"] + ladder) == 0,
           f"tile {ladder} is the ladder: zero it in the file and the table "
           f"in RAM loses TA_CLIMB with it")
+
+    disc_checks(sym, lvl)
 
     print()
     if fails:

@@ -146,6 +146,31 @@ SCROLL_INIT:    ld   b,CRTC_R6
                 call SCROLL_APPLY
 
                 call MAP_INSTALL
+                ; AND THE REFUSAL IS THE CALLER'S NOW, because a level
+                ; can genuinely fail to arrive: its map is read off the
+                ; disc at run time (src/unpack.asm) where it used to be
+                ; INCBINed and could not be wrong. Refused, MAP_ADDR
+                ; still holds whatever it held and painting a playfield
+                ; out of it would be a picture of nothing, with a
+                ; heroine walking about in it.
+                ret  c
+                ; ... AND SHE GOES WHERE THE LEVEL SAYS. It has to be
+                ; after MAP_INSTALL, which is what puts the entity
+                ; table there, and before DRAW_PLAYFIELD only because
+                ; that is the end of the routine. A level with no
+                ; EK_PLAYER_START leaves her exactly where she was and
+                ; says so with the carry, which nothing here asks
+                ; about: there is nowhere better to put her.
+                call PLAYER_SPAWN
+                ; AND ITS CARRY IS NOT THIS ROUTINE'S VERDICT. SCROLL_INIT
+                ; says "the level was refused" with the carry and
+                ; PLAYER_SPAWN says "the level had a start record" with
+                ; it, so a level that HAS one came back as a level that
+                ; could not be read: LEVEL_OK went to 0, and the only
+                ; thing that says so is that the heroine is not drawn.
+                ; It cost half a session of measurements taken on a
+                ; machine with nobody in the picture.
+                or   a
                 jp   DRAW_PLAYFIELD
 
 ; ---------------------------------------------------------------------
@@ -233,12 +258,17 @@ MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
                 ldir
 
                 ; ---- and what each tile DOES -----------------------
-.flags:         ld   hl,TILE_ATTR           ; clear the whole page: a map
-                ld   de,TILE_ATTR + 1       ; byte is an index and every
-                ld   bc,TILE_ATTR_N - 1     ; one of the 256 must answer
-                ld   (hl),0
-                ldir
-                ld   hl,LEVEL_TILEFLAGS
+                ; ONE LDIR OF A CONSTANT LENGTH, and no clear in front
+                ; of it. A map byte is an index, so every one of
+                ; TILE_ATTR's 256 entries has to answer - and the level
+                ; image carries exactly 256 flag bytes, zero-padded by
+                ; tools/make_level_image.py, precisely so that filling
+                ; the table is the same instruction as copying the
+                ; level's own. It was a clear and then a copy of a
+                ; length the engine had to be told, which is two things
+                ; to keep in step with a file that now arrives at run
+                ; time.
+.flags:         ld   hl,LEVEL_TILEFLAGS
                 ld   de,TILE_ATTR
                 ld   bc,LEVEL_TILEFLAGS_N
                 ldir

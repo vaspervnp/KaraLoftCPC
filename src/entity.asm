@@ -269,10 +269,9 @@ ENTITY_COLLISION_CHECK:
                 or   a
                 ret  z
 .next:          ld   (ENT_LEFT),a
-                ld   a,(hl)                 ; kind 0 is PlayerStart, so an
-                ld   bc,ENT_FLAGS           ; empty slot is told by its FLAGS
-                add  hl,bc
-                ld   a,(hl)
+                ld   bc,ENT_FLAGS           ; an empty slot is told by its
+                add  hl,bc                  ; FLAGS and never by its kind,
+                ld   a,(hl)                 ; because kind 0 is a real kind
                 ld   bc,-ENT_FLAGS
                 add  hl,bc
                 bit  0,a                    ; EF_ACTIVE
@@ -286,6 +285,24 @@ ENTITY_COLLISION_CHECK:
                 ld   a,(ENT_WANT)
                 cp   c                      ; every wanted bit present?
                 jr   nz,.skip
+                ; AND A PLAYER START IS A MARKER, NOT A THING TO WALK
+                ; INTO. The interact pass asks for NO flag bits - a door
+                ; carries EF_SOLID and an NPC nothing, so there is no bit
+                ; they share to ask for - and it stops at the first box
+                ; it meets. Her own start record overlaps her exactly, by
+                ; construction and for as long as she is standing on it,
+                ; so without this an UP press at the start of a level
+                ; finds a record ENT_ON_INTERACT has no handler for and
+                ; hides whatever she is really standing over.
+                ;
+                ; AFTER the flags and not before them, which is what
+                ; keeps tools/test_entities.py's control meaning what it
+                ; says: an all-zero slot has to be rejected for being
+                ; INACTIVE, and a kind test in front of that would reject
+                ; it twice and prove neither.
+                ld   a,(hl)                 ; the kind, read now that the
+                or   a                      ; flags have had their say
+                jr   z,.skip
                 ; A CHEAP X REJECT BEFORE THE REAL ONE. ENT_OVERLAP looks
                 ; the hitbox up and then tests both axes, which is about
                 ; 450 T to discover that something twenty tiles away is

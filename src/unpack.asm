@@ -163,3 +163,63 @@ LEVEL_LOAD:     di
 LEVEL_BANKS:    db 0
 LEVEL_CFG:      db 0
 LEVEL_NEXT:     dw 0
+
+; ---------------------------------------------------------------------
+; LEVEL_MAP_LOAD - a level's OWN bytes, from the disc into LEVEL_IMAGE.
+;
+; IN : A = level number, 0-5
+; OUT: carry SET, and LEVEL_IMAGE holds the tile flags and then the
+;      .lvl (tools/make_level_image.py). Carry clear means either that
+;      the disc read failed - DISC_ST0/ST1/ST2 say why - or that this
+;      level has no map on the disc at all, which is five of the six.
+;      destroys everything, INTERRUPTS OFF ON RETURN
+;
+; THE MAP USED TO RIDE IN THE CORE IMAGE and that is why this exists.
+; main.asm INCBINed level_1.lvl and its tile flags at LEVEL_IMAGE and
+; the bootstrap LDIRed them down, which costs 2,200 bytes of a binary
+; that loads at &4000 and relocates below it. One level fits. Six is
+; 13 KB and there is no 13 KB - so a level's own bytes travel with its
+; art now, and a transition reads them the same way.
+;
+; It is LEVEL_LOAD's shape with the paging taken out: one record, read
+; into the staging buffer like any other, and unpacked into BASE RAM
+; rather than into the window. 354 bytes on the disc for the City, one
+; sector, against 2,405 unpacked.
+; ---------------------------------------------------------------------
+LEVEL_MAP_LOAD: di
+                add  a,a
+                ld   e,a
+                ld   d,0
+                ld   hl,DISC_LEVEL_MAPS
+                add  hl,de
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)
+                ld   a,d
+                or   e                      ; ... and OR leaves carry clear,
+                ret  z                      ; which is what "no map" says
+                ex   de,hl
+
+                inc  hl                     ; the bank count, always one
+                inc  hl                     ; ... and its RAM configuration,
+                                            ; which nothing pages here
+                ld   a,(hl)                 ; track
+                inc  hl
+                ld   (DISC_TRACK),a
+                ld   a,(hl)                 ; first sector
+                inc  hl
+                ld   (DISC_SECT),a
+                ld   a,(hl)                 ; how many
+                ld   (DISC_COUNT),a
+
+                ld   hl,LEVEL_STAGE
+                ld   (DISC_PTR),hl
+                call DISC_READ
+                ret  nc
+
+                call DISC_MOTOR_OFF
+                ld   hl,LEVEL_STAGE
+                ld   de,LEVEL_IMAGE
+                call UNPACK_AT
+                scf
+                ret

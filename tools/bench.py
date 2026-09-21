@@ -15,9 +15,14 @@ def symbols():
         if m: d[m.group(1)]=int(m.group(2),16)
     return d
 
-def boot(sym, scroll=False):
+def boot(sym, scroll=False, disc=None):
+    # `disc` is for the suites that have to ask what came OFF the disc
+    # rather than what the build put in the binary: a level's map, its
+    # entity table and its tile flags are raw sectors now
+    # (src/unpack.asm), so the only way to prove they travelled is to
+    # boot a disc with different ones on it.
     m=CPC(); m.run_frames(150)
-    m.insert_disc(os.path.abspath(f"{ROOT}/build/kara.dsk")); m.type_text('RUN"DISC\n'); m.run_frames(400)
+    m.insert_disc(os.path.abspath(disc or f"{ROOT}/build/kara.dsk")); m.type_text('RUN"DISC\n'); m.run_frames(400)
     # THE TITLE SCREEN IS IN THE WAY NOW, and it waits for a key rather
     # than a timer (CLAUDE.md 7.7). past_intro presses it; without this
     # every suite below measures a machine sitting on a still picture.

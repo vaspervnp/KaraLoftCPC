@@ -67,14 +67,21 @@ def plan():
         cursor += n
     for lvl in levels():
         d = os.path.join(LEV, lvl)
-        for kind in ("lvl", "set"):
+        # THE LEVEL'S OWN BYTES FIRST, then its art. map.zx0 is the map,
+        # the entity table and the tile flags in one stream
+        # (tools/make_level_image.py); it is one "bank" whose RAM
+        # configuration is never used, because LEVEL_MAP_LOAD unpacks it
+        # into base RAM at LEVEL_IMAGE and pages nothing.
+        for kind in ("map", "lvl", "set"):
             banks = []
-            for cfg in ("C0", "C4", "C5", "C6", "C7"):
-                p = os.path.join(d, f"{kind}_{cfg}.zx0")
+            names = ["."] if kind == "map" else ["C0", "C4", "C5", "C6", "C7"]
+            for cfg in names:
+                p = (os.path.join(d, "map.zx0") if kind == "map"
+                     else os.path.join(d, f"{kind}_{cfg}.zx0"))
                 if not os.path.exists(p):
                     continue
                 n = (os.path.getsize(p) + SECT_SIZE - 1) // SECT_SIZE
-                banks.append((CFG[cfg], cursor // SECTORS,
+                banks.append((CFG.get(cfg, 0), cursor // SECTORS,
                               SECT_FIRST + cursor % SECTORS, n, p))
                 cursor += n
             if banks:
@@ -108,6 +115,16 @@ def write_inc(layout, end):
             s = syms.get((lvl, kind))
             lines.append(f"                dw {s if s else 0}"
                          f"{'':<12}; {lvl} {kind}")
+    lines.append("")
+    lines.append("; And the level's OWN bytes - one entry a level, no stride to")
+    lines.append("; get wrong. A zero means that level has no map yet, which is")
+    lines.append("; five of the six: their art is on the disc and nothing has")
+    lines.append("; painted them (CLAUDE.md 11 step 7).")
+    lines.append("DISC_LEVEL_MAPS:")
+    for lvl in levels():
+        s = syms.get((lvl, "map"))
+        lines.append(f"                dw {s if s else 0}"
+                     f"{'':<12}; {lvl}")
     path = os.path.join(LEV, "disc.inc")
     open(path, "w").write("\n".join(lines) + "\n")
     print(f"  -> {path}  {sum(len(b) for _, _, b in layout)} streams, "

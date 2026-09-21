@@ -169,6 +169,19 @@ ENEMY_SPAWN:    ld   hl,ENEMY_SCRIPT
                 ld   (ENEMY_LAST_CNT),a
                 ld   (ENEMY_CUR),a
                 ld   (ENEMY_CUR + 1),a
+                ; ... AND THE REST OF THE LAST DRAW'S RECORD WITH THEM.
+                ; ENEMY_DREW gates every read of these three, so they
+                ; are dead the moment it is zero and clearing them
+                ; changes no behaviour at all. What it changes is that
+                ; a level INSTALLED OVER A LEVEL THAT WAS PLAYED - which
+                ; is what the FSM's restart is (src/flow.asm) - leaves
+                ; nothing of the old one behind to explain. Half a
+                ; record cleared and half left is the shape of every
+                ; bug in CLAUDE.md 10, and this is 9 bytes once a level.
+                ld   (ENEMY_LAST_BOT),a
+                ld   (ENEMY_DREW_W),a
+                ld   (ENEMY_DREW_WX),a
+                ld   (ENEMY_DREW_WX + 1),a
                 ld   hl,ENEMIES
                 ld   de,ENEMIES + 1
                 ld   bc,ENEMY_MAX * ES_STRIDE - 1

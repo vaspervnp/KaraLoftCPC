@@ -285,16 +285,44 @@ PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN, PU_IDOL, PU_BOOK = range(6)
 ENT_MAX = 24
 
 
+def entity_px(kind, x, y, flags, p0=0, p1=0):
+    """One record, in the world pixels the FORMAT stores."""
+    return bytes([kind, x & 255, x >> 8, y & 255, y >> 8, flags, p0, p1])
+
+
 def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
     """One record. Positions are given in TILES and converted here, so
     the numbers above stay readable against the map."""
-    x = tile_x * 8                      # 8 pixels a tile
-    y = base_row * 16                   # the row's TOP is the base it sits on
-    return bytes([kind, x & 255, x >> 8, y & 255, y >> 8, flags, p0, p1])
+    return entity_px(kind, tile_x * 8, base_row * 16, flags, p0, p1)
+
+
+EK_PLAYER_START = 0
+# WHERE SHE STARTS, AND IT IS EXACTLY WHERE SHE ALREADY DID. KARA_WX and
+# KARA_WY were assembler initialisers - 43 and 16 - applied once, when
+# the bootstrap relocates the core image, and never again; PLAYER_SPAWN
+# reads this record instead, so a second level can start her somewhere
+# else and a death has somewhere to put her back to.
+#
+# The record is in the units the FORMAT uses and hers are not: x is
+# world PIXELS against her byte column, and y is the BASE of the hitbox
+# against her box's top. 43 * 2 = 86, and 16 + KARA_BOX_H = 80.
+#
+# NOT ON THE TILE GRID, AND IT DOES NOT HAVE TO BE. Only a pickup does,
+# because ENT_BAKE stamps it into the cell its top-left falls in; she is
+# drawn by the span blitter at a byte column. 86 is ten tiles and six
+# pixels, and moving her to a whole tile would be moving her.
+#
+# AND SHE IS IN THE AIR ON PURPOSE. Base 80 is one line short of the
+# roof at 96, so she falls the last 16 pixels onto it - free, against
+# FALL_FREE of 96 - which is what the initialisers did and what stops a
+# 64-line box starting INSIDE the tiles, where the landing snaps her a
+# whole row too low and BOX_SOLID_H then refuses every step.
+KARA_START_X, KARA_START_BASE = 86, 80
 
 
 def build_entities(path):
     e = [
+        entity_px(EK_PLAYER_START, KARA_START_X, KARA_START_BASE, EF_ACTIVE),
         # Pickups stand ON the roof, so their base is the roof's top edge.
         entity(EK_PICKUP, 24, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_KEY, 0),
         entity(EK_PICKUP, 44, ROW_ROOF, EF_ACTIVE | EF_TOUCH, PU_AMMO, 14),
