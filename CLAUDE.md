@@ -40,16 +40,41 @@ own file on the emulator and passes all 21 of its checks. The golden file
 
 **AND THERE IS A PAINTER.** `dotnet run` in
 `editor/src/CpcLevelEditor.Web` puts the City on a canvas — the drawn
-tiles, the entity markers, the collision overlay and the 20x11 screen
-box with its HUD strip — and a designer paints on it with a brush, a
-rectangle, a flood fill and a dropper, edits what a tile DOES, and
-exports the files the engine reads. **The level the game already
+tiles, the entity markers, the regions, the collision overlay and the
+20x11 screen box with its HUD strip — and a designer paints on it with a
+brush, a rectangle, a flood fill and a dropper, edits what a tile DOES,
+**places, drags and edits the entities and the regions**, and exports
+the files the engine reads. **The level the game already
 plays opens in it**, which the format cannot do on its own: a map cell
 is a finished tile and nothing in `level_1.lvl` says which cells were an
 overlay on a wall, so the bake's own sidecar is read with it and the
 pairing comes back (§8.3). Taken apart, painted and exported, it is the
 same picture — checked as 2,048 cells of 64 bytes and as the attribute
 under every one of them.
+
+**AND THE RECORDS ARE THE DESIGNER'S NOW, NOT JUST THE GENERATOR'S.** An
+entity was a marker the canvas drew and could not touch; it is a thing
+you drop on a floor, drag along it and fill in — placed in TILES and
+stored in world pixels with Y at the base of the hitbox, which is the
+conversion `make_city_map.py` does and the reason the marker hangs in
+the row above the line it stands on (§8.6). A region is a rectangle you
+drag out, and **its unit is tiles, which the format's own field widths
+settle**: width and height are single bytes, and 255 pixels is 31 tiles
+of a 128-tile map. The engine will not take more than `ENT_MAX` records
+or a region off the map, so neither can be made: the rule is refused on
+the stroke rather than at export. **And every list the inspector offers
+— the kinds, the four flag bits, the pickups, and what `p0` and `p1` are
+called for each kind — comes off `/api/vocabulary`, which builds them
+out of the C# enums themselves**, because a canvas that spelled out
+`EntityKind` would be a second copy of the engine's numbering.
+
+**AND IT OPENS ON ANY OF THE SIX LEVELS.** A new project picks a level
+directory and one of its tile sheets out of the art package — nine
+sheets across the six (§7.3) — and starts blank, with **no tile flags at
+all**, because nothing in the package says what a tile DOES and that is
+data the editor owns. Its level NUMBER comes from the package's own
+directory name: `level2_forest` is level 2, and a project that took the
+default would export itself as `level_1.lvl`, over the City.
 
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
@@ -62,9 +87,17 @@ frame** — while 25 of the 2,048 map bytes name a different tile, which
 is §8.3's numbering and is the point rather than a tolerance. Its two
 controls are the mistakes that look almost right: the editor's level
 over the SHIPPED tile blob, where every file is real and the level loads
-and 25 cells draw something else, and one cell painted in the editor,
-where exactly that cell changes and nothing else does. The loader's own
+and 25 cells draw something else, and a level the editor CHANGED, where
+exactly the painted cells change and nothing else does. The loader's own
 three controls run on the editor's bytes as well (§8.3).
+
+**AND THAT SECOND ONE CARRIES A REGION, WHICH NOTHING HAD EVER BOOTED.**
+The shipped City has none, so every `.lvl` the engine has been given
+ended at its entity section; this one has seven more bytes after it, and
+what says the table still comes from the right place is that
+`MAP_INSTALL` takes the entity section's OFFSET out of the header rather
+than assuming where it is. Measured: `ENT_COUNT` is the file's count and
+the placed record is in `ENT_TABLE` byte for byte.
 
 **AND IT EXPORTS A FOURTH FILE NOW, WHICH IS A GAP FOUND BY ASKING THE
 EDITOR TO OPEN ITS OWN OUTPUT.** The three binaries the engine reads say
@@ -2516,6 +2549,24 @@ the file and `TILE_ATTR` loses `TA_CLIMB` with them. The ladder is found
 in the file rather than looked up — it is the one tile the editor marked
 `Ladder|Platform`.
 
+#### A REGION IS IN TILES, AND THE FORMAT'S OWN FIELD WIDTHS SAY SO
+
+An entity is placed in world PIXELS because a designer drops it on a
+floor line (§8.6). A region is seven bytes — `kind, x u16, y u16, w, h`
+— and its width and height are single BYTES: 255 pixels is 31 tiles of a
+128-tile map, and a region that cannot span a level is not a region.
+`docs/editor.md` §5.5 says tiles as well, so nothing has to be decided,
+only written down; the editor holds them in tiles and the exporter
+writes them unconverted.
+
+**AND THE KIND NUMBERING IS THE EDITOR'S, because nothing in the engine
+reads a region yet.** `MAP_INSTALL` parses the magic, the shape, the
+entity count, the map and the records and stops, and the shipped City
+has no regions and no links. So `RegionKind` takes editor.md §5.5's own
+order — `Water, Quicksand, OxygenVent, Band, CameraLock, Trigger` — and
+that is the statement whatever reads them first has to agree with. The
+same is true of `Link`.
+
 **THE FOURTH FILE IS THE BAKE'S RECORD AND IT IS NOT OPTIONAL.** The
 export used to write the three binaries the engine reads, which is
 everything the ENGINE needs and not everything a LEVEL is: nothing in
@@ -4841,8 +4892,8 @@ the next one starts.
    was asserting something this file has written down as NOT part of the
    contract.
 
-   **Three things it does NOT have, each a deliberate answer to
-   editor.md §6**:
+   **Four things it does NOT have, each a deliberate answer to
+   editor.md**:
 
    * **No TypeScript, because there is no Node on this machine.** The
      canvas is plain ES modules, so there is no build step between the
@@ -4864,6 +4915,16 @@ the next one starts.
      check: an edit made against a stale version is refused rather than
      merged, because two windows on one level is where a lost stroke is
      silent.
+   * **No entity DEFINITIONS, because the record is eight bytes.**
+     §5.3 gives each entity a `DefinitionKey`, a sprite sheet, an
+     anchor, a hitbox and a property SCHEMA, and builds the inspector
+     out of the schema. What the engine reads is
+     `kind, x, y, flags, p0, p1` and nothing else (§8.6): the art, the
+     box, the speed and the hit points come from the engine's own type
+     table, keyed by `p0`, which is why `p0` is always "which thing this
+     is". So the inspector is the eight bytes with §8.6's own labels on
+     the two that vary, served from `/api/vocabulary`. A schema layer
+     would describe fields that do not exist.
 
    **The bytes go on disk as well as down the wire**, into
    `editor/workspace/<id>.export/`, because a designer who has to fish
@@ -4896,9 +4957,40 @@ the next one starts.
    writes the bake's record beside them now, in the generator's own
    shape (§8.3).
 
-   **What is left**: entity and region editing on the canvas (they are
-   drawn and read-only) and a second level to paint. Phase 4 of §15 this
-   project does not need.
+   **AND THE ENTITIES AND THE REGIONS ARE EDITABLE NOW.** They were
+   drawn and read-only, which made the painter a tile editor with a
+   level's records printed on it. The two tools place, select, drag and
+   delete; the inspector edits a record field by field, in the units a
+   designer thinks in — an entity in TILES with the row being the one
+   whose top surface it stands on, a region as a rectangle in tiles; and
+   regions, which nothing had drawn at all, have a layer of their own.
+
+   **Every list in the inspector comes off `/api/vocabulary`**, which
+   builds them out of the C# enums: the kinds, the four flag bits, the
+   pickups, and — the part worth having — what `p0` and `p1` are CALLED
+   for each kind, which is §8.6's table where the inspector can use it,
+   with the two bytes that are really a `PU_*` offered as a list. The
+   canvas names no enum of its own.
+
+   **And the ops went to the Application layer with them.** What an edit
+   may do is a property of the LEVEL and not of the transport, so
+   `ProjectEditor` owns the eleven of them and the CLI uses the same
+   code the canvas's `PATCH` does. `ENT_MAX` and the map's edge are
+   refused there, on the stroke: a designer who finds out at export that
+   the table holds 24 records has already placed the 25th somewhere and
+   has to go and find it.
+
+   **AND A PROJECT CAN BE STARTED ON ANY OF THE SIX LEVELS**, which is
+   the editor's half of the one thing left. It reads the package's own
+   directories and sheets, takes the level's number from the directory
+   name, and starts with an empty flag table — nine tile sheets across
+   six levels, and only the City has ever had a map.
+
+   **What is left**: a second level, which is now a LEVEL's work and not
+   the editor's — the art is there and the editor will paint it, and
+   what is missing is on the other side: `main.asm` INCBINs
+   `level_1.lvl` alone and there is no transition to a second one, which
+   is step 8's. Phase 4 of §15 this project does not need.
 8. **Level FSM + cutscenes** — transitions, raster-interrupt water rise, palette fades.
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.

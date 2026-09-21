@@ -90,10 +90,33 @@ public static class LevelValidator
                     + $"{worldWidth}x{worldHeight} pixels"));
         }
 
-        if (!project.Entities.Any(e => e.Kind == EntityKind.PlayerStart))
+        var starts = project.Entities.Count(e => e.Kind == EntityKind.PlayerStart);
+        if (starts == 0)
             findings.Add(new Finding(Severity.Warning, "player-start",
                 "no EK_PLAYER_START: kind 0 is the player's, so a level without one "
                 + "starts her wherever SCROLL_INIT last left her"));
+        else if (starts > 1)
+            findings.Add(new Finding(Severity.Warning, "player-start",
+                $"{starts} EK_PLAYER_START records: the engine sweeps the table in order "
+                + "and nothing says which of them is meant"));
+
+        // A REGION IS IN TILES, which is what its byte-wide width and height
+        // are for (Region). Nothing in the engine reads one yet, so this is
+        // the only thing standing between a designer and a record that says
+        // something impossible.
+        for (var i = 0; i < project.Regions.Count; i++)
+        {
+            var region = project.Regions[i];
+            if (region.Width == 0 || region.Height == 0)
+                findings.Add(new Finding(Severity.Error, "region-bounds",
+                    $"region {i} is {region.Width}x{region.Height} tiles and covers nothing"));
+            else if (region.X + region.Width > project.Width
+                     || region.Y + region.Height > project.Height)
+                findings.Add(new Finding(Severity.Error, "region-bounds",
+                    $"region {i} is {region.Width}x{region.Height} at "
+                    + $"({region.X},{region.Y}) and runs off a "
+                    + $"{project.Width}x{project.Height} map"));
+        }
 
         return findings;
     }

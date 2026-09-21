@@ -81,7 +81,7 @@ public sealed class BinaryLevelReader
         for (var i = 0; i < regionCount; i++)
         {
             var at = blob.Slice(offRegions + i * Region.Stride, Region.Stride);
-            regions[i] = new Region(at[0],
+            regions[i] = new Region((RegionKind)at[0],
                                     BinaryPrimitives.ReadUInt16LittleEndian(at[1..]),
                                     BinaryPrimitives.ReadUInt16LittleEndian(at[3..]),
                                     at[5], at[6]);

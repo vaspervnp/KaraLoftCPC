@@ -15,6 +15,21 @@ public sealed class ProjectsController(
     public IReadOnlyList<LevelAssets> Assets() =>
         [.. assets.Levels().Select(level => new LevelAssets(level, assets.Sheets(level)))];
 
+    /// <summary>
+    /// <b>Every enum the browser has to offer a designer, by name.</b>
+    /// </summary>
+    /// <remarks>
+    /// A canvas that listed the entity kinds itself would be a second copy of
+    /// <see cref="EntityKind"/>, in a language with no suite pointed at it —
+    /// the same class of bug as two copies of a bit table (CLAUDE.md 6.3),
+    /// and the reason enums already go over the wire by name rather than as
+    /// numbers. So the lists come from the enums themselves, and the
+    /// parameter labels come from <see cref="Entity"/>'s own table of what
+    /// <c>p0</c> and <c>p1</c> mean per kind (CLAUDE.md 8.6).
+    /// </remarks>
+    [HttpGet("vocabulary")]
+    public VocabularyView Vocabulary() => VocabularyView.Current;
+
     [HttpGet("projects")]
     public IReadOnlyList<ProjectSummary> List() =>
         [.. store.List()
@@ -51,6 +66,11 @@ public sealed class ProjectsController(
                 Name = request.Name,
                 AssetLevel = request.AssetLevel,
                 Sheet = request.Sheet,
+                // The package's directory name says which level this is, and
+                // the file is named after it. Nothing reads the tileset id
+                // yet — MAP_INSTALL parses past it — so it follows.
+                LevelId = EditorProject.LevelIdFor(request.AssetLevel),
+                TilesetId = EditorProject.LevelIdFor(request.AssetLevel),
                 Map = new byte[EngineLimits.MapWidth * EngineLimits.MapHeight],
                 TileFlags = new Dictionary<string, TileFlags>(
                     LevelFlagSeeds.For(request.AssetLevel)),
@@ -77,41 +97,13 @@ public sealed class ProjectsController(
                 + $"against {batch.Version}; reload before painting over someone else",
                 statusCode: 409);
 
-        var applied = 0;
-        foreach (var op in batch.Ops)
-        {
-            switch (op.Op)
-            {
-                case "tile":
-                    if (!InsideMap(project, op.X, op.Y))
-                        return Problem($"({op.X},{op.Y}) is off the map", statusCode: 400);
-                    project.Map[op.Y * project.Width + op.X] = op.Tile;
-                    break;
-                case "overlay":
-                    if (!InsideMap(project, op.X, op.Y))
-                        return Problem($"({op.X},{op.Y}) is off the map", statusCode: 400);
-                    project.Overlays.Add(new OverlayPlacement(op.X, op.Y, op.Tile));
-                    break;
-                case "overlay-clear":
-                    project.Overlays.RemoveAll(o => o.X == op.X && o.Y == op.Y);
-                    break;
-                case "flags":
-                    if (op.Name is null)
-                        return Problem("a flags op needs a tile name", statusCode: 400);
-                    project.TileFlags[op.Name] = (TileFlags)op.Flags;
-                    break;
-                case "name":
-                    project.Name = op.Name ?? project.Name;
-                    break;
-                default:
-                    return Problem($"there is no \"{op.Op}\" edit", statusCode: 400);
-            }
-            applied++;
-        }
+        var outcome = ProjectEditor.Apply(project, batch.Ops);
+        if (!outcome.Ok)
+            return Problem($"op {outcome.Applied}: {outcome.Rejected}", statusCode: 400);
 
         project.Version++;
         store.Save(project);
-        return new EditResult(project.Version, applied);
+        return new EditResult(project.Version, outcome.Applied);
     }
 
     [HttpGet("projects/{id}/tileset")]
@@ -168,9 +160,6 @@ public sealed class ProjectsController(
             [.. findings.Select(FindingView.Of)],
             directory);
     }
-
-    private static bool InsideMap(EditorProject p, int x, int y) =>
-        (uint)x < p.Width && (uint)y < p.Height;
 
     private bool Find(string id, out EditorProject project)
     {

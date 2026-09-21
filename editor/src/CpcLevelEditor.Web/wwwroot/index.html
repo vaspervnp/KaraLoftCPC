@@ -17,6 +17,18 @@
 
 <main>
   <aside>
+    <!-- ANY LEVEL OF THE PACKAGE, not only the City. The six directories
+         and their tile sheets come from /api/assets, which reads the art
+         the artist shipped; a new project starts empty and its tile flags
+         start empty with it, because there is no file anywhere that says
+         what a tile DOES (CLAUDE.md 11 step 7). -->
+    <details id="new-project">
+      <summary>new project</summary>
+      <label>level <select id="new-level"></select></label>
+      <label>sheet <select id="new-sheet"></select></label>
+      <label>id <input id="new-id" placeholder="level2-draft"></label>
+      <button id="new-make">Create</button>
+    </details>
     <div class="tools" id="tools">
       <button data-tool="brush" class="on">Brush</button>
       <button data-tool="rect">Rect</button>
@@ -24,16 +36,20 @@
       <button data-tool="pick">Pick</button>
       <button data-tool="overlay">Overlay +</button>
       <button data-tool="overlay-clear">Overlay −</button>
+      <button data-tool="entity">Entity</button>
+      <button data-tool="region">Region</button>
     </div>
     <div class="layers">
       <label><input type="checkbox" id="show-grid" checked> grid</label>
       <label><input type="checkbox" id="show-screen" checked> screen</label>
       <label><input type="checkbox" id="show-overlays" checked> overlays</label>
       <label><input type="checkbox" id="show-entities" checked> entities</label>
+      <label><input type="checkbox" id="show-regions" checked> regions</label>
       <label><input type="checkbox" id="show-solid"> solid</label>
     </div>
     <div id="palette" class="palette"></div>
     <div id="tile-detail" class="detail"></div>
+    <div id="inspector" class="detail"></div>
   </aside>
 
   <section class="stage">

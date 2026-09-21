@@ -10,6 +10,19 @@
 // interleaving is written down in exactly two places in this project,
 // tools/cpclib.py and Mode0Layout.cs, and a canvas that unpacked the bytes
 // itself would be a third one in a language with no suite pointed at it.
+//
+// AND SO DO THE ENUMS. Every list a designer picks from - the entity kinds,
+// the four flag bits, the pickups, the region kinds, and what p0 and p1 are
+// called for each kind - comes from /api/vocabulary, which builds them out
+// of the C# enums themselves. A canvas that spelled out EntityKind would be
+// a second copy of the engine's own numbering, which is the same class of
+// bug as two copies of a bit table (CLAUDE.md 6.3).
+//
+// A RECORD'S UNITS ARE NOT THE MAP'S. An entity is placed in world PIXELS
+// with Y at the BASE of its hitbox, because that is what a designer drops on
+// a floor (CLAUDE.md 8.6), so its marker fills the cell ABOVE the line it
+// stands on. A region is in TILES, which is what its byte-wide width and
+// height are for.
 
 const TILE = 16;            // square units a tile occupies
 const PW = 8, PH = 16;      // Mode 0 pixels in one
@@ -20,8 +33,10 @@ const HUD_CELLS = 20;                   // ... and only its left 20 characters
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  project: null, tileset: null, atlas: null,
+  project: null, tileset: null, atlas: null, vocab: null,
   tile: 0, tool: 'brush', zoom: 2, ops: [], drag: null, hover: null,
+  selection: null,            // { kind: 'entity' | 'region', index }
+  entityKind: 'Pickup', regionKind: 'Trigger',
 };
 
 // ---------------------------------------------------------------- transport
@@ -132,18 +147,38 @@ function draw() {
     ctx.stroke();
   }
 
+  if ($('show-regions').checked)
+    p.regions.forEach((r, i) => {
+      const on = state.selection?.kind === 'region' && state.selection.index === i;
+      ctx.fillStyle = on ? 'rgba(124,255,160,.22)' : 'rgba(124,255,160,.10)';
+      ctx.fillRect(r.x * TILE, r.y * TILE, r.width * TILE, r.height * TILE);
+      ctx.strokeStyle = on ? '#fff' : 'rgba(124,255,160,.8)';
+      ctx.lineWidth = (on ? 2 : 1) / state.zoom;
+      ctx.strokeRect(r.x * TILE + .5, r.y * TILE + .5,
+                     r.width * TILE - 1, r.height * TILE - 1);
+      ctx.fillStyle = '#7cffa0';
+      ctx.font = `${TILE * .6}px monospace`;
+      ctx.fillText(r.kind, r.x * TILE + 3, r.y * TILE + TILE * .7);
+    });
+
   if ($('show-entities').checked)
-    for (const e of p.entities) {
+    p.entities.forEach((e, i) => {
       // Y ANCHORS THE BASE OF THE HITBOX, which is what a designer drops on
       // a floor (CLAUDE.md 8.6), so the marker hangs above the line.
       const x = e.x / PW * TILE, base = e.y / PH * TILE;
-      ctx.strokeStyle = '#4cc2ff';
-      ctx.lineWidth = 1 / state.zoom;
+      const on = state.selection?.kind === 'entity' && state.selection.index === i;
+      ctx.strokeStyle = on ? '#fff' : '#4cc2ff';
+      ctx.lineWidth = (on ? 2 : 1) / state.zoom;
       ctx.strokeRect(x + .5, base - TILE + .5, TILE - 1, TILE - 1);
-      ctx.fillStyle = '#4cc2ff';
+      // ... and the line it stands ON, which is the one a floor has to be at
+      ctx.strokeStyle = on ? 'rgba(255,255,255,.7)' : 'rgba(76,194,255,.5)';
+      ctx.beginPath();
+      ctx.moveTo(x, base + .5); ctx.lineTo(x + TILE, base + .5);
+      ctx.stroke();
+      ctx.fillStyle = on ? '#fff' : '#4cc2ff';
       ctx.font = `${TILE * .7}px monospace`;
       ctx.fillText(e.kind[0], x + 3, base - 4);
-    }
+    });
 
   // THE SCREEN IS 20x11 TILES OF PLAY AND ONE TILE ROW OF HUD, not the
   // 24 bottom lines docs/editor.md 2.1 asks for: R6 = 24 and 192 lines,
@@ -161,6 +196,19 @@ function draw() {
     ctx.strokeRect(x0, y0 + HUD_TILE_ROW * TILE, SCREEN_TILES_X * TILE, TILE);
     ctx.fillStyle = 'rgba(240,160,0,.22)';
     ctx.fillRect(x0, y0 + HUD_TILE_ROW * TILE + TILE / 2, HUD_CELLS / 2 * TILE, TILE / 2);
+  }
+
+  // A RECTANGLE IS EASIER TO GET RIGHT WHEN IT IS VISIBLE while it is being
+  // dragged - both for the tile rect and for a new region.
+  const drag = state.drag;
+  if (drag && !drag.moving && (drag.tool === 'rect' || drag.tool === 'region')) {
+    const x0 = Math.min(drag.from.x, drag.to.x), y0 = Math.min(drag.from.y, drag.to.y);
+    const w = Math.abs(drag.to.x - drag.from.x) + 1, h = Math.abs(drag.to.y - drag.from.y) + 1;
+    ctx.strokeStyle = drag.tool === 'region' ? '#7cffa0' : '#fff';
+    ctx.lineWidth = 2 / state.zoom;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x0 * TILE + .5, y0 * TILE + .5, w * TILE - 1, h * TILE - 1);
+    ctx.setLineDash([]);
   }
 
   if (state.hover) {
@@ -197,6 +245,10 @@ function fill(x, y, tile) {
 
 function apply(x, y, tool) {
   const p = state.project;
+  // A CAPTURED POINTER KEEPS REPORTING WHEN IT LEAVES THE CANVAS, so a
+  // drag off the edge would queue an op the server has to refuse - and a
+  // refused batch is a reload for the designer.
+  if (x < 0 || y < 0 || x >= p.width || y >= p.height) return;
   switch (tool) {
     case 'brush': setTile(x, y, state.tile); break;
     case 'fill': fill(x, y, state.tile); break;
@@ -211,6 +263,103 @@ function apply(x, y, tool) {
       break;
   }
 }
+
+// ---------------------------------------------------------------- records
+
+const records = (kind) =>
+  kind === 'entity' ? state.project.entities : state.project.regions;
+
+/** The cell an entity's marker fills — its base line is that cell's bottom. */
+const entityCell = (e) => ({ x: Math.floor(e.x / PW), y: Math.floor(e.y / PH) - 1 });
+
+function entityAt(cell) {
+  const list = state.project.entities;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const c = entityCell(list[i]);
+    if (c.x === cell.x && c.y === cell.y) return i;
+  }
+  return -1;
+}
+
+function regionAt(cell) {
+  const list = state.project.regions;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const r = list[i];
+    if (cell.x >= r.x && cell.x < r.x + r.width
+        && cell.y >= r.y && cell.y < r.y + r.height) return i;
+  }
+  return -1;
+}
+
+function addRecord(kind, record) {
+  const list = records(kind);
+  list.push(record);
+  push({ op: `${kind}-add`, [kind]: record });
+  state.selection = { kind, index: list.length - 1 };
+}
+
+/**
+ * Replace a record — COALESCED, so a drag across forty cells is one op and
+ * not forty. Only the last op is folded into, which is what keeps the order
+ * the server applies them in the same as the order they were made.
+ */
+function setRecord(kind, index, record) {
+  records(kind)[index] = record;
+  const op = `${kind}-set`;
+  const last = state.ops[state.ops.length - 1];
+  if (last && last.op === op && last.index === index) last[kind] = record;
+  else push({ op, index, [kind]: record });
+}
+
+function removeSelected() {
+  const sel = state.selection;
+  if (!sel) return;
+  records(sel.kind).splice(sel.index, 1);
+  push({ op: `${sel.kind}-remove`, index: sel.index });
+  state.selection = null;
+}
+
+function addEntityAt(cell) {
+  const p = state.project, v = state.vocab;
+  if (p.entities.length >= v.limits.maxEntities)
+    return say(`the table holds ENT_MAX = ${v.limits.maxEntities} records, and the `
+      + 'engine clears exactly that many');
+  addRecord('entity', {
+    kind: state.entityKind,
+    x: cell.x * PW, y: (cell.y + 1) * PH,
+    flags: v.defaultFlags[state.entityKind], p0: 0, p1: 0,
+  });
+}
+
+function moveEntity(index, cell) {
+  const p = state.project, e = p.entities[index];
+  const x = clamp(cell.x, 0, p.width - 1) * PW;
+  const y = (clamp(cell.y, 0, p.height - 1) + 1) * PH;
+  if (e.x === x && e.y === y) return;
+  setRecord('entity', index, { ...e, x, y });
+}
+
+function addRegionAt(a, b) {
+  const p = state.project;
+  const x0 = clamp(Math.min(a.x, b.x), 0, p.width - 1);
+  const y0 = clamp(Math.min(a.y, b.y), 0, p.height - 1);
+  const x1 = clamp(Math.max(a.x, b.x), 0, p.width - 1);
+  const y1 = clamp(Math.max(a.y, b.y), 0, p.height - 1);
+  addRecord('region', {
+    kind: state.regionKind,
+    x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1,
+  });
+}
+
+function moveRegion(index, origin, cell) {
+  const p = state.project, r = p.regions[index];
+  const x = clamp(origin.x + cell.x - state.drag.from.x, 0, p.width - origin.width);
+  const y = clamp(origin.y + cell.y - state.drag.from.y, 0, p.height - origin.height);
+  if (r.x === x && r.y === y) return;
+  setRecord('region', index, { ...origin, x, y });
+}
+
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
 function cellAt(event) {
   const rect = $('map').getBoundingClientRect();
@@ -258,6 +407,99 @@ function buildPalette() {
   selectTile(0);
 }
 
+// ---------------------------------------------------------------- inspector
+//
+// EVERY LIST IN HERE COMES OFF /api/vocabulary. The kinds, the four flag
+// bits, the pickups and the labels for p0 and p1 are the server's own enums
+// and its own table of what those two bytes mean per kind (CLAUDE.md 8.6),
+// so this file names none of them.
+
+const optionsOf = (list, chosen) =>
+  list.map((n) => `<option${n === chosen ? ' selected' : ''}>${n}</option>`).join('');
+
+/** ... and where the byte is an INDEX into one of those lists, it says so. */
+const indexedOf = (list, chosen) => list.map((n, i) =>
+  `<option value="${i}"${i === chosen ? ' selected' : ''}>${i} ${n}</option>`).join('');
+
+const row = (label, html) => `<label>${label}<br>${html}</label>`;
+
+const number = (id, value, max) =>
+  `<input id="${id}" type="number" min="0" max="${max}" value="${value}">`;
+
+/** A [Flags] enum travels by NAME, so byte 5 arrives as "Active, Touch". */
+const flagNames = (flags) => String(flags ?? 'None').split(',').map((n) => n.trim());
+const flagString = (names) => (names.length ? names.join(', ') : 'None');
+
+const paramField = (id, value, spec, v) => spec.options === 'PickupKind'
+  ? `<select id="${id}">${indexedOf(v.pickupKinds, value)}</select>`
+  : number(id, value, 255);
+
+function placingHtml(v) {
+  const pick = (id, list, chosen) =>
+    `<select id="${id}">${optionsOf(list, chosen)}</select>`;
+  return '<strong>placing</strong>'
+    + row('entity', pick('f-new-entity', v.entityKinds, state.entityKind))
+    + row('region', pick('f-new-region', v.regionKinds, state.regionKind));
+}
+
+function entityHtml(v, e, index) {
+  const params = v.params[e.kind] ?? [{ label: 'p0' }, { label: 'p1' }];
+  return `<div class="record"><strong>entity ${index}</strong>`
+    + row('kind', `<select id="f-kind">${optionsOf(v.entityKinds, e.kind)}</select>`)
+    + row('tile column', number('f-x', e.x / PW, state.project.width - 1))
+    // Y IS THE BASE OF THE HITBOX: the row here is the one whose TOP surface
+    // the thing stands on, which is what make_city_map.py's entity() takes.
+    + row('stands on the top of row', number('f-y', e.y / PH, state.project.height))
+    + row(params[0].label, paramField('f-p0', e.p0, params[0], v))
+    + row(params[1].label, paramField('f-p1', e.p1, params[1], v))
+    + `<div class="bits">${v.entityFlags.map((n) =>
+        `<label><input type="checkbox" data-flag="${n}"`
+        + `${flagNames(e.flags).includes(n) ? ' checked' : ''}> ${n}</label>`).join('')}</div>`
+    + '<button id="f-delete">delete</button></div>';
+}
+
+function regionHtml(v, r, index) {
+  return `<div class="record"><strong>region ${index}</strong>`
+    + row('kind', `<select id="f-kind">${optionsOf(v.regionKinds, r.kind)}</select>`)
+    + row('tile column', number('f-x', r.x, state.project.width - 1))
+    + row('tile row', number('f-y', r.y, state.project.height - 1))
+    + row('tiles across', number('f-w', r.width, state.project.width))
+    + row('tiles down', number('f-h', r.height, state.project.height))
+    + '<button id="f-delete">delete</button></div>';
+}
+
+function inspector() {
+  const box = $('inspector'), v = state.vocab, p = state.project;
+  if (!v || !p) return;
+  const sel = state.selection;
+  box.innerHTML = placingHtml(v) + (!sel ? ''
+    : sel.kind === 'entity' ? entityHtml(v, p.entities[sel.index], sel.index)
+    : regionHtml(v, p.regions[sel.index], sel.index));
+
+  $('f-new-entity').onchange = (e) => { state.entityKind = e.target.value; };
+  $('f-new-region').onchange = (e) => { state.regionKind = e.target.value; };
+  if (!sel) return;
+
+  const read = () => sel.kind === 'entity'
+    ? {
+        kind: $('f-kind').value,
+        x: Number($('f-x').value) * PW,
+        y: Number($('f-y').value) * PH,
+        flags: flagString(v.entityFlags.filter(
+          (n) => box.querySelector(`[data-flag="${n}"]`).checked)),
+        p0: Number($('f-p0').value), p1: Number($('f-p1').value),
+      }
+    : {
+        kind: $('f-kind').value,
+        x: Number($('f-x').value), y: Number($('f-y').value),
+        width: Number($('f-w').value), height: Number($('f-h').value),
+      };
+
+  for (const input of box.querySelectorAll('.record input, .record select'))
+    input.onchange = () => { setRecord(sel.kind, sel.index, read()); inspector(); draw(); };
+  $('f-delete').onclick = () => { removeSelected(); inspector(); draw(); };
+}
+
 function say(text, html = false) {
   const report = $('report');
   if (html) report.innerHTML = text; else report.textContent = text;
@@ -280,11 +522,14 @@ async function open(id) {
   state.tileset = await api('GET', `/api/projects/${id}/tileset`);
   state.atlas = buildAtlas(state.tileset);
   state.ops = [];
+  state.selection = null;
   buildPalette();
+  inspector();
   draw();
   $('status').textContent =
     `${project.name} — ${project.width}x${project.height} tiles, `
-    + `${state.tileset.tiles.length} in the sheet, v${project.version}`;
+    + `${state.tileset.tiles.length} in the sheet, ${project.entities.length} entities, `
+    + `${project.regions.length} regions, v${project.version}`;
 }
 
 async function save() {
@@ -331,6 +576,36 @@ $('save').onclick = () => save().catch((e) => say(String(e.message)));
 $('validate').onclick = () => validate().catch((e) => say(String(e.message)));
 $('export').onclick = () => exportLevel().catch((e) => say(String(e.message)));
 
+// THE ART PACKAGE HAS SIX LEVELS AND NINE TILE SHEETS (CLAUDE.md 7.3), and
+// only one of them has a map. A new project can be started on any of them;
+// its tile flags start EMPTY, because nothing in the package says what a
+// tile does - that is data the editor owns.
+async function loadAssets() {
+  const levels = await api('GET', '/api/assets');
+  $('new-level').innerHTML = levels
+    .map((l) => `<option value="${l.level}">${l.level}</option>`).join('');
+  const sheets = () => {
+    const level = levels.find((l) => l.level === $('new-level').value);
+    $('new-sheet').innerHTML = level.sheets
+      .map((n) => `<option value="${n}">${n}</option>`).join('');
+  };
+  $('new-level').onchange = sheets;
+  sheets();
+}
+
+$('new-make').onclick = async () => {
+  const id = $('new-id').value.trim();
+  if (!id) return say('a project needs an id: letters, digits, - and _');
+  try {
+    await api('POST', '/api/projects', {
+      id, name: id, assetLevel: $('new-level').value, sheet: $('new-sheet').value,
+    });
+  } catch (e) { return say(String(e.message)); }
+  $('new-project').open = false;
+  await refreshProjects(id);
+  await open(id);
+};
+
 $('open-shipped').onclick = async () => {
   try {
     await api('POST', '/api/projects',
@@ -351,45 +626,88 @@ for (const button of $('tools').querySelectorAll('button'))
 for (const box of document.querySelectorAll('.layers input')) box.onchange = draw;
 
 const map = $('map');
+const onMap = (cell) => cell.x >= 0 && cell.y >= 0
+  && cell.x < state.project.width && cell.y < state.project.height;
+
 map.onpointerdown = (e) => {
   if (!state.project) return;
-  map.setPointerCapture(e.pointerId);
   const cell = cellAt(e);
-  state.drag = { tool: state.tool, from: cell };
-  if (state.tool !== 'rect') apply(cell.x, cell.y, state.tool);
+  if (!onMap(cell)) return;
+  map.setPointerCapture(e.pointerId);
+  state.drag = { tool: state.tool, from: cell, to: cell };
+
+  // THE TWO RECORD TOOLS PICK BEFORE THEY PLACE. A click on something that
+  // is already there selects it and starts a move; a click on empty ground
+  // makes a new one. A region drag from empty ground draws its rectangle.
+  if (state.tool === 'entity') {
+    const hit = entityAt(cell);
+    if (hit >= 0) state.selection = { kind: 'entity', index: hit };
+    else addEntityAt(cell);
+    state.drag.moving = state.selection;
+  } else if (state.tool === 'region') {
+    const hit = regionAt(cell);
+    if (hit >= 0) {
+      state.selection = { kind: 'region', index: hit };
+      state.drag.moving = state.selection;
+      state.drag.origin = { ...state.project.regions[hit] };
+    }
+  } else if (state.tool !== 'rect') {
+    apply(cell.x, cell.y, state.tool);
+  }
+  inspector();
   draw();
 };
 map.onpointermove = (e) => {
   if (!state.project) return;
   const cell = cellAt(e);
   state.hover = cell;
-  const inside = cell.x >= 0 && cell.y >= 0
-    && cell.x < state.project.width && cell.y < state.project.height;
-  $('status').textContent = inside
+  $('status').textContent = onMap(cell)
     ? `(${cell.x},${cell.y})  ${state.tileset.tiles[
         state.project.map[cell.y * state.project.width + cell.x]].name}`
       + `   v${state.project.version}${state.ops.length ? ` +${state.ops.length}` : ''}`
     : '';
-  if (state.drag && state.drag.tool === 'brush') apply(cell.x, cell.y, 'brush');
+  const drag = state.drag;
+  if (drag) {
+    drag.to = cell;
+    if (drag.tool === 'brush') apply(cell.x, cell.y, 'brush');
+    else if (drag.tool === 'entity' && drag.moving) moveEntity(drag.moving.index, cell);
+    else if (drag.tool === 'region' && drag.moving)
+      moveRegion(drag.moving.index, drag.origin, cell);
+  }
   draw();
 };
 map.onpointerup = (e) => {
-  if (state.drag?.tool === 'rect') {
-    const a = state.drag.from, b = cellAt(e);
-    for (let y = Math.min(a.y, b.y); y <= Math.max(a.y, b.y); y++)
-      for (let x = Math.min(a.x, b.x); x <= Math.max(a.x, b.x); x++) setTile(x, y, state.tile);
-  }
+  const drag = state.drag;
   state.drag = null;
+  if (!drag) return draw();
+  const b = cellAt(e);
+  if (drag.tool === 'rect')
+    for (let y = Math.min(drag.from.y, b.y); y <= Math.max(drag.from.y, b.y); y++)
+      for (let x = Math.min(drag.from.x, b.x); x <= Math.max(drag.from.x, b.x); x++)
+        setTile(x, y, state.tile);
+  if (drag.tool === 'region' && !drag.moving) addRegionAt(drag.from, b);
+  inspector();
   draw();
 };
 map.onpointerleave = () => { state.hover = null; draw(); };
 
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  const keys = { b: 'brush', r: 'rect', f: 'fill', i: 'pick', o: 'overlay', x: 'overlay-clear' };
-  if (keys[e.key]) $(`tools`).querySelector(`[data-tool="${keys[e.key]}"]`).click();
+  const keys = { b: 'brush', r: 'rect', f: 'fill', i: 'pick', o: 'overlay', x: 'overlay-clear',
+                 e: 'entity', g: 'region' };
+  if (keys[e.key]) $('tools').querySelector(`[data-tool="${keys[e.key]}"]`).click();
   if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+  if (e.key === 'Escape') { state.selection = null; inspector(); draw(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.selection) {
+    e.preventDefault();
+    removeSelected();
+    inspector();
+    draw();
+  }
 });
 
-refreshProjects().then((list) => list.length && open(list[0].id))
+api('GET', '/api/vocabulary')
+  .then((v) => { state.vocab = v; return loadAssets(); })
+  .then(() => refreshProjects())
+  .then((list) => list.length && open(list[0].id))
   .catch((e) => say(String(e.message)));

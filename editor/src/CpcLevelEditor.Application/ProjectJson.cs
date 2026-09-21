@@ -115,5 +115,6 @@ public static class ProjectJson
 
     private sealed record LinkDto(byte Kind, byte Source, byte Target, byte Param);
 
-    private sealed record RegionDto(byte Kind, ushort X, ushort Y, byte Width, byte Height);
+    private sealed record RegionDto(
+        RegionKind Kind, ushort X, ushort Y, byte Width, byte Height);
 }

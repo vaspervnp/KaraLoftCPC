@@ -160,6 +160,141 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    /// <summary>
+    /// <b>A record placed on the canvas reaches the file.</b> An entity and a
+    /// region go in over HTTP, the level is exported over HTTP, and the bytes
+    /// are read back by the independent reader: the eight-byte record in the
+    /// engine's own layout and the seven-byte one that must not be padded to
+    /// eight (docs/editor.md 9.2).
+    /// </summary>
+    [Fact]
+    public async Task An_entity_and_a_region_placed_through_the_API_reach_the_file()
+    {
+        var client = app.CreateClient();
+        var id = "records-" + Guid.NewGuid().ToString("N")[..8];
+        await client.PostAsJsonAsync("/api/projects", new { id, name = "records" }, Json);
+
+        // The vocabulary is where the browser gets its lists, so the test uses
+        // it too rather than spelling the enums out a second time.
+        var vocabulary = await client.GetFromJsonAsync<VocabularyDto>("/api/vocabulary", Json);
+        Assert.NotNull(vocabulary);
+        Assert.Equal(EngineLimits.MaxEntities, vocabulary.Limits.MaxEntities);
+        Assert.Contains("Enemy", vocabulary.EntityKinds);
+        Assert.Equal("Active, Touch", vocabulary.DefaultFlags["Pickup"]);
+
+        var edit = await client.PatchAsJsonAsync($"/api/projects/{id}", new
+        {
+            version = 0,
+            ops = new object[]
+            {
+                new { op = "entity-add", entity = new
+                    { kind = "Enemy", x = 36 * 8, y = 5 * 16, flags = "Active", p0 = 1, p1 = 4 } },
+                new { op = "region-add", region = new
+                    { kind = "CameraLock", x = 10, y = 2, width = 6, height = 4 } },
+            },
+        }, Json);
+        edit.EnsureSuccessStatusCode();
+        Assert.Equal(2, (await edit.Content.ReadFromJsonAsync<EditResultDto>(Json))!.Applied);
+
+        var exported = await client.PostAsync($"/api/projects/{id}/export", null);
+        exported.EnsureSuccessStatusCode();
+        var result = await exported.Content.ReadFromJsonAsync<ExportDto>(Json);
+        var level = new BinaryLevelReader().Read(
+            Convert.FromBase64String(result!.Files[0].Bytes));
+
+        var entity = Assert.Single(level.Entities);
+        Assert.Equal(EntityKind.Enemy, entity.Kind);
+        Assert.Equal(288, entity.X);
+        Assert.Equal(80, entity.Y);
+        Assert.Equal(EntityFlags.Active, entity.Flags);
+        // p0 IS WHICH CHARACTER and p1 the patrol half-width, which is the way
+        // round make_city_map.py writes them and the opposite of what
+        // editor.md's appendix says (CLAUDE.md 8.6).
+        Assert.Equal(1, entity.P0);
+        Assert.Equal(4, entity.P1);
+
+        var region = Assert.Single(level.Regions);
+        Assert.Equal(RegionKind.CameraLock, region.Kind);
+        Assert.Equal(10, region.X);
+        Assert.Equal(2, region.Y);
+        Assert.Equal(6, region.Width);
+        Assert.Equal(4, region.Height);
+    }
+
+    /// <summary>
+    /// ... and the ones the engine could not be given do not: the table holds
+    /// <c>ENT_MAX</c> records and a region is measured against the map.
+    /// </summary>
+    [Fact]
+    public async Task A_record_the_engine_could_not_take_is_refused()
+    {
+        var client = app.CreateClient();
+        var id = "refused-" + Guid.NewGuid().ToString("N")[..8];
+        await client.PostAsJsonAsync("/api/projects", new { id, name = "scratch" }, Json);
+
+        var tooMany = await client.PatchAsJsonAsync($"/api/projects/{id}", new
+        {
+            version = 0,
+            ops = Enumerable.Range(0, EngineLimits.MaxEntities + 1).Select(i => new
+            {
+                op = "entity-add",
+                entity = new { kind = "Checkpoint", x = i * 8, y = 96, flags = "Active", p0 = 0, p1 = 0 },
+            }).ToArray(),
+        }, Json);
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.StatusCode);
+
+        var offMap = await client.PatchAsJsonAsync($"/api/projects/{id}", new
+        {
+            version = 0,
+            ops = new object[] { new { op = "region-add", region = new
+                { kind = "Water", x = 126, y = 0, width = 6, height = 2 } } },
+        }, Json);
+        Assert.Equal(HttpStatusCode.BadRequest, offMap.StatusCode);
+
+        // AND NOTHING WAS KEPT. A rejected batch mutates the object it was
+        // handed and is never saved, so the level on disk is untouched — which
+        // is what makes "reload" the only thing a client has to do.
+        var project = await client.GetFromJsonAsync<ProjectDto>($"/api/projects/{id}", Json);
+        Assert.Empty(project!.Entities);
+        Assert.Empty(project.Regions);
+        Assert.Equal(0, project.Version);
+    }
+
+    /// <summary>
+    /// <b>Any level of the package, not only the City.</b> A blank project
+    /// takes its tile sheet from the art and its level NUMBER from the
+    /// package's own directory name — a level 2 that exported itself as
+    /// <c>level_1.lvl</c> would go over the City — and it starts with no
+    /// tile flags at all, because nothing in the package says what a tile
+    /// does (CLAUDE.md 11 step 7).
+    /// </summary>
+    [Fact]
+    public async Task A_new_project_can_be_started_on_any_level_of_the_package()
+    {
+        var client = app.CreateClient();
+        var id = "forest-" + Guid.NewGuid().ToString("N")[..8];
+
+        var made = await client.PostAsJsonAsync("/api/projects", new
+        {
+            id, name = "the forest", assetLevel = "level2_forest", sheet = "forest_tiles",
+        }, Json);
+        made.EnsureSuccessStatusCode();
+
+        var tileset = await client.GetFromJsonAsync<TilesetDto>(
+            $"/api/projects/{id}/tileset", Json);
+        Assert.Equal(42, tileset!.Tiles.Count);          // CLAUDE.md 7.3's own table
+        Assert.All(tileset.Tiles, t => Assert.Equal(0, t.Flags));
+
+        var exported = await client.PostAsync($"/api/projects/{id}/export", null);
+        var result = await exported.Content.ReadFromJsonAsync<ExportDto>(Json);
+        Assert.Equal(
+            new[] { "level_2.lvl", "tileflags_level2_forest.bin",
+                    "foresttiles.bin", "forest_baked.json" },
+            result!.Files.Select(f => f.Name));
+        Assert.Equal(2, new BinaryLevelReader()
+            .Read(Convert.FromBase64String(result.Files[0].Bytes)).LevelId);
+    }
+
     private static byte[] Picture(byte[] map, byte[] tiles)
     {
         var picture = new byte[map.Length * Tile.ByteCount];
@@ -172,7 +307,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     private sealed record LevelAssetsDto(string Level, List<string> Sheets);
     private sealed record ProjectDto(
         string Id, string Name, int Width, int Height, int Version, string Map,
-        List<JsonElement> Overlays, List<JsonElement> Entities);
+        List<JsonElement> Overlays, List<JsonElement> Entities, List<JsonElement> Regions);
     private sealed record TileDto(string Name, bool Overlay, byte Flags);
     private sealed record TilesetDto(
         List<int[]> Palette, List<TileDto> Tiles, string Pens);
@@ -183,4 +318,8 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         List<FileDto> Files, List<PairDto> Pairs, List<FindingDto> Findings,
         string? Directory);
     private sealed record EditResultDto(int Version, int Applied);
+    private sealed record LimitsDto(int MaxEntities, int MapWidth, int MapHeight);
+    private sealed record VocabularyDto(
+        List<string> EntityKinds, List<string> EntityFlags, List<string> PickupKinds,
+        List<string> RegionKinds, Dictionary<string, string> DefaultFlags, LimitsDto Limits);
 }

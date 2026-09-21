@@ -43,9 +43,17 @@ right:
     a real file and the level loads; the composited cells simply name
     tiles that hold something else. If the picture check cannot see that,
     it cannot see anything.
-  * the same export with one cell PAINTED. The picture must differ, and
-    at exactly the cells that were painted - which says the editor's edit
-    reaches the glass and not only the file.
+  * the same export with two cells PAINTED and two RECORDS placed. The
+    picture must differ at exactly the cells that were painted - which
+    says the editor's edit reaches the glass and not only the file - and
+    the entity must be in the engine's own table.
+
+AND THAT SECOND ONE CARRIES A REGION, WHICH NOTHING HAS EVER BOOTED. The
+shipped City has none, so every .lvl the engine has been given ended at
+its entity section; this one has seven more bytes after it, and
+MAP_INSTALL takes the entity section's offset out of the header rather
+than assuming where it is. If it did not, the table would come from the
+wrong place and the records would be noise.
 
 AND THE TILES ARE READ WITH peek AND NOT WITH read_ram, which is the one
 thing here that would have made the whole comparison vacuous: read_ram is
@@ -69,6 +77,7 @@ sys.path.insert(0, "/home/vasilhs/cpcemu")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench import symbols, boot, sync, raw                     # noqa: E402
 from build_levels import zx0                                   # noqa: E402
+import make_level                                              # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 BUILD = os.path.join(ROOT, "build")
@@ -105,13 +114,17 @@ def run(*args, **kw):
     return r.stdout
 
 
-def export(out, paint=()):
+def export(out, paint=(), entities=(), regions=()):
     """The editor's four files, through the CLI the build would call."""
     shutil.rmtree(out, ignore_errors=True)
     args = [DOTNET, "run", "--project", CLI, "-v", "q",
             "--", "export", "--out", out]
     for cell in paint:
         args += ["--paint", cell]
+    for entity in entities:
+        args += ["--entity", entity]
+    for region in regions:
+        args += ["--region", region]
     run(*args)
     return out
 
@@ -327,12 +340,16 @@ def main():
               f"check is for")
         check("... and the screen is wrong with it", wrong["vram"] != ship["vram"])
 
-        # ---- control 2: one cell painted ------------------------------
-        print("\n  the other control - one cell painted in the editor:")
-        # A roof tile in the middle of the street's own row, far from the
-        # walks the other suites make and from the roof's gap.
+        # ---- control 2: a level the editor CHANGED --------------------
+        print("\n  the other control - two cells painted, and two records placed:")
+        # A pavement tile on the street's own row, far from the walks the
+        # other suites make and from the roof's gap. The entity is a
+        # CHECKPOINT on purpose: a pickup would be baked into a scratch tile
+        # by ENT_BAKE (8.6) and change the picture, which is the thing being
+        # measured.
         cells = ["40,14=crate", "41,14=crate"]
-        made = export(os.path.join(SCRATCH, "export-painted"), paint=cells)
+        made = export(os.path.join(SCRATCH, "export-painted"), paint=cells,
+                      entities=["Checkpoint,50,6"], regions=["Trigger,60,2,8,4"])
         install(made)
         relink()
         after = witness(sym)
@@ -347,6 +364,27 @@ def main():
               len(moved) == len(cells),
               "which is what says the edit reached the glass and nothing "
               "else did")
+
+        # ---- and the records the painter places ------------------------
+        # A LEVEL WITH A REGION IN IT HAD NEVER BEEN BOOTED. The shipped
+        # City has none, so every .lvl the engine has ever read ended at
+        # its entity section; this one has seven more bytes after it and
+        # MAP_INSTALL takes the entity section's offset out of the header.
+        # If it did not, the table would be read from the wrong place.
+        print("\n  ... and the records themselves, in the engine's own table:")
+        lvl = make_level.read(open(os.path.join(made, "level_1.lvl"), "rb").read())
+        check("the file carries the region, and the engine still read the map",
+              lvl["regions"] == 1 and after["map"][:16] == ship["map"][:16],
+              f"{lvl['entities']} entities and {lvl['regions']} region in "
+              f"{lvl['offsets'][3]}..{lvl['offsets'][3] + 7} - the first the "
+              f"engine has ever been given")
+        check("ENT_COUNT is the file's count",
+              after["count"] == lvl["entities"] == ship["count"] + 1,
+              f"{ship['count']} shipped + 1 placed = {after['count']}")
+        check("... and the placed record is in the table, byte for byte",
+              after["ents"][:lvl["entities"] * 8] == lvl["entity_bytes"],
+              f"including the Checkpoint at the end: "
+              f"{after['ents'][(lvl['entities'] - 1) * 8:lvl['entities'] * 8].hex()}")
     finally:
         print("\n  putting build/ back:")
         for name, dest in EXPORTED.items():

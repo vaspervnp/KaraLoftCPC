@@ -75,4 +75,25 @@ public readonly record struct Entity(
 
     /// <summary>Whether the engine will sweep this slot at all.</summary>
     public bool IsActive => (Flags & EntityFlags.Active) != 0;
+
+    /// <summary>
+    /// The flags a designer almost always wants for a kind, read off the
+    /// shipped level rather than chosen: <c>make_city_map.py</c> gives its
+    /// pickups <c>EF_ACTIVE | EF_TOUCH</c> (a key you have to ask for is a
+    /// key the player walks past, CLAUDE.md 8.6), its garage door
+    /// <c>EF_ACTIVE | EF_SOLID</c> because the physics must not pass a shut
+    /// one, and everything else plain <c>EF_ACTIVE</c>.
+    /// </summary>
+    /// <remarks>
+    /// A default and not a rule — an editor may set any of the four — but
+    /// <b>never zero</b>: the engine <c>LDIR</c>s the whole count, so a
+    /// record without <see cref="EntityFlags.Active"/> inside the range is a
+    /// real entity at its own coordinates and not a gap.
+    /// </remarks>
+    public static EntityFlags DefaultFlagsFor(EntityKind kind) => kind switch
+    {
+        EntityKind.Pickup => EntityFlags.Active | EntityFlags.Touch,
+        EntityKind.Door => EntityFlags.Active | EntityFlags.Solid,
+        _ => EntityFlags.Active,
+    };
 }

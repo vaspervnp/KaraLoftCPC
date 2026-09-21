@@ -59,7 +59,7 @@ public sealed class BinaryLevelExporter
         {
             var region = level.Regions[i];
             var at = regions.AsSpan(i * Region.Stride);
-            at[0] = region.Kind;
+            at[0] = (byte)region.Kind;
             BinaryPrimitives.WriteUInt16LittleEndian(at[1..], region.X);
             BinaryPrimitives.WriteUInt16LittleEndian(at[3..], region.Y);
             at[5] = region.Width;

@@ -30,6 +30,15 @@ aside {
   width: 260px; flex: none; overflow-y: auto; padding: .6rem;
   background: var(--panel); border-right: 1px solid var(--line);
 }
+#new-project { margin-bottom: .6rem; color: var(--dim); }
+#new-project summary { cursor: pointer; color: var(--hot); }
+#new-project label { display: block; margin-top: .25rem; color: var(--ink); }
+#new-project select, #new-project input { width: 100%; }
+#new-project input {
+  font: inherit; color: var(--ink); background: #2a2932;
+  border: 1px solid var(--line); border-radius: 3px; padding: .15rem .35rem;
+}
+#new-project button { width: 100%; margin-top: .35rem; }
 .tools { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; }
 .layers { margin: .6rem 0; display: grid; grid-template-columns: 1fr 1fr; gap: .1rem; color: var(--dim); }
 .palette { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
@@ -41,6 +50,16 @@ aside {
 .palette canvas.overlay { border-style: dashed; }
 .detail { margin-top: .6rem; color: var(--dim); }
 .detail label { display: block; color: var(--ink); }
+.detail strong { display: block; margin: .3rem 0 .2rem; color: var(--hot); }
+.detail input[type=number], .detail select { width: 100%; }
+.detail input[type=number] {
+  font: inherit; color: var(--ink); background: #2a2932;
+  border: 1px solid var(--line); border-radius: 3px; padding: .15rem .35rem;
+}
+#inspector .record { border-top: 1px solid var(--line); margin-top: .5rem; padding-top: .3rem; }
+#inspector .bits { margin: .35rem 0; }
+#inspector .bits label { display: inline-block; width: 48%; color: var(--dim); }
+#inspector button { width: 100%; margin-top: .3rem; }
 .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .canvas-wrap { flex: 1; overflow: auto; padding: .6rem; }
 canvas#map { image-rendering: pixelated; display: block; }

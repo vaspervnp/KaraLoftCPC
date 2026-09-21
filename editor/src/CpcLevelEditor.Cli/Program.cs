@@ -33,6 +33,11 @@ public static class Program
           --paint X,Y=TILE   set one map cell to a named tile before
                              exporting; repeatable. The overlay layer is left
                              alone, exactly as the painter's brush leaves it
+          --entity KIND,COLUMN,ROW[,P0[,P1]]
+                             place one entity, in TILES - the row is the one
+                             whose top surface it stands on. Repeatable
+          --region KIND,X,Y,W,H
+                             place one region, in tiles. Repeatable
           --workspace DIR    default: editor/workspace
           --sprites DIR      default: assets/sprites
           --palette FILE     default: src/palette.asm
@@ -67,7 +72,9 @@ public static class Program
             return 2;
         }
 
-        var (flags, paints) = Parse(args[1..]);
+        var (flags, repeated) = Parse(args[1..]);
+        var outDir = flags.GetValueOrDefault("out")
+            ?? throw new ArgumentException("export needs --out DIR");
         var options = new EditorOptions
         {
             SpritesRoot = flags.GetValueOrDefault("sprites", ""),
@@ -83,14 +90,25 @@ public static class Program
         // comes off the PROJECT and not off the flags - a stored project
         // knows which package it was painted out of.
         var artist = assets.Tileset(project.AssetLevel, project.Sheet, project.TileFlags);
-        foreach (var (x, y, name) in paints)
-        {
-            var index = IndexOf(artist, name);
-            if ((uint)x >= project.Width || (uint)y >= project.Height)
-                throw new ArgumentException($"({x},{y}) is off a {project.Width}x{project.Height} map");
-            project.Map[(y * project.Width) + x] = (byte)index;
-            Console.WriteLine($"   painted ({x},{y}) = {index} {name}");
-        }
+
+        // EVERY CHANGE GOES THROUGH ProjectEditor, which is the same code the
+        // canvas's PATCH goes through - so a level made here and a level
+        // painted in the browser cannot be made in two different ways.
+        var ops = new List<EditOp>();
+        foreach (var (x, y, name) in repeated.Paints)
+            ops.Add(new EditOp("tile", x, y, (byte)IndexOf(artist, name)));
+        foreach (var entity in repeated.Entities)
+            ops.Add(new EditOp("entity-add", Entity: entity));
+        foreach (var region in repeated.Regions)
+            ops.Add(new EditOp("region-add", Region: region));
+
+        var outcome = ProjectEditor.Apply(project, ops);
+        if (!outcome.Ok)
+            throw new ArgumentException($"op {outcome.Applied}: {outcome.Rejected}");
+        if (ops.Count > 0)
+            Console.WriteLine($"   {repeated.Paints.Count} cell(s) painted, "
+                + $"{repeated.Entities.Count} entity(s) and "
+                + $"{repeated.Regions.Count} region(s) placed");
 
         var findings = LevelValidator.Check(project, artist);
         foreach (var finding in findings)
@@ -99,8 +117,6 @@ public static class Program
             return 1;
 
         var result = ProjectExporter.Export(project, artist);
-        var outDir = flags.GetValueOrDefault("out")
-            ?? throw new ArgumentException("export needs --out DIR");
         foreach (var file in ProjectExporter.WriteTo(outDir, project, result))
             Console.WriteLine($"-> {file.Name}  {file.Bytes.Length} bytes");
         Console.WriteLine(
@@ -136,12 +152,17 @@ public static class Program
         throw new KeyNotFoundException($"no tile called \"{name}\" in the sheet");
     }
 
-    /// <summary>--flag value pairs, and the repeatable --paint X,Y=NAME.</summary>
-    private static (Dictionary<string, string> Flags, List<(int X, int Y, string Tile)> Paints)
-        Parse(string[] args)
+    /// <summary>The three repeatable placements.</summary>
+    private sealed record Placements(
+        List<(int X, int Y, string Tile)> Paints,
+        List<Entity> Entities,
+        List<Region> Regions);
+
+    /// <summary>--flag value pairs, and the repeatable placements.</summary>
+    private static (Dictionary<string, string> Flags, Placements Repeated) Parse(string[] args)
     {
         Dictionary<string, string> flags = [];
-        List<(int, int, string)> paints = [];
+        Placements repeated = new([], [], []);
         for (var i = 0; i < args.Length; i++)
         {
             if (!args[i].StartsWith("--", StringComparison.Ordinal))
@@ -150,12 +171,15 @@ public static class Program
             if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 throw new ArgumentException($"--{name} needs a value");
             var value = args[++i];
-            if (name == "paint")
-                paints.Add(ParsePaint(value));
-            else
-                flags[name] = value;
+            switch (name)
+            {
+                case "paint": repeated.Paints.Add(ParsePaint(value)); break;
+                case "entity": repeated.Entities.Add(ParseEntity(value)); break;
+                case "region": repeated.Regions.Add(ParseRegion(value)); break;
+                default: flags[name] = value; break;
+            }
         }
-        return (flags, paints);
+        return (flags, repeated);
     }
 
     private static (int, int, string) ParsePaint(string value)
@@ -167,5 +191,37 @@ public static class Program
         return (int.Parse(value[..comma]),
                 int.Parse(value[(comma + 1)..equals]),
                 value[(equals + 1)..]);
+    }
+
+    /// <summary>
+    /// <c>KIND,COLUMN,ROW[,P0[,P1]]</c> — in TILES, with the row being the
+    /// one whose top surface it stands on, which is the conversion
+    /// <see cref="Entity.AtTile"/> does.
+    /// </summary>
+    private static Entity ParseEntity(string value)
+    {
+        var parts = Fields(value, "--entity", "KIND,COLUMN,ROW[,P0[,P1]]", 3, 5);
+        var kind = Enum.Parse<EntityKind>(parts[0], ignoreCase: true);
+        return Entity.AtTile(kind, int.Parse(parts[1]), int.Parse(parts[2]),
+                             Entity.DefaultFlagsFor(kind),
+                             parts.Length > 3 ? byte.Parse(parts[3]) : (byte)0,
+                             parts.Length > 4 ? byte.Parse(parts[4]) : (byte)0);
+    }
+
+    /// <summary><c>KIND,X,Y,W,H</c> — in tiles, which is a region's unit.</summary>
+    private static Region ParseRegion(string value)
+    {
+        var parts = Fields(value, "--region", "KIND,X,Y,W,H", 5, 5);
+        return new Region(Enum.Parse<RegionKind>(parts[0], ignoreCase: true),
+                          ushort.Parse(parts[1]), ushort.Parse(parts[2]),
+                          byte.Parse(parts[3]), byte.Parse(parts[4]));
+    }
+
+    private static string[] Fields(string value, string flag, string shape, int least, int most)
+    {
+        var parts = value.Split(',');
+        return parts.Length >= least && parts.Length <= most
+            ? parts
+            : throw new ArgumentException($"{flag} wants {shape} and got \"{value}\"");
     }
 }
