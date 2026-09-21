@@ -1000,13 +1000,17 @@ def main():
         want = model(tiles, level_map, blobs, st, with_kara=False)
         vram = machine.read_ram(0xC000, 0x4000)
         bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
-        # WHERE SHE RUNS PAST THE BOTTOM, HER ERASE LEAVES SOMETHING.
-        # A sprite only partly off the bottom still writes into the
-        # 64-word margin and, past character row 23, folds onto the top
-        # of the picture (CLAUDE.md 8.2) - so what the erase puts back
-        # is not what was there. Only this driver takes her there, and
-        # Module 6d is the clip. It is split out rather than excluded:
-        # the unclipped samples still have to be exact.
+        # WHERE SHE RUNS PAST THE BOTTOM, HER ERASE STILL LEAVES
+        # SOMETHING, AND MODULE 6d IS NOT THE ANSWER TO IT. 6d is the X
+        # clip (CLAUDE.md 8.2) and these samples are all well inside
+        # both side edges; what is left is the other axis, where
+        # SPAN_CLIP_V drops the lines that are off the bottom and the
+        # deepest samples come back a few bytes short anyway. Only this
+        # driver reaches it - it pokes V_REQUEST on every frame with no
+        # player behind it, and the camera never does (CLAUDE.md 8.8).
+        # It is split out rather than excluded, and BOUNDED rather than
+        # tolerated: the unclipped samples still have to be exact, and
+        # the clipped ones may not get worse than they are.
         clip = kara_clip(blobs[st[7]], st[5], st[4])
         whole = (clip is not None and clip[1] == 0
                  and clip[2] == len(blobs[st[7]][st[5]][1]))
@@ -1026,8 +1030,9 @@ def main():
     check("playfield always matches the map", worst == 0, f"worst sample: {worst} bytes")
     check("... and the residue where she hangs off the bottom is bounded",
           worst_clipped <= 64,
-          f"worst clipped sample: {worst_clipped} bytes - the margin the "
-          f"missing bottom clip writes into, which Module 6d closes")
+          f"worst clipped sample: {worst_clipped} bytes - the bottom "
+          f"clip's own residue, which module 6d, the X clip, does not "
+          f"touch (CLAUDE.md 8.2)")
     check("scrolling crossed the 1024-word wrap",
           max(scrolls) + SCR_CHARS * SCR_CHAR_ROWS > 1024,
           f"max scroll {max(scrolls)} + 960 words")
@@ -1409,18 +1414,18 @@ def main():
               f"offsets seen {seen}, want them within one line of each other "
               f"and of zero - a character row apart is the fault")
         # ... AND WHERE SHE RUNS PAST THE BOTTOM, THE RESIDUE IS BOUNDED
-        # AND MEASURED. CLAUDE.md 8.2 says a sprite only PARTLY off the
-        # bottom still writes into the margin and that this suite is
-        # where it shows, because only this driver takes her there -
-        # Module 6d is the clip that fixes it. What was not written down
-        # is WHEN it starts: measured here, the engine puts her exactly
+        # AND MEASURED. This suite is the only place it shows, because
+        # only this driver takes her there. What was not written down is
+        # WHEN it starts: measured here, the engine puts her exactly
         # where it says while 45 or more of her 61 drawn lines fit, and
-        # from 37 down it places her up to seven lines low. Bounding it
-        # is what stops it quietly getting worse before 6d arrives.
+        # from 37 down it places her up to seven lines low. Module 6d
+        # is the X clip and does not touch this - the bound is what
+        # stops the OTHER axis quietly getting worse (CLAUDE.md 8.2).
         check(f"... and the bottom clip's residue is at most a row, {name}",
               all(abs(o) <= 8 for o in cut),
               f"clipped offsets {cut}, against a character row of 8 - "
-              f"Module 6d is the real clip (CLAUDE.md 8.2)")
+              f"the bottom clip's residue, not the X clip's "
+              f"(CLAUDE.md 8.2)")
         # ... AND SHE REALLY TRAVELLED, which is this check's control:
         # parked off the display at the end of the view's travel every
         # sample reads the same nothing, and "one offset, and it is

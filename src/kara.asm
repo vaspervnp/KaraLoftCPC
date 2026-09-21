@@ -151,15 +151,42 @@ KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
 .nobot:         add  a,h
                 ld   (KARA_LAST_BOT),a      ; the last line the beam must pass
                 ld   a,(KARA_X)
+                ld   (SPAN_X),a             ; ... which the clipped lane
+                                            ; reads as a SIGNED column
                 ld   c,a                    ; C = byte column, preserved
                 ld   a,h                    ; A = the screen line
                 call SCR_ADDR
                 ex   de,hl                  ; DE = screen
                 pop  bc                     ; C = lines to draw
                 pop  hl                     ; HL = the frame's groups
-                ld   a,c
+                ; ---- WHICH LANE, AND IT IS ONE COMPARISON -----------
+                ; She fits if her box's left edge is 0..68, because the
+                ; box is KARA_W_BYTES wide against a screen of 80. Every
+                ; other value needs the clip - and that includes the
+                ; NEGATIVE ones, which arrive as 244..255 and are above
+                ; 69 unsigned, so one CP sends both edges the same way.
+                ;
+                ; IT GOES HERE, BEFORE A IS THE LINE COUNT, AND THE
+                ; CARRY CROSSES TWO INSTRUCTIONS TO REACH ITS JUMP.
+                ; Written the obvious way - PUSH AF round the compare
+                ; so A survives it - the JR reads the flags POP AF put
+                ; back, not the ones CP made, and the lane is then
+                ; chosen by a carry left over from somewhere else. It
+                ; cost 22 game frames in 200 STANDING STILL, and what
+                ; said it was not a T-state cost was a delay of a known
+                ; length in its place: 84 T there is free, and the same
+                ; nine bytes are not. `CP 0` and `CP 255` both measured
+                ; 79 of 200, which is a test whose argument changes
+                ; nothing - CLAUDE.md 10's own rule for a raster gate,
+                ; one floor down.
+                ld   a,(SPAN_X)
+                cp   SCR_CHARS * 2 - KARA_W_BYTES + 1
+                ld   a,c                    ; neither of these touches F
                 ld   bc,SPAN_SCRIPT
+                jr   nc,.clipped
                 call SPAN_DRAW
+                jp   BANK_RESTORE
+.clipped:       call SPAN_DRAW_CX
                 jp   BANK_RESTORE
 
 ; ---------------------------------------------------------------------

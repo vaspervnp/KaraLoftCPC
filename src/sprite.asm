@@ -98,7 +98,16 @@ SCR_ADDR:       ld   b,a                    ; 4   keep the raw line
                 add  hl,hl                  ; 12  SCROLL counts words
                 add  hl,de                  ; 12
                 ld   e,c                    ; 4
-                ld   d,0                    ; 4
+                ; THE COLUMN IS SIGNED, which costs 8 T and buys the
+                ; left-hand clip (spanblit.asm's CX lane): a box six
+                ; bytes off the left edge is column -6, and the ring's
+                ; own wrap is then the right address to step forward
+                ; from. Every other caller passes 0..79, where this is
+                ; the LD D,0 it replaces.
+                ld   a,c                    ; 4
+                add  a,a                    ; 4
+                sbc  a,a                    ; 4   0, or &FF if C was negative
+                ld   d,a                    ; 4
                 add  hl,de                  ; 12
                 ld   a,h                    ; 4
                 and  7                      ; 8   ... AND &07FF  -> v

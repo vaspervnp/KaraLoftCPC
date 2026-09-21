@@ -8,9 +8,10 @@ which now carries its own §0 of five corrections this file forced (§8.3).
 
 ## 1. Status
 
-**Modules 1-4 done, Module 5 all but its last test, Module 6
-started, and the LEVEL FSM's spine runs (§8.1): she dies, the screen
-fades and the level comes back out of the pristine copy at `&B000`;
+**Modules 1-4 done, Module 5 all but its last test, Module 6 DONE —
+all four of its slices — and the LEVEL FSM's spine runs (§8.1): she
+dies, the screen fades and the level comes back out of the pristine
+copy at `&B000`;
 the garage opens, the title goes back up and the game starts again.
 What says the restart is a level start is not a reading of the code
 but 32,448 bytes of engine RAM compared with a machine that has just
@@ -20,8 +21,10 @@ off the disc (6a), the level's overlay tiles are composited into the
 tileset at build time rather than masked at run time (6b, §7.3), and
 her health is on the screen — six cells at the bottom left, her fourteen
 rounds straight after them and a digit for the spare magazines,
-rewritten wherever the view goes (6c, §7.8). The playfield is the drawn art.** Tiles are 8x16 (§8.3) and come off the disc with the rest
-of the level. `./build.sh` regenerates the assets,
+rewritten wherever the view goes (6c, §7.8), and **a sprite at the
+edge of the screen is CUT there now instead of folding onto the next
+character row** (6d, §8.2). The playfield is the drawn art.** Tiles
+are 8x16 (§8.3) and come off the disc with the rest of the level. `./build.sh` regenerates the assets,
 assembles, and produces `build/kara.dsk`. It boots, relocates, passes its bank
 self-test, runs Kara walking and firing over a striped background with full
 save-under restore, and then hands over to the scrolling city: a tilemap in bank
@@ -267,9 +270,9 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 **The roof's gap is a run-jump now**: the 15-frame arc carries 15 bytes
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
-`./tools/run_tests.sh` runs every acceptance suite and **all twenty
-pass**, the editor's own among them. Eighteen checks in four of them
-did not, and how they divide is the part worth having written down:
+`./tools/run_tests.sh` runs every acceptance suite and **all
+twenty-one pass**, the editor's own among them. Eighteen checks in
+four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
 which is exactly why a red suite is dangerous rather than merely untidy.
@@ -326,7 +329,9 @@ src/palette.asm   the 16 pens + solid-pen byte table
 src/sprite.asm    where a pixel IS: the address model and the line
                   stepping every blitter shares
 src/bullets.asm   dual pistols, 14-round pool, reloading
-src/spanblit.asm  the span-compressed blitter and its erase script
+src/spanblit.asm  the span-compressed blitter, its erase script, and
+                  the second lane that cuts a sprite at the screen's
+                  left and right edges (8.2)
 src/unpack.asm    ZX0 into a bank, into VRAM, and LEVEL_LOAD
 src/intro.asm     the title picture and its blinking prompt (7.7)
 src/hud.asm       the energy bar, redrawn wherever the view goes (7.8)
@@ -410,7 +415,9 @@ tools/test_painter.py      the EDITOR's own level, on the emulator: the
                            same picture out of different bytes
 tools/test_flow.py         where she starts, the fade, and a restart
                            compared with a fresh boot byte for byte
-tools/test_*.py            acceptance suites, twenty of them
+tools/test_xclip.py        the X clip: the clipped lane against the same
+                           v-model, and the running game at both edges
+tools/test_*.py            acceptance suites, twenty-one of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -2532,8 +2539,9 @@ Two traps the emulator sets while testing this:
   "the PC left the spin" means "an interrupt fired", not "a frame ended". Watch
   a counter the game itself increments.
 
-Tiles are 16×16 pixels = 8 bytes × 16 lines, so a tile spans 4 character
-columns and 2 character rows. Map dimensions are powers of two (64×16) so the
+Tiles are 8×16 pixels = 4 bytes × 16 lines, so a tile spans 2 character
+columns and 2 character rows (§8.3 — this paragraph said 16×16 until the
+drawn art arrived). Map dimensions are powers of two (128×16) so the
 map wraps with an `AND` instead of a divide. Tiles and map are staged into bank
 C4 by `TILES_INSTALL`; they ride inside the core image, so the boot relocation
 has already put them in base RAM, which is the only reason a plain `LDIR` into
@@ -2556,19 +2564,97 @@ the save-under captures the first line's *output* as the second line's
 background and the erase leaves her debris behind. Measured at 32-56 bytes of
 video RAM left wrong per frame, accumulating. `KARA_DRAW` now refuses.
 
-**Still missing: clipping.** A sprite only PARTLY off the bottom still writes
-into the margin and, past character row 23, folds onto the top of the picture.
-The camera keeps Kara clear of both edges in normal play, so this only shows
-under the vertical driver in `test_module4.py`, which pokes `V_REQUEST` with no
-player behind it — which is why that suite still reports a residue. Levels 3
-and 4 will not be so kind; Module 6 needs a real clip.
-
-Tiles are 16×16 pixels = 8 bytes × 16 lines. Tilemaps live in banked RAM.
+Tiles are 8×16 pixels = 4 bytes × 16 lines. Tilemaps live in banked RAM.
 
 **Every tile blitter here is a plain copy and stays one.** Level 1's 11
 overlays are composited into new tiles at build time instead, because a
 masked cell is 2-3x a copy against a frame with 3,548 T in it — §7.3
 has the numbers and what the bake recovers.
+
+#### And she is CUT at the left and right edges now — module 6d
+
+**This section used to say "still missing: clipping", and §8.10 said
+the blitter culled her off the left edge. Neither was true: there was
+no cull and no clip, and the camera's own clamps were the only thing
+keeping level 1 out of it.** What says so is the erase script, which is
+the draw's own record of the words it wrote and therefore an instrument
+with no model of the blitter in it:
+
+| `KARA_X` | what the blitter did, before 6d |
+|---|---|
+| 74 | three of her nine occupied columns **folded onto column 0 of the NEXT character row**, 8 lines down |
+| −6 | she was drawn **whole**, at columns 10..18 and 24 lines below where she is — a second heroine in the middle of the picture |
+
+Both are the 1024-word ring doing exactly what §6.4 says it does: "off
+the right edge" and "the start of the next character row" are the same
+address, so a column can never be recovered from an address. The clip
+has to be done in COLUMNS, and `SPAN_X` — her signed byte column — is
+what the blitter is now told.
+
+**IT IS A SECOND LANE AND NOT A BRANCH IN THE FIRST ONE.** In Y a line
+is DROPPED and the group walk simply skips it, which is why
+`SPAN_CLIP_V` is a count handed to the fast path. In X a line is CUT,
+and the frame pointer then owes the cut bytes on every line of the
+group, the group's last line owes them back, and the screen address
+owes them too — a per-line correction, in a loop that is nine
+instructions at the gate array's floor (§9) with nowhere free to put
+it. So `SPAN_DRAW_CX` is a second copy of the walk with the correction
+in it, `SCR_ADDR` sign-extends the column for 8 T, and
+`KARA_SPAN_DRAW` picks the lane with **one comparison** — `CP 69`,
+which sends 69..79 and the negatives (which arrive as 244..255) the
+same way. The fast path is byte for byte the code it was, and the loop
+is back at **101 standing and 100 walking of 200**.
+
+What the lane costs, measured on one frame of 12 bytes on each of 64
+lines — the whole box, so `KARA_X` alone decides how many of its 768
+span bytes are on the screen:
+
+| | drawn | T | T a byte |
+|---|---:|---:|---:|
+| `SPAN_DRAW`, the fast lane | 768 | 67,196 | 87.5 |
+| `SPAN_DRAW_CX`, nothing clipped | 768 | 108,396 | 141.1 |
+| ... at `KARA_X` −1 | 704 | 101,312 | 143.9 |
+| ... at −6 | 384 | 65,696 | 171.1 |
+| ... at 74 | 384 | 65,364 | 170.2 |
+| ... at 78 | 128 | 36,692 | 286.7 |
+| ... at −11 | 64 | 29,856 | 466.5 |
+
+**1.6x a byte, and it draws fewer bytes** — so a sprite that is really
+at an edge costs about what the fast lane costs for the whole of it
+(65,696 T at −6 against 67,196), and the per-byte figure climbs as the
+clip bites because what is left is the per-line and per-group
+bookkeeping, which is §7.1's own argument one floor down. The
+expensive case is a frame that needs NO clip and takes the lane anyway,
+which is what the single comparison is for.
+
+**NO SHIPPED PATH TAKES IT.** Measured by holding the joystick over the
+whole of level 1, `KARA_X` is **0..39 and her box ends at 51 of 80**:
+the world bounds of §8.10 keep her clear, and the lane is for levels 3
+and 4, for a camera that has to let go of her, and for the day
+something puts her at an edge. **The enemy does not get it either**,
+and that is a decision rather than an omission — it is a persistent
+sprite whose pixels the incoming column would recycle, so the drawable
+window's "a character clear of both edges" is load-bearing (§8.7).
+
+`tools/test_xclip.py` is where it is checked: 480 placements against
+the same per-line v-model the fast lane's suite uses — sixteen screen
+addresses, ten of them chosen to sit on every awkward boundary there
+is, against thirty columns from −12 to 80 — with the erase restoring
+every byte; the two lanes proved **identical where they
+overlap**, which is what says the fold arithmetic was copied
+correctly; and then **the running game at all 33 columns either edge
+can reach**, read off the erase script, with the lane chooser NOPed out
+as the control — 21 of the 33 then stray into the wrong character row.
+
+**WHAT IS LEFT IS THE OTHER AXIS, and it is small and bounded rather
+than absent.** A sprite partly off the BOTTOM is clipped by
+`SPAN_CLIP_V`, but the deepest samples still leave a residue: measured
+in `tools/test_module4.py`, **18 bytes of playfield after her erase**
+at the worst clipped sample, and she is placed up to one character row
+high (offsets −8, −1, 0). Only that suite's vertical driver reaches it
+— it pokes `V_REQUEST` on every frame with no player behind it, and the
+camera never does (§8.8) — and the suite bounds both numbers rather
+than excluding them, so it cannot quietly get worse.
 
 ### 8.3 The level format, and the editor that writes it
 
@@ -2773,9 +2859,12 @@ and never opened again.
 does.** A tile is **4 bytes × 16 lines**, so it spans 2 CRTC character
 columns and 2 character rows, and the City's map is 128×16 of them.
 `tilemap.asm` and `collide.asm` were rewritten around it when the drawn
-art arrived; what is left of Module 6 is the play area with its HUD
-(6c) and the X clip (6d) — the masked path is not coming, the overlays
-are baked at build time instead (§7.3).
+art arrived. **All four of Module 6's slices are done now** — the
+format reader, the overlay bake, the HUD and the X clip — and two of
+them did not come out as this section asked: the masked path is not
+coming, the overlays are baked at build time instead (§7.3), and the
+HUD is fourteen characters of the bottom row rather than the band,
+because the band is a raster split the frame cannot pay for (§7.8).
 
 **2. The play area is 20×11 tiles and the HUD is 16 lines, not 24.**
 editor.md §2.1 asks for 176 lines of play plus a 24-line HUD = 200
@@ -3866,10 +3955,17 @@ of them is standing, so none of them measures the box.
 * The world's edges are still the SPRITE's, because what must stay on
   screen is the picture: the right bound is
   `WORLD_W - KARA_W_BYTES + KARA_ART_X` and the left one is
-  `KARA_ART_X`, not 0. A box clamped to 0 puts the sprite at -3,
-  `KARA_X` comes back 253 and the blitter culls her — which is how the
-  left-hand bound was found, by measuring her screen column at the edge
-  rather than by looking at the picture.
+  `KARA_ART_X`, not 0. A box clamped to 0 puts the sprite at -3 and
+  `KARA_X` comes back 253 — which is how the left-hand bound was
+  found, by measuring her screen column at the edge rather than by
+  looking at the picture. **This entry used to finish "and the blitter
+  culls her", and that was measured false**: there was no cull and no
+  clip, and at `KARA_X` −6 she was drawn whole at columns 10..18, a
+  character row and a half below where she is. The bound was the only
+  thing between level 1 and a second heroine in the middle of the
+  picture. It is a real cut now — §8.2's clipped lane, module 6d — and
+  the bound stays, because what must stay on screen is still the
+  picture and not the box.
 * `EBUL_HITS_HER` compares on SCREEN, where `KARA_X` is the sprite, so
   it adds `KARA_ART_X` back. A round six pixels to her left used to
   count as a hit.
@@ -4617,6 +4713,42 @@ not as 5; it also makes a terrible assertion, because it fails half the
 time for the right reason. The suite prints which way line 5 fell on
 each run instead.
 
+### And the clipped lane's own four, which is the same lesson again
+
+`SPAN_DRAW_CX` (§8.2) is a second copy of the group walk, and three of
+its four bugs are the copy owing something the original never had to
+pay. Every one of them was found off the erase script — the draw's own
+record — because a picture with a second heroine in it does not say
+WHICH line went wrong.
+
+1. **The group's last line left `HL` one drop too far.** The line loop
+   pre-advances the frame pointer past the bytes it is not drawing, and
+   the NEXT group's header sits `2 * drop` bytes before where the tail
+   step leaves it. The symptom was a header claiming 255 lines of 255
+   bytes: one group of one byte, and then a run of 168 at column 17 of
+   a screen 80 wide. `CX_UNDROP` is what gives it back.
+2. **And the screen address owed the same drop**, which the first fix
+   did not cover because the drops accumulate group by group rather
+   than per line. With the frame pointer right, the runs marched from
+   column 0 to column 51 one group at a time — **with the line count
+   and the run count both perfectly correct**, which is what makes an
+   address bug read as a drawing bug.
+3. **A fall-through into `CX_NOTHING` after a `DEC H`.** Data
+   dependent: only on the lines where the borrow fired, so 1.3% of
+   bytes were wrong and 98.7% were right. `JP CX_NEXT` and not a
+   fall-through.
+4. **`POP AF` restores the flags** — §10 has it, because it is a rule
+   and not an incident. It cost 22 game frames in 200 standing still,
+   and the nine bytes it lives in are free when they hold 84 T of
+   delay instead.
+
+**And the instrument that found the first two had to be built twice.**
+A `DJNZ` delay put in to ask whether the lane cost T-states hung the
+machine outright: `B` is the script pointer's high byte inside the
+blitter (§10, and it is the same entry as the one above it). The
+replacement is `PUSH AF` / `POP AF` pairs — 21 T each and they touch
+nothing.
+
 ### What did not work, with the numbers
 
 * **§9 remedy 1, "restore from the tilemap instead of saving under", is a
@@ -4744,6 +4876,22 @@ frame, so this only helps a standing player on a still screen.
   you take**, which is how it was reported, and it is the entry below
   with a different register. The test to apply is not "is this register
   free here" but "is it free at every call site".
+* **`POP AF` RESTORES THE FLAGS, SO A `CP` INSIDE A `PUSH AF` /
+  `POP AF` PAIR DECIDES NOTHING.** `KARA_SPAN_DRAW` picks its lane on
+  the carry from `CP 69` and `A` was holding the line count, so the
+  obvious way to write it is to push `A` round the compare. The
+  `JR NC` then reads the flags `POP AF` put back — whatever last set
+  them — and the lane is chosen at random. **It cost 22 game frames in
+  200 STANDING STILL**, which on this loop is 22 frames with no
+  heroine in them (§9). What says it was not a T-state cost is a delay
+  of a known length in its place: **84 T there is free and the same
+  nine bytes are not**; and what named it is this section's own rule
+  for a raster gate, one floor down — **`CP 0` and `CP 255` both
+  measured 79 of 200, which is a test whose argument changes
+  nothing.** The fix is to compare BEFORE `A` is reloaded and let the
+  carry cross two instructions to reach its jump, because `LD A,C` and
+  `LD BC,nn` do not touch `F` — which is a thing to look up rather
+  than to assume.
 * **Write the clobber list in the header comment of every routine, and check it at
   every call site.** The worst bug in Module 3 was not in the blitter — it was a
   helper that scratched `DE` while the caller was holding the screen address there,
@@ -5007,9 +5155,10 @@ the next one starts.
    nothing — `drop` ends in `idle` when she survives and `die` holds its
    last cel when she does not, because there is no respawn to leave
    either of them for.
-6. **The level format, engine side** — 8×16 tiles and a 20×11 play
-   area (§8.3), which is a rewrite of `tilemap.asm`'s addressing and of
-   `collide.asm`'s probes, then a reader for `level_<n>.lvl` and
+6. ~~**The level format, engine side**~~ — **done, all four slices.**
+   8×16 tiles and a 20×11 play area (§8.3), which is a rewrite of
+   `tilemap.asm`'s addressing and of `collide.asm`'s probes, then a
+   reader for `level_<n>.lvl` and
    `tileflags_<level>.bin`, then one hand-built level played end to
    end. **The masked tile path is not part of it** — §7.3 measured it
    at 1,338-2,007 T a cell against 3,548 T of frame and bakes the
@@ -5032,7 +5181,14 @@ the next one starts.
    her fourteen rounds and a digit for the spare magazines — rewritten
    wherever the view goes, for 504 T standing still, 3,568 on a step
    right and 23,856 down a row, which is the one that hurts);
-   **6d** a real X clip for sprites at the screen edges (§8.2).
+   **6d** a real X clip for sprites at the screen edges (done —
+   `SPAN_DRAW_CX`, a second lane rather than a branch in the fast one,
+   because an X clip is a per-line correction to the frame pointer and
+   the fast loop is at its floor. The fast path is byte for byte what
+   it was, the loop is 101/100 of 200, and no shipped path takes the
+   lane: `KARA_X` over the whole of level 1 is 0..39 of 80. §8.2 has
+   the table of what it costs, the two placements that showed there was
+   never a clip at all, and what is left of the other axis).
 
    **The band is still the right answer and it is still unaffordable**,
    and §7.8 now records what a 23-row playfield would buy and why it

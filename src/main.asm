@@ -992,6 +992,13 @@ BANK_STORE:     ld   a,PEN_GREEN
                 assert DISC_ST2 == DISC_ST0 + 2
                 assert DISC_SPILL == DISC_ST0 + 3
                 assert (DISC_ST0 AND &FF00) == (DISC_SPILL AND &FF00)
+                ; A SPAN CLIPPED ON THE LEFT CANNOT ALSO BE CLIPPED ON
+                ; THE RIGHT, which is what lets spanblit.asm's CX lane
+                ; stop after one of the two tests. It is here and not
+                ; in spanblit.asm because ASSERT is evaluated eagerly
+                ; in source order and SCR_CHARS is not defined yet
+                ; there (CLAUDE.md 10).
+                assert SPAN_MAX_WIDTH < SCR_CHARS * 2
 
 ; ---------------------------------------------------------------------
 ; Core variables

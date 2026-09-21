@@ -310,8 +310,17 @@ ENEMY_TYPE_AT:  add  a,a
 ; box no longer fitted, was culled, and - because the same test decided
 ; whether to update it - stopped moving, so it could never walk back
 ; into view. It is live within a screen either side of the view and
-; drawable only when its whole box fits, which is what nothing here
-; clipping in X costs (CLAUDE.md 8.2).
+; drawable only when its whole box fits with a character to spare at
+; both ends.
+;
+; AND IT STAYS THAT WAY NOW THAT THERE IS AN X CLIP, which is a
+; decision rather than an oversight. SPAN_DRAW_CX would cut this box at
+; the edge like Kara's (CLAUDE.md 8.2, module 6d) - but this is a
+; PERSISTENT sprite: its pixels are left on the screen between
+; refreshes and the incoming column is the one thing that would disturb
+; them, so the character of clearance is load-bearing and not a
+; rounding (CLAUDE.md 8.7). Giving it the lane is a separate change
+; with its own measurement.
 ;
 ; IT TAKES THE FIRST ONE NEAR, DRAWABLE OR NOT, and that is a level
 ; constraint and not an engine one. The near zone is EN_NEAR either side

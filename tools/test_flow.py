@@ -296,7 +296,7 @@ FREE = {"FRAME_COUNT", "IRQ_TICKS", "IRQ_LAST", "FRAME_TICK0",
 # repaint's and DRAW_CELL's working cell, the record the AABB last
 # found, and the fade's own. Each is named rather than a range, and the
 # control below is what says the list is not just long enough to pass.
-DEAD = ("SPAN_", "HUD_STEP", "HUD_V_", "HUD_BANK", "FADE_PAL",
+DEAD = ("SPAN_", "CX_", "HUD_STEP", "HUD_V_", "HUD_BANK", "FADE_PAL",
         "FADE_STEP", "ENT_HIT", "ENT_RP_WC", "ENT_RP_WR", "ENT_RP_WORD",
         "CELL_WORD", "CELL_WC", "CELL_WR", "CELL_COUNT")
 

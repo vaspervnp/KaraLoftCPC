@@ -7,7 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 status=0
-for t in tools/test_cpclib.py tools/test_fdc.py tools/test_spans.py tools/test_spanblit.py tools/test_kara.py tools/test_levels.py tools/test_overscan.py tools/test_module1.py tools/test_intro.py tools/test_loader.py tools/test_hud.py tools/test_format.py tools/test_actions.py tools/test_entities.py tools/test_enemies.py tools/test_climb.py tools/test_module4.py tools/test_module5.py tools/test_flow.py tools/test_painter.py; do
+for t in tools/test_cpclib.py tools/test_fdc.py tools/test_spans.py tools/test_spanblit.py tools/test_xclip.py tools/test_kara.py tools/test_levels.py tools/test_overscan.py tools/test_module1.py tools/test_intro.py tools/test_loader.py tools/test_hud.py tools/test_format.py tools/test_actions.py tools/test_entities.py tools/test_enemies.py tools/test_climb.py tools/test_module4.py tools/test_module5.py tools/test_flow.py tools/test_painter.py; do
     echo "=== $t"
     python3 "$t" || status=1
 done
