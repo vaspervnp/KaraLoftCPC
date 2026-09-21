@@ -1,0 +1,22 @@
+@{
+    ViewData["Title"] = "Waiting for approval";
+}
+
+<div class="panel">
+    <h2>Waiting for approval</h2>
+    <p>
+        You are signed in as <b>@ViewData["Email"]</b>, and that account has not been
+        approved yet. Signing in says who you are; it does not say you have business
+        here, and somebody has to decide that.
+    </p>
+    <p class="hint">
+        The request has been written down — the administrator
+        (<b>@ViewData["Admin"]</b>) can see it and approve it. Nothing you do here
+        is lost in the meantime: an account's work lives in a folder of its own and
+        is waiting when it opens.
+    </p>
+    <form method="post" asp-controller="Accounts" asp-action="Logout">
+        @Html.AntiForgeryToken()
+        <button type="submit">Sign out and try another address</button>
+    </form>
+</div>

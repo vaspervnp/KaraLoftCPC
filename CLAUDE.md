@@ -68,6 +68,19 @@ called for each kind — comes off `/api/vocabulary`, which builds them
 out of the C# enums themselves**, because a canvas that spelled out
 `EntityKind` would be a second copy of the engine's numbering.
 
+**AND IT HAS A WAY IN, WHICH THIS FILE SAID IT NEVER WOULD.** The editor
+is closed now: a cookie, and two roads into it — a Google account or a
+**six-digit code emailed** to an address — then an approval list, an
+administrator's screen, and **a workspace of its own for every
+account**. Signing in proves who you are and not that you have business
+here, so an unknown address gets a waiting page and the request is
+written down for the administrator. The design is `~/repos/GravassistCPC`'s,
+ported piece for piece; the secrets come from the environment and
+nowhere else, and **with no road configured the editor refuses to
+start**, because starting open would be worse — you would think it was
+protected. §11 step 7 has the variables and what was deliberately left
+behind.
+
 **AND IT OPENS ON ANY OF THE SIX LEVELS.** A new project picks a level
 directory and one of its tile sheets out of the art package — nine
 sheets across the six (§7.3) — and starts blank, with **no tile flags at
@@ -319,6 +332,11 @@ editor/                    the level editor (§11 step 7), C# / ASP.NET Core
                            build-time bake of the overlay pairs
   src/...Web/              the painter: ASP.NET Core, a JSON API and a
                            canvas in wwwroot/ (no build step - see 11.7)
+    Services/              the way in: the cookie and its two roads, the
+                           approval list, the codes, and one workspace per
+                           account (11.7)
+    Views/                 the painter's page, and the ones that are not it
+                           - signing in, waiting, the accounts screen
   src/...Cli/              the same export without the browser - what a
                            build step calls, and what test_painter.py drives
   tests/...Tests/          xUnit, against build/'s own golden files
@@ -4907,11 +4925,11 @@ the next one starts.
      designer, and a database would add migrations and a connection
      string to a tool whose correctness is entirely in its bytes. It is
      behind `IProjectStore`.
-   * **No Identity.** §6.4 opens with users, roles, antiforgery and a
-     rate limiter — the shape of a tool several people share over a
-     network. This one runs on the designer's own machine against the
-     repository's own files, so a login page on localhost is a thing to
-     click through rather than a control. What IS kept is the version
+   * ~~**No Identity.**~~ **THAT WAS TRUE WHILE IT RAN ON ONE MACHINE
+     AND IT IS NOT TRUE ANY MORE** — see the sign-in below. The argument
+     was that a login page on localhost is a thing to click through
+     rather than a control, and it holds exactly as long as localhost is
+     where it is. What IS still kept from that entry is the version
      check: an edit made against a stale version is refused rather than
      merged, because two windows on one level is where a lost stroke is
      silent.
@@ -4979,6 +4997,84 @@ the next one starts.
    refused there, on the stroke: a designer who finds out at export that
    the table holds 24 records has already placed the 25th somewhere and
    has to go and find it.
+
+   **AND THERE IS A SIGN-IN, WHICH THIS FILE SAID THERE WOULD NOT BE.**
+   `~/repos/GravassistCPC` has the same editor problem solved already and
+   this is that design ported, piece for piece: a cookie, two roads into
+   it, an approval list and an administrator's screen.
+
+   * **Both roads end in the same cookie.** A Google account, or a
+     **six-digit code emailed** to an address — and past
+     `AccountsController` nothing in the editor can tell which one
+     anybody took, because both write the same email claim.
+   * **The codes are treated as credentials.** Ten minutes, one use,
+     five wrong answers and the code is thrown away, **only the salted
+     hash kept** so a log or a dump hands nobody a finished sign-in, and
+     a constant-time comparison so a wrong answer does not say how many
+     digits were right. The caps — five an hour per address, ten per
+     machine, a hundred in all — **are not for the user, they are for
+     the victims**: without them the sign-in form is a machine for
+     sending mail to any address somebody types.
+   * **Signing in proves who you are, not that you have business here.**
+     An unknown address gets the waiting page and nothing else, and the
+     request is WRITTEN DOWN so the administrator can see it
+     (`ApprovalGate`). Middleware and not an authorization policy,
+     because "wait" is not "you may not": it wants its own page with the
+     reason on it.
+   * **The list lives outside the repository**, in `App_Data/`, and is
+     gitignored: they are real people's addresses. The administrator —
+     `karaGadmin` — is always allowed and cannot be revoked or deleted,
+     or one wrong click locks out the only account that can unlock
+     anything.
+   * **Every account has its own workspace**, `workspace/<account>/`,
+     and `IProjectStore` is SCOPED for it. As a singleton the first
+     account to sign in would pin the path and everybody afterwards
+     would paint on that one's levels. The folder name is the email with
+     everything but letters, digits, dot, dash and underscore taken out
+     — a `..` inside a claim would otherwise write outside the
+     workspace — and the path that comes out is checked to be under the
+     root at run time.
+   * **The secrets come from the environment and from nowhere else.**
+     Whatever goes into a file here is committed by accident one day and
+     then lives in the git history for ever.
+   * **AND IF NO ROAD IS CONFIGURED THE EDITOR DOES NOT START**, naming
+     the variables it wants. Starting open would be worse than not
+     starting at all: you would think it was protected.
+
+   ```
+   karaGid  karaGscrt     a Google client, with <address>/accounts/google
+                          as the redirect URI in the Cloud console
+   karaSmtpHost  karaMailFrom  ... or an SMTP server for the codes
+     karaSmtpPort karaSmtpUser karaSmtpPass karaSmtpTls karaMailName
+   karaGadmin              the administrator's address
+   karaAccounts            where accounts.json goes, if not App_Data/
+   ```
+
+   **The painter's own page moved out of `wwwroot/` to do it**, because
+   static files are served BEFORE authorization: as `index.html` it came
+   up for anybody and then failed every API call it made, which reads as
+   a broken editor and not as a closed one. It is a view now. The script
+   and the stylesheet stay public — there is nothing in them — and
+   **the API answers 401 rather than redirecting**, because a `fetch()`
+   follows a 302, gets HTML with status 200, and the canvas reports
+   "Unexpected token <".
+
+   **What is NOT ported is the publish right.** GRAVASSIST's accounts
+   carry one because publishing there writes into a SHARED `levels/`
+   that everybody reads. Nothing in this editor writes outside the
+   signed-in account's own folder: the four files an export makes land
+   beside its projects and a person moves them into `build/`. A flag
+   guarding an action that does not exist is a setting that goes stale.
+
+   **AND THE EMAIL ROAD IS DRIVEN END TO END**, because a credential
+   path nothing tests is one nobody has checked: the suite asks for a
+   code, reads it out of the message the editor "sent" — `IMailer` is an
+   interface here and a class there, which is the one other deviation —
+   and signs in with it. Beside each half is its negative: a wrong code
+   signs nobody in, a used code does not work twice, an unapproved
+   account is refused by the API and sent to the waiting page, and the
+   accounts screen answers **404 and not 403** to anybody else, because
+   that it exists is nobody else's business.
 
    **AND A PROJECT CAN BE STARTED ON ANY OF THE SIX LEVELS**, which is
    the editor's half of the one thing left. It reads the package's own

@@ -1,6 +1,7 @@
 using CpcLevelEditor.Application;
 using CpcLevelEditor.Assets;
 using CpcLevelEditor.Domain;
+using CpcLevelEditor.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CpcLevelEditor.Web.Controllers;
@@ -8,7 +9,8 @@ namespace CpcLevelEditor.Web.Controllers;
 [ApiController]
 [Route("api")]
 public sealed class ProjectsController(
-    IProjectStore store, AssetCatalogue assets, EditorOptions options) : ControllerBase
+    IProjectStore store, AssetCatalogue assets, EditorOptions options,
+    UserWorkspace workspace) : ControllerBase
 {
     /// <summary>The art the editor can paint out of.</summary>
     [HttpGet("assets")]
@@ -149,7 +151,8 @@ public sealed class ProjectsController(
             return new ExportView([], [], [.. findings.Select(FindingView.Of)]);
 
         var result = ProjectExporter.Export(project, tileset);
-        var directory = Path.Combine(options.Workspace, project.Id + ".export");
+        // ... into the SIGNED-IN account's own folder, beside its projects.
+        var directory = Path.Combine(workspace.Root, project.Id + ".export");
         var files = ProjectExporter.WriteTo(directory, project, result);
 
         return new ExportView(

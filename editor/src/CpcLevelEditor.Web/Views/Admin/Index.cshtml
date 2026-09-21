@@ -1,0 +1,94 @@
+@model IReadOnlyList<CpcLevelEditor.Web.Services.Account>
+@{
+    ViewData["Title"] = "Accounts";
+    ViewData["Wide"] = true;
+    var msg = TempData["Msg"] as string;
+    var mail = ViewData["Mail"] is true;
+}
+
+<div class="panel">
+    <h2>Accounts</h2>
+    @if (msg is not null)
+    {
+        <div class="msg">@msg</div>
+    }
+    <div class="hint">
+        The administrator is <b>@ViewData["Admin"]</b>, is always allowed, and cannot
+        be removed — otherwise one wrong click locks out the only account that can
+        unlock anything. The list lives in <code>App_Data/accounts.json</code>, outside
+        the repository and uncommitted: they are real people's addresses.
+    </div>
+
+    <form method="post" asp-action="Invite">
+        @Html.AntiForgeryToken()
+        <label for="invite">Invite an address (it arrives approved)</label>
+        <input type="email" id="invite" name="email" placeholder="name@@example.com" required>
+        <button type="submit">Invite</button>
+    </form>
+
+    @if (Model.Count == 0)
+    {
+        <div class="hint">Nobody else has signed in yet.</div>
+    }
+    else
+    {
+        <table>
+            <tr><th>address</th><th>state</th><th>how</th><th>seen</th><th></th></tr>
+            @foreach (var account in Model)
+            {
+                <tr>
+                    <td>@account.Email</td>
+                    <td>@(account.Allowed ? "allowed" : "waiting")</td>
+                    <td>@account.Note</td>
+                    <td>@account.Seen.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>
+                        @if (!account.Allowed)
+                        {
+                            <form method="post" asp-action="Approve">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="email" value="@account.Email">
+                                <button type="submit">approve</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form method="post" asp-action="Revoke">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="email" value="@account.Email">
+                                <button type="submit">revoke</button>
+                            </form>
+                        }
+                        <form method="post" asp-action="Delete">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="email" value="@account.Email">
+                            <button type="submit">forget</button>
+                        </form>
+                    </td>
+                </tr>
+            }
+        </table>
+        <div class="hint">
+            <b>Revoke</b> keeps the account on the list as a "no", so asking again
+            changes nothing. <b>Forget</b> takes it off, and signing in again shows up
+            as a fresh request. Neither touches anybody's files.
+        </div>
+    }
+
+    @if (mail)
+    {
+        <form method="post" asp-action="MailTest">
+            @Html.AntiForgeryToken()
+            <button type="submit">Send a test message to @ViewData["Admin"]</button>
+        </form>
+        <div class="hint">Mail goes out as @ViewData["From"].</div>
+    }
+    else
+    {
+        <div class="hint">
+            No SMTP is configured, so there is no email sign-in and no invitation mail.
+            Set <code>@SmtpMailer.HostVar</code> and <code>@SmtpMailer.FromVar</code>.
+        </div>
+    }
+
+    <p><a href="/">back to the editor</a></p>
+</div>

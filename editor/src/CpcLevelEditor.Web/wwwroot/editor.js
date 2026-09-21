@@ -48,6 +48,13 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
+    // THE API ANSWERS 401 AND DOES NOT REDIRECT (EditorAuth), so a signed-out
+    // session arrives here as a status and not as a login page parsed as JSON.
+    if (res.status === 401) {
+      location.href = '/accounts/login?returnUrl=' + encodeURIComponent(location.pathname);
+      throw new Error('signed out');
+    }
+    if (res.status === 403) throw new Error('this account is not approved yet');
     let detail = res.statusText;
     try { detail = (await res.json()).detail ?? detail; } catch { /* not a problem doc */ }
     throw new Error(detail);
@@ -705,6 +712,17 @@ addEventListener('keydown', (e) => {
     draw();
   }
 });
+
+/** Who is signed in, and a way out. Both roads end in the same cookie. */
+async function whoami() {
+  const me = await api('GET', '/accounts/me');
+  $('whoami').innerHTML = me.signedIn
+    ? `${me.email}${me.admin ? ' · <a href="/admin">accounts</a>' : ''}`
+      + ' · <a href="/accounts/logout">sign out</a>'
+    : '<a href="/accounts/login">sign in</a>';
+}
+
+whoami().catch(() => { /* the page itself is behind the same gate */ });
 
 api('GET', '/api/vocabulary')
   .then((v) => { state.vocab = v; return loadAssets(); })

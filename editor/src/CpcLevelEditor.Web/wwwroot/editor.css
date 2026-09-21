@@ -19,6 +19,8 @@ header, footer {
 }
 footer { border: 0; border-top: 1px solid var(--line); color: var(--dim); }
 .spacer { flex: 1; }
+.who { color: var(--dim); font-size: .92em; }
+.who a { color: var(--hot); }
 button, select, input[type=range] {
   font: inherit; color: var(--ink); background: #2a2932;
   border: 1px solid var(--line); border-radius: 3px; padding: .2rem .5rem;

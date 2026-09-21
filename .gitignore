@@ -11,3 +11,7 @@ errors/
 # the level editor's local run configuration
 .claude/
 editor/workspace/
+
+# THE ACCOUNT LIST IS NOT SOURCE. It is real people's email addresses and it
+# lives beside the editor rather than in it (editor/src/.../App_Data/).
+App_Data/

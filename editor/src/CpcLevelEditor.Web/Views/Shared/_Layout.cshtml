@@ -1,0 +1,45 @@
+@*
+    The pages that are not the canvas: signing in, waiting, and the accounts
+    screen. They borrow editor.css for the palette and add nothing else -
+    no CDN, so the editor works with no internet at all.
+*@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>@ViewData["Title"] — Kara Loft level editor</title>
+    <link rel="stylesheet" href="~/editor.css">
+    <style>
+        body { display: block; padding: 2rem 1.2rem; }
+        .sheet { max-width: 30rem; margin: 0 auto; }
+        .sheet h1 { font-size: 1.1rem; letter-spacing: 2px; color: var(--hot); margin: 0 0 1rem; }
+        .panel { background: var(--panel); border: 1px solid var(--line);
+                 border-radius: 4px; padding: 1rem; }
+        .panel h2 { font-size: .95rem; margin: 0 0 .6rem; }
+        .panel form { display: grid; gap: .4rem; margin: .5rem 0; }
+        .panel input[type=email], .panel input[type=text] {
+            font: inherit; color: var(--ink); background: #2a2932; width: 100%;
+            border: 1px solid var(--line); border-radius: 3px; padding: .25rem .4rem;
+        }
+        .msg { color: var(--hot); margin: .4rem 0; }
+        .hint { color: var(--dim); font-size: .92em; margin-top: .6rem; }
+        .or { color: var(--dim); text-align: center; letter-spacing: 3px;
+              font-size: .85em; margin: .6rem 0; }
+        .code { font-size: 1.4rem; letter-spacing: .5rem; text-align: center; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); }
+        th { color: var(--dim); font-weight: normal; }
+        td form { display: inline; }
+        td button { padding: .1rem .4rem; }
+        .wide { max-width: 52rem; }
+        a { color: var(--hot); }
+    </style>
+</head>
+<body>
+<div class="sheet @(ViewData["Wide"] is true ? "wide" : "")">
+    <h1>KARA LOFT — level editor</h1>
+    @RenderBody()
+</div>
+</body>
+</html>

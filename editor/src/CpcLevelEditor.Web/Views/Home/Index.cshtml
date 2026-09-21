@@ -1,8 +1,17 @@
+@{
+    Layout = null;
+}
+@*
+    The painter. A VIEW and not a static file: wwwroot/ is served before
+    authorization runs, so as index.html this page came up for anybody and
+    then failed every API call it made - which reads as a broken editor and
+    not as a closed one. See HomeController.
+*@
 <!doctype html>
 <meta charset="utf-8">
 <title>Kara Loft — level editor</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="editor.css">
+<link rel="stylesheet" href="~/editor.css">
 
 <header>
   <strong>Kara Loft</strong>
@@ -13,6 +22,7 @@
   <button id="save">Save</button>
   <button id="validate">Validate</button>
   <button id="export">Export</button>
+  <span id="whoami" class="who"></span>
 </header>
 
 <main>
@@ -59,4 +69,4 @@
 </main>
 
 <footer id="status">no project open</footer>
-<script type="module" src="editor.js"></script>
+<script type="module" src="~/editor.js"></script>

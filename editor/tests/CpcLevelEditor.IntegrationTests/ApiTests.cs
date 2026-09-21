@@ -23,7 +23,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task The_page_is_served()
     {
-        var response = await app.CreateClient().GetAsync("/");
+        var response = await app.As(EditorApp.Admin).GetAsync("/");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("canvas", await response.Content.ReadAsStringAsync());
@@ -32,7 +32,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task The_art_package_is_listed()
     {
-        var levels = await app.CreateClient()
+        var levels = await app.As(EditorApp.Admin)
             .GetFromJsonAsync<List<LevelAssetsDto>>("/api/assets", Json);
 
         Assert.NotNull(levels);
@@ -45,7 +45,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task An_id_that_is_not_a_slug_is_refused()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
 
         var made = await client.PostAsJsonAsync("/api/projects",
             new { id = "../escape", name = "no" }, Json);
@@ -57,7 +57,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task The_shipped_city_opens_paintable_and_exports_to_the_same_picture()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
         var id = "city-" + Guid.NewGuid().ToString("N")[..8];
 
         var created = await client.PostAsJsonAsync("/api/projects",
@@ -128,7 +128,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task An_edit_against_a_stale_version_is_refused()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
         var id = "edit-" + Guid.NewGuid().ToString("N")[..8];
         await client.PostAsJsonAsync("/api/projects", new { id, name = "scratch" }, Json);
 
@@ -149,7 +149,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task An_edit_off_the_map_is_refused()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
         var id = "bounds-" + Guid.NewGuid().ToString("N")[..8];
         await client.PostAsJsonAsync("/api/projects", new { id, name = "scratch" }, Json);
 
@@ -170,7 +170,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task An_entity_and_a_region_placed_through_the_API_reach_the_file()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
         var id = "records-" + Guid.NewGuid().ToString("N")[..8];
         await client.PostAsJsonAsync("/api/projects", new { id, name = "records" }, Json);
 
@@ -228,7 +228,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task A_record_the_engine_could_not_take_is_refused()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
         var id = "refused-" + Guid.NewGuid().ToString("N")[..8];
         await client.PostAsJsonAsync("/api/projects", new { id, name = "scratch" }, Json);
 
@@ -271,7 +271,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
     [Fact]
     public async Task A_new_project_can_be_started_on_any_level_of_the_package()
     {
-        var client = app.CreateClient();
+        var client = app.As(EditorApp.Admin);
         var id = "forest-" + Guid.NewGuid().ToString("N")[..8];
 
         var made = await client.PostAsJsonAsync("/api/projects", new
