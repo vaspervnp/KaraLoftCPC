@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The editor without the browser: what a build step calls, and what
+       tools/test_painter.py calls to get a level onto the emulator. No
+       package either - the whole of it is argument parsing. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>cpclevel</AssemblyName>
+    <RootNamespace>CpcLevelEditor.Cli</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CpcLevelEditor.Application\CpcLevelEditor.Application.csproj" />
+  </ItemGroup>
+</Project>

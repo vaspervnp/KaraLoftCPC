@@ -1,3 +1,4 @@
+using System.Text;
 using CpcLevelEditor.Domain;
 using CpcLevelEditor.Exporters;
 
@@ -7,6 +8,9 @@ namespace CpcLevelEditor.Application;
 public readonly record struct ExportResult(
     byte[] Level, byte[] TileFlags, byte[] Tiles,
     Tileset BakedTileset, IReadOnlyList<BakedPair> Pairs);
+
+/// <summary>One file of an export, named the way the build names it.</summary>
+public readonly record struct ExportFile(string Name, byte[] Bytes);
 
 /// <summary>
 /// A project into the bytes the engine reads: <c>level_&lt;n&gt;.lvl</c>,
@@ -48,5 +52,42 @@ public static class ProjectExporter
             baked.Tileset.ToBlob(),
             baked.Tileset,
             baked.Pairs);
+    }
+
+    /// <summary>
+    /// The export as named files.
+    /// </summary>
+    /// <remarks>
+    /// <b>The fourth is not a binary and is not optional.</b> The three the
+    /// engine reads say nothing about which cells were an overlay on a wall,
+    /// so a level exported without its bake record is one this editor can
+    /// never open again — its own output included (<see cref="BakeRecord"/>).
+    /// The names are the build's, so the four drop straight into
+    /// <c>build/</c>.
+    /// </remarks>
+    public static IReadOnlyList<ExportFile> Files(
+        EditorProject project, ExportResult result) =>
+    [
+        new($"level_{project.LevelId}.lvl", result.Level),
+        new($"tileflags_{project.AssetLevel}.bin", result.TileFlags),
+        new($"{project.Sheet.Replace("_tiles", "tiles", StringComparison.Ordinal)}.bin",
+            result.Tiles),
+        new(BakeRecord.FileName(project.Sheet),
+            Encoding.UTF8.GetBytes(BakeRecord.Write(result.Pairs))),
+    ];
+
+    /// <summary>
+    /// ... and on disk, because a designer who has to fish four files out of
+    /// a browser's downloads folder and move them by hand has a step that can
+    /// be got wrong, and the tool is local anyway.
+    /// </summary>
+    public static IReadOnlyList<ExportFile> WriteTo(
+        string directory, EditorProject project, ExportResult result)
+    {
+        var files = Files(project, result);
+        Directory.CreateDirectory(directory);
+        foreach (var file in files)
+            File.WriteAllBytes(Path.Combine(directory, file.Name), file.Bytes);
+        return files;
     }
 }

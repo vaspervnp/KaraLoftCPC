@@ -1,4 +1,4 @@
-namespace CpcLevelEditor.Web;
+namespace CpcLevelEditor.Application;
 
 /// <summary>
 /// Where the editor's four kinds of file live. Every one of them defaults to
@@ -19,7 +19,7 @@ public sealed class EditorOptions
     /// <summary>
     /// <c>build/</c> — read only, and only to open a level the game already
     /// plays: the shipped <c>.lvl</c> and the bake's sidecar are what
-    /// <see cref="Application.LevelUnbaker"/> needs to give a designer back
+    /// <see cref="LevelUnbaker"/> needs to give a designer back
     /// the overlay layer the format cannot carry.
     /// </summary>
     public string BuildRoot { get; set; } = "";

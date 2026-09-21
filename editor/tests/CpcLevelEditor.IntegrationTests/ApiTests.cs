@@ -87,7 +87,15 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
 
         Assert.NotNull(result);
         Assert.DoesNotContain(result.Findings, f => f.Severity == "Error");
-        Assert.Equal(3, result.Files.Count);
+        // FOUR FILES AND NOT THREE. The fourth is the bake's own record,
+        // and without it this export is a level the editor could never open
+        // again - its own included, because a map cell is a finished tile
+        // and nothing in the .lvl says which cells were an overlay on a
+        // wall (CLAUDE.md 7.3, 8.3).
+        Assert.Equal(
+            new[] { "level_1.lvl", "tileflags_level1_city.bin",
+                    "citytiles.bin", "city_baked.json" },
+            result.Files.Select(f => f.Name));
         Assert.Equal(10, result.Pairs.Count(p => p.Baked));
 
         var shippedLevel = File.ReadAllBytes(Path.Combine(EditorApp.RepoRoot, "build", "level_1.lvl"));
@@ -102,7 +110,7 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
             Picture(new BinaryLevelReader().Read(shippedLevel).Map, shippedTiles),
             Picture(new BinaryLevelReader().Read(ourLevel).Map, ourTiles));
 
-        // ... and the three files are on disk, which is where the build
+        // ... and the four files are on disk, which is where the build
         // reads them from
         Assert.NotNull(result.Directory);
         foreach (var file in result.Files)

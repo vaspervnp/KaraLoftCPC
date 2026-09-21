@@ -1,6 +1,5 @@
 using System.Text.Json.Serialization;
 using CpcLevelEditor.Application;
-using CpcLevelEditor.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 

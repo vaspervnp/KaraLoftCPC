@@ -4,6 +4,7 @@
     <Project Path="src/CpcLevelEditor.Application/CpcLevelEditor.Application.csproj" />
     <Project Path="src/CpcLevelEditor.Assets/CpcLevelEditor.Assets.csproj" />
     <Project Path="src/CpcLevelEditor.Exporters/CpcLevelEditor.Exporters.csproj" />
+    <Project Path="src/CpcLevelEditor.Cli/CpcLevelEditor.Cli.csproj" />
     <Project Path="src/CpcLevelEditor.Web/CpcLevelEditor.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">

@@ -1,8 +1,6 @@
-using System.Text.Json;
 using CpcLevelEditor.Application;
 using CpcLevelEditor.Assets;
 using CpcLevelEditor.Domain;
-using CpcLevelEditor.Exporters;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CpcLevelEditor.Web.Controllers;
@@ -54,9 +52,8 @@ public sealed class ProjectsController(
                 AssetLevel = request.AssetLevel,
                 Sheet = request.Sheet,
                 Map = new byte[EngineLimits.MapWidth * EngineLimits.MapHeight],
-                TileFlags = request.AssetLevel == "level1_city"
-                    ? new Dictionary<string, TileFlags>(LevelFlagSeeds.City)
-                    : new Dictionary<string, TileFlags>(),
+                TileFlags = new Dictionary<string, TileFlags>(
+                    LevelFlagSeeds.For(request.AssetLevel)),
             };
 
         store.Save(project);
@@ -160,33 +157,17 @@ public sealed class ProjectsController(
             return new ExportView([], [], [.. findings.Select(FindingView.Of)]);
 
         var result = ProjectExporter.Export(project, tileset);
-        var files = new[]
-        {
-            File($"level_{project.LevelId}.lvl", result.Level),
-            File($"tileflags_{project.AssetLevel}.bin", result.TileFlags),
-            File($"{project.Sheet.Replace("_tiles", "tiles")}.bin", result.Tiles),
-        };
-
-        // AND THEY GO ON DISK, not only down the wire. The three files are
-        // what the build reads; a designer who has to fish them out of a
-        // browser's downloads folder and move them by hand has a step that
-        // can be got wrong, and the tool is local anyway.
         var directory = Path.Combine(options.Workspace, project.Id + ".export");
-        System.IO.Directory.CreateDirectory(directory);
-        System.IO.File.WriteAllBytes(Path.Combine(directory, files[0].Name), result.Level);
-        System.IO.File.WriteAllBytes(Path.Combine(directory, files[1].Name), result.TileFlags);
-        System.IO.File.WriteAllBytes(Path.Combine(directory, files[2].Name), result.Tiles);
+        var files = ProjectExporter.WriteTo(directory, project, result);
 
         return new ExportView(
-            files,
+            [.. files.Select(f => new ExportedFile(f.Name, f.Bytes.Length,
+                                                  Convert.ToBase64String(f.Bytes)))],
             [.. result.Pairs.Select(p =>
                 new BakedPairView(p.Index, p.Over, p.Under, p.Name, p.Baked))],
             [.. findings.Select(FindingView.Of)],
             directory);
     }
-
-    private static ExportedFile File(string name, byte[] bytes) =>
-        new(name, bytes.Length, Convert.ToBase64String(bytes));
 
     private static bool InsideMap(EditorProject p, int x, int y) =>
         (uint)x < p.Width && (uint)y < p.Height;
@@ -203,39 +184,13 @@ public sealed class ProjectsController(
         return true;
     }
 
-    private EditorProject OpenShipped(NewProject request)
-    {
-        var levelFile = Path.Combine(options.BuildRoot, "level_1.lvl");
-        var sidecar = Path.Combine(options.BuildRoot, "city_baked.json");
-        var baked = new BinaryLevelReader().Read(System.IO.File.ReadAllBytes(levelFile));
-        var pairs = JsonSerializer.Deserialize<List<BakedPairView>>(
-            System.IO.File.ReadAllText(sidecar),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-            ?? throw new InvalidDataException($"{sidecar} is empty");
-
-        var artist = assets.Tileset(
-            request.AssetLevel, request.Sheet, new Dictionary<string, TileFlags>());
-        var source = LevelUnbaker.Unbake(
-            baked,
-            [.. pairs.Select(p => new BakedPair(p.Index, p.Over, p.Under, p.Name, p.Baked))],
-            artist.Count);
-
-        return new EditorProject
+    private EditorProject OpenShipped(NewProject request) =>
+        ShippedLevel.Open(new ShippedLevel.Request
         {
             Id = request.Id,
             Name = request.Name,
             AssetLevel = request.AssetLevel,
             Sheet = request.Sheet,
-            LevelId = baked.LevelId,
-            TilesetId = baked.TilesetId,
-            Scroll = baked.Scroll,
-            Underwater = baked.Underwater,
-            Map = source.Map,
-            Overlays = [.. source.Overlays],
-            Entities = [.. baked.Entities],
-            Links = [.. baked.Links],
-            Regions = [.. baked.Regions],
-            TileFlags = new Dictionary<string, TileFlags>(LevelFlagSeeds.City),
-        };
-    }
+            From = options.BuildRoot,
+        }, assets);
 }

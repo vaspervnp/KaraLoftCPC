@@ -47,4 +47,13 @@ public static class LevelFlagSeeds
             ["street_line"] = TileFlags.Solid,
             ["crate"] = TileFlags.Solid,
         };
+
+    /// <summary>
+    /// The seeds for one level's art package, or nothing at all — five of
+    /// the six levels have no map yet and start with every tile scenery.
+    /// </summary>
+    public static IReadOnlyDictionary<string, TileFlags> For(string assetLevel) =>
+        assetLevel == "level1_city"
+            ? City
+            : new Dictionary<string, TileFlags>(StringComparer.Ordinal);
 }
