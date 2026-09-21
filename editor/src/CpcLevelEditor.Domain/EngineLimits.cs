@@ -45,6 +45,25 @@ public static class EngineLimits
     public const int ScratchTileFirst = 240;
 
     /// <summary>
+    /// <c>ENT_BAKE_MAX</c> — how many pickups can be drawn at all.
+    /// <para>
+    /// A pickup is not a sprite: it is composited once into a private copy
+    /// of the tile it stands on, and there are sixteen of those copies
+    /// (CLAUDE.md 8.6). <c>ENT_BAKE</c> stops when they run out, and
+    /// <c>src/entity.asm</c> says what that costs in its own words — "the
+    /// rest stay invisible rather than overwrite someone else's art".
+    /// </para>
+    /// <para>
+    /// <b>Invisible is not absent.</b> The AABB never consults the bake, so
+    /// the seventeenth pickup is still there to walk into: it goes into her
+    /// inventory out of a cell that was drawing plain roof. That is why
+    /// this is an error and not a warning — and why <see cref="MaxEntities"/>
+    /// is not the limit a level with pickups in it runs into first.
+    /// </para>
+    /// </summary>
+    public const int BakedPickups = 16;
+
+    /// <summary>
     /// Play area in tiles, 20 across by 11 down = 176 lines = 22 character
     /// rows, with the HUD's 16 lines under it making <c>R6 = 24</c>'s 192.
     /// <para>

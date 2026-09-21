@@ -179,8 +179,19 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         var vocabulary = await client.GetFromJsonAsync<VocabularyDto>("/api/vocabulary", Json);
         Assert.NotNull(vocabulary);
         Assert.Equal(EngineLimits.MaxEntities, vocabulary.Limits.MaxEntities);
-        Assert.Contains("Enemy", vocabulary.EntityKinds);
+        Assert.Contains("Enemy", vocabulary.Lists["EntityKind"]);
         Assert.Equal("Active, Touch", vocabulary.DefaultFlags["Pickup"]);
+
+        // EVERY LIST A PARAMETER NAMES HAS TO BE IN THE DOCUMENT, because the
+        // browser resolves it by name and a missing one is a number box where
+        // a list was meant - which is what an enemy's p0 was until EnemyKind
+        // existed.
+        foreach (var (kind, parameters) in vocabulary.Params)
+            foreach (var options in parameters.Select(p => p.Options).Where(o => o is not null))
+                Assert.True(vocabulary.Lists.ContainsKey(options!),
+                    $"{kind} names the list \"{options}\" and the vocabulary has "
+                    + string.Join(", ", vocabulary.Lists.Keys));
+        Assert.Equal("EnemyKind", vocabulary.Params["Enemy"][0].Options);
 
         var edit = await client.PatchAsJsonAsync($"/api/projects/{id}", new
         {
@@ -319,7 +330,8 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         string? Directory);
     private sealed record EditResultDto(int Version, int Applied);
     private sealed record LimitsDto(int MaxEntities, int MapWidth, int MapHeight);
+    private sealed record ParamDto(string Label, string? Options);
     private sealed record VocabularyDto(
-        List<string> EntityKinds, List<string> EntityFlags, List<string> PickupKinds,
-        List<string> RegionKinds, Dictionary<string, string> DefaultFlags, LimitsDto Limits);
+        Dictionary<string, List<string>> Lists, Dictionary<string, ParamDto[]> Params,
+        Dictionary<string, string> DefaultFlags, LimitsDto Limits);
 }

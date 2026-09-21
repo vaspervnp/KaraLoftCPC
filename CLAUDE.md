@@ -68,6 +68,31 @@ called for each kind — comes off `/api/vocabulary`, which builds them
 out of the C# enums themselves**, because a canvas that spelled out
 `EntityKind` would be a second copy of the engine's numbering.
 
+**AND IT KNOWS WHAT THE ENGINE WILL DO WITH WHAT IT WROTE.** The
+validator checked the SHAPE — 128x16, `ENT_MAX`, a tile index past the
+sheet, a region off the map — which is what a WRITER gets wrong. What a
+DESIGNER gets wrong lived in `make_city_map.py`'s asserts and in the
+engine's own bounds tests, each of which reads a byte, quietly does
+nothing and carries on: **seventeen pickups against sixteen scratch
+tiles, a pickup with no `EF_TOUCH`, one off the tile grid, a `p0` past
+its own table, two enemies whose patrols can share a screen.** Every one
+of those is a level that loads, plays, looks right and is missing
+something, and nothing on the hardware says which record was skipped.
+All seven are refused or warned about now, each with the shipped City —
+a level the engine plays on real hardware — as its control (§11 step 7).
+
+**AND IT FOUND A HANG IN THE ENGINE ON THE WAY, WHICH IS WHAT AN EDITOR
+IS FOR.** `make_city_map.py` places four kinds of pickup and the editor
+offers six, so asking for a level with a `Book` in it was the first time
+anything had ever baked `hudicon`'s cel 7. The disc came out, the 6128
+came up dead, and the fault was `ENT_FRAME_COPY` keeping both its
+counters in `BC` and copying with `LDI` — which decrements `BC`. It had
+over-copied every frame it was ever given and nobody could see it,
+because the copy is sequential and the buffer is scratch; running off
+the END of a blob is where it stops being invisible. §10 has the rule,
+§8.6 the cel-by-cel measurement, and `tools/test_entities.py` now bakes
+all six kinds with the old routine as its control.
+
 **AND IT HAS A WAY IN, WHICH THIS FILE SAID IT NEVER WOULD.** The editor
 is closed now: a cookie, and two roads into it — a Google account or a
 **six-digit code emailed** to an address — then an approval list, an
@@ -3103,6 +3128,62 @@ Three things it costs:
   scratch tiles instead of one, so `ENT_BAKE` takes the cell its
   top-left falls in. `tools/make_city_map.py` places them on the grid.
 
+**AND SIXTEEN IS A CEILING A LEVEL CAN REACH, BECAUSE `ENT_MAX` IS 24.**
+`ENT_BAKE` stops when the scratch tiles run out and the rest, in
+`entity.asm`'s own words, "stay invisible rather than overwrite someone
+else's art" — which is the right thing for the engine to do and the
+wrong thing for a designer to discover on the hardware, because
+**invisible is not absent**. The AABB never consults the bake. Measured
+on the machine with nineteen pickups in the table:
+
+| | |
+|---|---|
+| got a scratch tile | **16** |
+| drew the plain roof under them instead | 3 |
+| ... and walking into the nineteenth | **put a key in her inventory** |
+
+So a level with seventeen pickups loads, plays, and hands her something
+out of a cell that is showing brickwork. **The editor refuses such a
+level rather than warning about it** (§11 step 7), and
+`tools/test_entities.py` is where the two numbers are tied together: it
+reads `ENT_BAKE_MAX` off the build rather than writing 16 down, so
+raising the reserve moves the check and the check moves the editor.
+
+#### And the one pickup nobody had ever placed hung the machine
+
+`ENT_FRAME_COPY` — the bake's own read of a span cel out of the art
+bank — kept both its counters in `BC` and copied with `LDI`, which
+decrements `BC`. §10 has the arithmetic and the cel-by-cel measurement;
+what matters here is which levels it could reach. It over-copied every
+frame it was ever given, and the over-copy only runs off the end of
+anything when the cel is near the END of its blob:
+
+| | cel | |
+|---|---:|---|
+| `PU_KEY`, `PU_AMMO` | `citypickups` 0, 1 | the City's own sheet |
+| `PU_MEDKIT`, `PU_COIN` | `hudicon` 0, 4 | of nine |
+| `PU_IDOL` | `hudicon` 6 | never placed by anything |
+| **`PU_BOOK`** | **`hudicon` 7** | **hangs `MAP_INSTALL`** |
+
+`make_city_map.py` places a key, an ammo clip, a medkit and a coin, and
+every one of them is far enough from the end of its blob to terminate.
+**THE LEVEL EDITOR IS WHAT FOUND IT**, because a designer can drop any
+of the six kinds anywhere and the generator never did: one `Book`
+pickup, exported and put on a disc, and the 6128 is dead before the
+first frame — `FRAME_COUNT` frozen, the PC off in the level image, the
+entity table noise. Measured again on the shipped build by poking the
+record in and calling `ENT_BAKE` from a `DI` stub, which is the cheap
+way to ask: **`PU_BOOK` never returned, against 129,742 µs for a key.**
+
+Fixed, the copy is a byte at a time — twice the T-states of an `LDI`
+run, on a routine paid once a level — and **the bake is three and a half
+times faster anyway**, because nearly everything it used to write was
+the over-copy: on the cel measured, 83 bytes of frame against 2,545
+written. **129,742 µs for a key before, 36,769 after.**
+`tools/test_entities.py` bakes **all six kinds** now and composites each
+against an independent reading of the span format, with the old routine
+as the control: three of its five new checks fail on it, naming `PU_5`.
+
 `ENT_STAMP` is the one place the column-major tile layout of §9 is
 *written* rather than read, so it is the one place the formula appears
 the other way round:
@@ -4461,6 +4542,27 @@ frame, so this only helps a standing player on a still screen.
   what §9's tick table measures from; and the test to apply to any raster
   gate is not "is the number right" but **"does changing the number
   change anything"**.
+* **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
+  `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
+  group and `B` = bytes in this span, and copied with `LDI` — so the
+  three `LDI`s between `ld c,a` and the row loop took `C` in at
+  **nlines − 3**, and every time `C` wrapped past zero the borrow took
+  one off `B` as well, so a four-byte span copied three. **Both faults
+  are invisible, and for the same reason: the copy is SEQUENTIAL either
+  way**, so the buffer holds a *prefix* of the source. Over-copying into
+  a scratch buffer shows up nowhere at all, and under-copying only shows
+  on a frame whose groups are long enough to run the counter out.
+  Measured cel by cel on the shipped `hudicon` blob, with the buffer
+  filled with a sentinel first and the result compared against the file:
+  **8 of its 9 cels came out whole BY over-copying** — 83 bytes of
+  frame, 2,545 bytes written — **one was truncated at byte 41 of 71**,
+  and **the last two never terminated**, because the over-copy ran off
+  the end of the blob and never met a zero. That last one is a HANG
+  inside `MAP_INSTALL`, before the first frame (§8.6). The rule is the
+  entry below with a different register, and the test to apply is not
+  "is this register free here" but **"is it free at every instruction
+  between where I set it and where I read it"** — `LDI`, `LDIR`, `CPIR`
+  and `OUTI` all count.
 * **`B` IS A LOOP COUNTER SOMEWHERE ABOVE YOU.** `EBUL_HITS_HER` was
   given a second register for the crouch's shorter hitbox and took `B`;
   its caller holds the pool's slot count there and finishes with `DJNZ`,
@@ -5081,6 +5183,64 @@ the next one starts.
    directories and sheets, takes the level's number from the directory
    name, and starts with an empty flag table — nine tile sheets across
    six levels, and only the City has ever had a map.
+
+   **AND THE VALIDATOR KNOWS WHAT THE ENGINE DOES WITH A LEVEL, NOT ONLY
+   WHAT THE FORMAT WILL CARRY.** It checked the SHAPE — 128x16,
+   `ENT_MAX`, a tile index past the sheet, a region off the map, the
+   scratch tiles the tileset must stop below — which is everything a
+   WRITER can get wrong and almost nothing a DESIGNER can. The rest of
+   the rules lived in `make_city_map.py`'s asserts and in the .asm's own
+   bounds tests, where each one reads a byte, quietly does nothing and
+   carries on. **That is the right behaviour down there** — a level the
+   engine cannot read should lose a record and not the frame (§8.7) —
+   **and it is exactly why somebody has to be told up here**: nothing on
+   the hardware says which record was skipped. The level loads, the
+   picture is right, and one thing is not in it.
+
+   | the level says | the engine does | |
+   |---|---|---|
+   | more than 16 pickups | `ENT_BAKE` runs out of scratch tiles and the rest are **drawn nowhere and still takeable** (§8.6) | error |
+   | a pickup without `EF_TOUCH` | `ENT_ON_TOUCH` is the only handler that takes one, and the interact pass has doors, NPCs and receptacles in it and nothing else — so it is drawn and cannot be picked up | error |
+   | a pickup off the tile grid | `ENT_BAKE` draws it in the cell its top-left falls in and the box stays where the record says: the picture and the thing she can walk into are in different places | error |
+   | `EF_TOUCH` on anything that is NOT a pickup | the touch sweep publishes the FIRST box it meets and stops, so it hides any pickup it overlaps — and `ENT_ON_TOUCH` does nothing with it either way | warning |
+   | a pickup's `p0` past `ENT_ART_KINDS` | `ENT_BAKE_ONE` refuses it: drawn nowhere, and into no counter | error |
+   | an enemy's `p0` past `EN_KINDS` | `ENEMY_ADD` refuses it: the record costs a slot of `ENT_MAX` and nothing spawns | error |
+   | two enemies whose PATROLS come within a screen | `ENEMY_PICK` keeps the first it finds near the view, so the other is not a second enemy — it is no enemy (§8.7) | error |
+
+   **The last one is `make_city_map.py`'s own assert, moved to where a
+   painted level meets it too**, and it is the patrol and not the
+   placement: `p1` is the half-width in tiles, so an enemy occupies
+   `x ± p1` and the gap between two of those has to be more than the
+   twenty tiles of screen. The generator's three drones are 40 tiles
+   apart across a 128-tile map, which is why the test that drives this
+   takes them out and puts two back — **there is nowhere to put a fourth
+   that clears both its neighbours, and that is the rule holding rather
+   than a reason to bend the test around it.**
+
+   **`EnemyKind` had to exist for the sixth of those**, and it is the
+   same gap one row along: `p0` is always "which thing this is" (§8.6),
+   the pickup's `p0` has been a list in the inspector since the records
+   became editable, and the enemy's was a number box — because there was
+   no enum behind it. There is now, and it is the ENGINE's table and not
+   the art package's: `assets/sprites/` carries seven named characters
+   and `ENEMY_TYPES` has two rows. `/api/vocabulary` serves every list
+   keyed by its own enum's name and a parameter names the key, so the
+   canvas resolves a list it does not know the name of, and the
+   integration suite checks that **every list a parameter names is in
+   the document** — which is what a number box where a list was meant
+   looks like from the outside.
+
+   **Every rule has the shipped City as its control**, because that is a
+   level the engine plays on real hardware: a `[Theory]` runs all seven
+   against it and none may fire. Each then has its own fault put in and
+   taken back out, so a rule that fired on everything would fail the
+   first half and a rule that fired on nothing would fail the second.
+
+   **What found all of this was the hang** (§8.6): asking the editor for
+   a level with a `Book` pickup in it, putting it on a disc, and getting
+   a dead 6128. The engine's own fault is fixed there; what the
+   measurement also showed is how much of a level's correctness the
+   editor was not checking at all, and this is that half.
 
    **What is left**: a second level, which is now a LEVEL's work and not
    the editor's — the art is there and the editor will paint it, and

@@ -994,31 +994,69 @@ ENT_LIST_ADDR:  ld   h,0
 ;
 ; It walks the format to find the end rather than copying a fixed
 ; block, because the last blob in a bank has nothing after it to read.
+;
+; AND IT MUST NOT USE LDI, WHICH IS WHAT IT DID. LDI decrements BC, and
+; BC is where both of this routine's counters live: C is the lines left
+; in the group and B the bytes in a span. Three LDIs sit between
+; `ld c,a` and the row loop, so C entered it at nlines - 3; and every
+; time C wrapped past zero the borrow took one off B as well, so a span
+; of four bytes copied three. Both faults are SILENT, because the copy
+; is sequential either way - the buffer holds a PREFIX of the source,
+; and over-copying into a scratch buffer at &8000 shows up nowhere.
+;
+; Measured on the shipped hudicon blob, cel by cel, with the buffer
+; filled with a sentinel first and the result compared with the file:
+;
+;   * 8 of its 9 cels came out whole, BY over-copying - 83 bytes of
+;     frame, 2,545 bytes written
+;   * cel 3 was TRUNCATED at byte 41 of 71. It is one group of 8 lines,
+;     so C started at 5 and the borrow ate a byte a row
+;   * cels 7 and 8 NEVER TERMINATED. They are the last two in the blob,
+;     so the over-copy ran off the end and never met a zero.
+;
+; Cel 7 is HUDICON_BOOK, which is PU_BOOK's art - so ONE book pickup in
+; a level hangs the machine inside MAP_INSTALL, before the first frame.
+; The City has never carried one: make_city_map.py places a key, an
+; ammo clip, a medkit and a coin, whose cels are 0 and 1 of citypickups
+; and 0 and 4 of hudicon, all far from the end of their blobs. THE
+; LEVEL EDITOR IS WHAT FOUND IT, because a designer can drop any of the
+; six kinds anywhere.
+;
+; So the copy is a byte at a time and BC is left to the counters. It
+; costs about twice the T-states of an LDI run, and this routine is
+; paid ONCE A LEVEL, at install - CLAUDE.md 8.6 has the whole bake at
+; 348,052 T for four pickups.
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
 ENT_FRAME_COPY: ld   de,ENT_FRAME_BUF
-                ldi                         ; y0
-                ldi                         ; lines stored
-.group:         ld   a,(hl)                 ; nlines
-                ldi
+                call .byte                  ; y0
+                call .byte                  ; lines stored
+.group:         call .byte                  ; nlines
                 or   a
                 ret  z                      ; 0 ends the frame
                 ld   c,a                    ; C = lines in this group
-                ld   a,(hl)                 ; count
-                ldi
-                ldi                         ; dskip, low and high
-                ldi
+                call .byte                  ; count
+                ld   b,a                    ; B = bytes in the span, and it
+                call .byte                  ; has to be saved before the
+                call .byte                  ; dskip pair clobbers A
+                ld   a,b
                 or   a
                 jr   z,.group               ; blank lines carry no bytes
-                ld   b,a
 .row:           push bc
-.pair:          ldi                         ; mask
-                ldi                         ; data
+.pair:          call .byte                  ; mask
+                call .byte                  ; data
                 djnz .pair
                 pop  bc
                 dec  c
                 jr   nz,.row
                 jr   .group
+
+; One byte, HL -> DE, and BC is none of its business.
+.byte:          ld   a,(hl)
+                ld   (de),a
+                inc  hl
+                inc  de
+                ret
 
 ; ---------------------------------------------------------------------
 ; ENT_STAMP - composite the frame at HL over the tile at (ENT_TILEP).

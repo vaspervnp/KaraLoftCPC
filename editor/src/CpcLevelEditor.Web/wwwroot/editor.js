@@ -437,29 +437,32 @@ const number = (id, value, max) =>
 const flagNames = (flags) => String(flags ?? 'None').split(',').map((n) => n.trim());
 const flagString = (names) => (names.length ? names.join(', ') : 'None');
 
-const paramField = (id, value, spec, v) => spec.options === 'PickupKind'
-  ? `<select id="${id}">${indexedOf(v.pickupKinds, value)}</select>`
+// THE LIST IS NAMED BY THE SERVER, not chosen here: spec.options is a key
+// in v.lists, so a byte that becomes an enum tomorrow needs no change in
+// this file (see VocabularyView).
+const paramField = (id, value, spec, v) => spec.options
+  ? `<select id="${id}">${indexedOf(v.lists[spec.options], value)}</select>`
   : number(id, value, 255);
 
 function placingHtml(v) {
   const pick = (id, list, chosen) =>
     `<select id="${id}">${optionsOf(list, chosen)}</select>`;
   return '<strong>placing</strong>'
-    + row('entity', pick('f-new-entity', v.entityKinds, state.entityKind))
-    + row('region', pick('f-new-region', v.regionKinds, state.regionKind));
+    + row('entity', pick('f-new-entity', v.lists.EntityKind, state.entityKind))
+    + row('region', pick('f-new-region', v.lists.RegionKind, state.regionKind));
 }
 
 function entityHtml(v, e, index) {
   const params = v.params[e.kind] ?? [{ label: 'p0' }, { label: 'p1' }];
   return `<div class="record"><strong>entity ${index}</strong>`
-    + row('kind', `<select id="f-kind">${optionsOf(v.entityKinds, e.kind)}</select>`)
+    + row('kind', `<select id="f-kind">${optionsOf(v.lists.EntityKind, e.kind)}</select>`)
     + row('tile column', number('f-x', e.x / PW, state.project.width - 1))
     // Y IS THE BASE OF THE HITBOX: the row here is the one whose TOP surface
     // the thing stands on, which is what make_city_map.py's entity() takes.
     + row('stands on the top of row', number('f-y', e.y / PH, state.project.height))
     + row(params[0].label, paramField('f-p0', e.p0, params[0], v))
     + row(params[1].label, paramField('f-p1', e.p1, params[1], v))
-    + `<div class="bits">${v.entityFlags.map((n) =>
+    + `<div class="bits">${v.lists.EntityFlags.map((n) =>
         `<label><input type="checkbox" data-flag="${n}"`
         + `${flagNames(e.flags).includes(n) ? ' checked' : ''}> ${n}</label>`).join('')}</div>`
     + '<button id="f-delete">delete</button></div>';
@@ -467,7 +470,7 @@ function entityHtml(v, e, index) {
 
 function regionHtml(v, r, index) {
   return `<div class="record"><strong>region ${index}</strong>`
-    + row('kind', `<select id="f-kind">${optionsOf(v.regionKinds, r.kind)}</select>`)
+    + row('kind', `<select id="f-kind">${optionsOf(v.lists.RegionKind, r.kind)}</select>`)
     + row('tile column', number('f-x', r.x, state.project.width - 1))
     + row('tile row', number('f-y', r.y, state.project.height - 1))
     + row('tiles across', number('f-w', r.width, state.project.width))
@@ -492,7 +495,7 @@ function inspector() {
         kind: $('f-kind').value,
         x: Number($('f-x').value) * PW,
         y: Number($('f-y').value) * PH,
-        flags: flagString(v.entityFlags.filter(
+        flags: flagString(v.lists.EntityFlags.filter(
           (n) => box.querySelector(`[data-flag="${n}"]`).checked)),
         p0: Number($('f-p0').value), p1: Number($('f-p1').value),
       }

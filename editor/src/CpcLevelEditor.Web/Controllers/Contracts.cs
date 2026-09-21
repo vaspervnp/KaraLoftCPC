@@ -37,10 +37,13 @@ public sealed record ProjectView(
 /// <summary>
 /// The enums, by name, so the browser keeps no copy of any of them.
 /// </summary>
-/// <param name="EntityKinds">In declaration order, which is the engine's.</param>
-/// <param name="EntityFlags">The four bits of byte 5, <c>None</c> left out.</param>
-/// <param name="PickupKinds">What <c>p0</c> means on a pickup.</param>
-/// <param name="RegionKinds">Nothing in the engine reads one yet.</param>
+/// <param name="Lists">
+/// Every enum the inspector offers, keyed by the enum's OWN name — which is
+/// what lets <see cref="ParamView.Options"/> name one instead of the browser
+/// knowing which lists exist. <c>EntityFlags</c> is the four bits of byte 5
+/// with <c>None</c> left out; the rest are in declaration order, which for
+/// <c>EntityKind</c> and <c>PickupKind</c> is the engine's numbering.
+/// </param>
 /// <param name="Params">
 /// What <c>p0</c> and <c>p1</c> are for, per kind — the table in
 /// <see cref="Entity"/>'s remarks and CLAUDE.md 8.6, so an inspector can
@@ -50,21 +53,25 @@ public sealed record ProjectView(
 /// <param name="DefaultFlags">What a new record of each kind starts as.</param>
 /// <param name="Limits">What the engine will take: ENT_MAX and the map's shape.</param>
 public sealed record VocabularyView(
-    IReadOnlyList<string> EntityKinds,
-    IReadOnlyList<string> EntityFlags,
-    IReadOnlyList<string> PickupKinds,
-    IReadOnlyList<string> RegionKinds,
+    IReadOnlyDictionary<string, IReadOnlyList<string>> Lists,
     IReadOnlyDictionary<string, ParamView[]> Params,
     IReadOnlyDictionary<string, string> DefaultFlags,
     EngineLimitsView Limits)
 {
     private const string Pickups = nameof(PickupKind);
+    private const string Enemies = nameof(EnemyKind);
 
     public static VocabularyView Current { get; } = new(
-        Enum.GetNames<EntityKind>(),
-        [.. Enum.GetNames<Domain.EntityFlags>().Where(n => n != nameof(Domain.EntityFlags.None))],
-        Enum.GetNames<PickupKind>(),
-        Enum.GetNames<RegionKind>(),
+        new Dictionary<string, IReadOnlyList<string>>
+        {
+            [nameof(EntityKind)] = Enum.GetNames<EntityKind>(),
+            [nameof(Domain.EntityFlags)] =
+                [.. Enum.GetNames<Domain.EntityFlags>()
+                        .Where(n => n != nameof(Domain.EntityFlags.None))],
+            [Pickups] = Enum.GetNames<PickupKind>(),
+            [Enemies] = Enum.GetNames<EnemyKind>(),
+            [nameof(RegionKind)] = Enum.GetNames<RegionKind>(),
+        },
         new Dictionary<string, ParamView[]>
         {
             [nameof(EntityKind.Pickup)] =
@@ -77,9 +84,11 @@ public sealed record VocabularyView(
             // p0 IS ALWAYS "WHICH THING THIS IS" (CLAUDE.md 8.6), and the
             // enemy row is the one editor.md had the other way round: the
             // fire rate, the speed, the box and the hit points come from the
-            // engine's type table, so a designer places a character.
+            // engine's type table, so a designer places a character — and
+            // now picks it off a list, because a number with no list behind
+            // it is one ENEMY_ADD can refuse without anybody being told.
             [nameof(EntityKind.Enemy)] =
-                [new("which character (EN_*)"), new("patrol half-width in tiles")],
+                [new("which character", Enemies), new("patrol half-width in tiles")],
             [nameof(EntityKind.Hazard)] = [new("damage"), new("period")],
         },
         Enum.GetValues<EntityKind>().ToDictionary(
@@ -93,8 +102,8 @@ public sealed record VocabularyView(
 /// one of when it is one.
 /// </summary>
 /// <param name="Options">
-/// The name of the list in this same document whose index this byte is —
-/// only <c>PickupKind</c> so far. Null means it is a plain number.
+/// The key in <see cref="VocabularyView.Lists"/> whose index this byte is.
+/// Null means it is a plain number.
 /// </param>
 public sealed record ParamView(string Label, string? Options = null);
 

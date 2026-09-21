@@ -250,6 +250,178 @@ def quiet_the_enemies(m, sym):
     m.run_frames(3)
 
 
+def every_kind_checks(sym):
+    """Every PU_*, and not only the four this level happens to carry.
+
+    The City places a key, an ammo clip, a medkit and a coin, and their
+    art is cels 0 and 1 of citypickups and cels 0 and 4 of hudicon -
+    all near the FRONT of their blobs. A designer can drop any of the
+    six anywhere, so the other two had never been baked by anything,
+    and one of them hung the machine.
+
+    PU_BOOK is hudicon's cel 7, second from LAST in a nine-cel blob.
+    ENT_FRAME_COPY kept both its counters in BC and copied with LDI,
+    which decrements BC: it over-copied every frame it was ever given,
+    ran off the end of the blob on the last two, and never met a
+    terminator. One book pickup in a level therefore hung MAP_INSTALL
+    before the first frame - and NOTHING in this suite could see it,
+    because the check above walks the level's own pickups.
+
+    Measured on the shipped build with the record poked into the table,
+    ENT_BAKE called from a DI stub:
+
+        before        key 129,742 us, idol 129,230, BOOK NEVER RETURNED
+        after          key  36,769 us, idol  36,085, book  35,419
+
+    The three-and-a-half times is the over-copy: 83 bytes of frame,
+    2,545 bytes written.
+    """
+    print("\n  ... and every kind of pickup, not just the level's four:")
+    m = boot(sym, scroll=True)
+    quiet_the_enemies(m, sym)
+    tiles = open(os.path.join(LEV, "level1_city", "citytiles.bin"), "rb").read()
+
+    # A cell no pickup of the level's own was baked into, so what it
+    # holds is a real tile index and not a scratch one.
+    col, row = 100, 5
+    cell = MAP_ADDR + row * MAP_W + col
+    was = m.peek(cell)
+    if was >= BAKE_TILE0:
+        check("the probe cell is a plain tile", False, f"({col},{row}) is {was}")
+        return
+
+    def bake(pu, flags=EF_ACTIVE | EF_TOUCH):
+        """One pickup, alone in the table, through the real ENT_BAKE."""
+        m.poke(cell, was)                       # whatever the last one left
+        blob = record(EK_PICKUP, col * 8, (row + 1) * 16, flags, pu, 0)
+        blob += bytes(ENT_MAX * ENT_STRIDE - len(blob))
+        m.write_ram(sym["ENT_TABLE"], blob)
+        m.poke(sym["ENT_COUNT"], ENT_MAX)
+        a = sym["ENT_BAKE"]
+        code = bytes([0xF3, 0xCD, a & 0xFF, a >> 8, 0x18, 0xFE])
+        m.write_ram(STUB, code)
+        m.set_pc(STUB)
+        for us in range(1, 200000):
+            m.run_us(1)
+            if m.pc == STUB + 4:
+                m.set_pc(sym["WAIT_VSYNC"])
+                return us
+        m.set_pc(sym["WAIT_VSYNC"])
+        return None                             # it ran away
+
+    plain = tiles[was * TILE_BYTES:(was + 1) * TILE_BYTES]
+    hung, wrong, agreed, slowest = [], [], 0, 0
+    for pu in range(6):
+        us = bake(pu)
+        if us is None:
+            hung.append(pu)
+            continue
+        slowest = max(slowest, us)
+        blob, cel = blob_cel(*ART[pu])
+        want = stamp(blob, cel, plain)
+        got = peek_c4(m, sym, BAKE_ADDR, TILE_BYTES)
+        if got == want and m.peek(cell) == BAKE_TILE0:
+            agreed += 1
+        else:
+            wrong.append(pu)
+
+    check("ENT_BAKE comes back for all six kinds", not hung,
+          f"PU_{'/'.join(str(p) for p in hung)} never returned - the frame "
+          "copy walked off the end of the blob"
+          if hung else f"slowest {slowest:,} us")
+    check("... and every one of them composites to the model",
+          agreed == 6, f"{agreed} of 6 tiles"
+          + (f", wrong: {wrong}" if wrong else ""))
+
+    # THE CONTROLS. Six comparisons that all passed would also pass if
+    # every kind drew the same thing, or if the stamp wrote nothing.
+    bake(PU_BOOK)
+    book = peek_c4(m, sym, BAKE_ADDR, TILE_BYTES)
+    blob, cel = blob_cel(*ART[PU_IDOL])
+    check("a book is not an idol", book != stamp(blob, cel, plain),
+          "the model would agree with anything if every cel drew the same")
+    check("... and neither of them is the tile underneath",
+          book != plain, "a stamp that wrote nothing would pass the model")
+
+    us = bake(PU_BOOK, flags=0)                 # not EF_ACTIVE
+    check("a record that is not EF_ACTIVE is not baked at all",
+          us is not None and m.peek(sym["ENT_BAKED"]) == 0
+          and m.peek(cell) == was,
+          f"ENT_BAKED {m.peek(sym['ENT_BAKED'])}, cell {m.peek(cell)} "
+          f"against {was}")
+    m.poke(cell, was)
+
+
+def ceiling_checks(sym):
+    """ENT_BAKE_MAX pickups get a tile. What happens to the rest is the
+    reason the level editor refuses them.
+
+    A pickup is not a sprite - it is composited once into a private copy
+    of the tile it stands on - and there are sixteen of those copies at
+    the top of bank C4 (CLAUDE.md 8.6). ENT_MAX is 24, so a level can
+    hold eight pickups the engine will not draw, and entity.asm says
+    what it does about it in its own words: "the rest stay invisible
+    rather than overwrite someone else's art".
+
+    INVISIBLE IS NOT ABSENT, and that is the half a designer cannot
+    guess. The AABB never consults the bake, so the seventeenth pickup
+    is still there to walk into - it goes into her inventory out of a
+    cell that is drawing plain roof.
+
+    The editor's EngineLimits.BakedPickups is this number, and this is
+    where the two are tied together: raise ENT_BAKE_MAX and the check
+    below moves with it, which is what should then move the editor's.
+    """
+    print("\n  the bake's ceiling, and what is past it:")
+    m = boot(sym, scroll=True)
+    quiet_the_enemies(m, sym)
+    w = World(m, sym)
+    ceiling = sym["ENT_BAKE_MAX"]
+
+    # Clear of the level's own five, which are at columns 24, 44 and 64
+    # of row 5 and 26 and 62 of row 13.
+    first_col, row = 70, 5
+    n = ceiling + 3
+    cells = [MAP_ADDR + row * MAP_W + first_col + i for i in range(n)]
+    plain = [m.peek(c) for c in cells]
+    if any(p >= BAKE_TILE0 for p in plain):
+        check("the probe cells are plain tiles", False, f"{plain}")
+        return
+
+    w.load(*[record(EK_PICKUP, (first_col + i) * 8, (row + 1) * 16,
+                    EF_ACTIVE | EF_TOUCH, PU_KEY, 0) for i in range(n)])
+    a = sym["ENT_BAKE"]
+    m.write_ram(STUB, bytes([0xF3, 0xCD, a & 0xFF, a >> 8, 0x18, 0xFE]))
+    m.set_pc(STUB)
+    for _ in range(400000):
+        m.run_us(1)
+        if m.pc == STUB + 4:
+            break
+    m.set_pc(sym["WAIT_VSYNC"])
+
+    drawn = [i for i, c in enumerate(cells) if m.peek(c) >= BAKE_TILE0]
+    check(f"exactly ENT_BAKE_MAX = {ceiling} pickups get a scratch tile",
+          m.peek(sym["ENT_BAKED"]) == ceiling and len(drawn) == ceiling,
+          f"{len(drawn)} of {n} drawn, ENT_BAKED {m.peek(sym['ENT_BAKED'])}")
+    check("... and the ones past it draw whatever was under them",
+          all(m.peek(cells[i]) == plain[i] for i in range(ceiling, n)),
+          f"cells {list(range(ceiling, n))} still hold {plain[ceiling:]}")
+
+    # ... AND THE ENGINE WILL STILL HAND HER ONE. Her box is 6 bytes and
+    # a pickup 4, and x is in PIXELS in the record and BYTES in the box
+    # (CLAUDE.md 8.10), so this stands her across the last one.
+    over = first_col + n - 1
+    m.poke(sym["KEYS_COUNT"], 0)
+    w.place(over * 4 - 1, (row + 1) * 16 - KARA_H)
+    w.run("ENT_UPDATE")
+    check("... and one of THOSE is still there to walk into",
+          m.peek(sym["KEYS_COUNT"]) == 1,
+          f"KEYS_COUNT {m.peek(sym['KEYS_COUNT'])} off a pickup at tile "
+          f"({over},{row}), whose cell is drawing tile {m.peek(cells[-1])} "
+          "- which is why the editor refuses the level rather than "
+          "warning about it")
+
+
 def disown_checks(sym):
     """A repaint disowns the strip's layout ONLY when it can reach it.
 
@@ -716,6 +888,8 @@ def main():
           len(blob) == ENT_MAX * 8 and used > 0, f"{len(blob)} bytes")
 
     bake_checks(sym)
+    every_kind_checks(sym)
+    ceiling_checks(sym)
     disown_checks(sym)
 
     print()
