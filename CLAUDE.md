@@ -4711,6 +4711,104 @@ scrolling frame, or be scheduled onto a frame that is not scrolling —
 which is what §8.7 does with the enemies. A `citydrone` is 17,968 and
 still does not fit; the agent at 40,760 is not close.
 
+### What the frame has left, measured rather than summed
+
+**THE PESSIMISTIC SUM SAYS 7,456 T OVER AND THE LOOP SAYS 100 OF 200,
+SO NEITHER ANSWERS "CAN I ADD THIS".** What does is §7.8's own
+instrument one routine along: **a delay of a KNOWN length in front of
+the work**, and then the loop counted against interrupt ticks as
+usual. The delay goes before `PLAYER_UPDATE`, which is where new LOGIC
+would land and which runs in the FIRST hardware sweep — the one that
+also carries her draw and the column's tail. The second sweep's idle
+window (40,468 T waiting for the head gate) is not where logic goes.
+
+Measured with the level's drones off, so that what is being read is the
+LOOP and not the encounter (§9's table above), game frames per 200
+hardware frames:
+
+| | 0 | 800 | 1,600 | 2,800 | 5,600 | 11,200 | 22,400 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| standing still | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| climbing up | 100 | 100 | 100 | 100 | 100 | 100 | |
+| climbing down | 100 | 100 | 100 | 100 | 100 | 98 | |
+| walking either way | 100 | 100 | 100 | 100 | 100 | 97 | 80 |
+| walking + firing | 100 | 100 | 100 | 97 | | 90 | 83 |
+| jumping + firing | 100 | 100 | 100 | 97 | | 90 | 82 |
+| running right | 100 | 100 | 100 | 99 | | 76 | 66 |
+| **running + firing** | 100 | **100** | **99** | 97 | 89 | 75 | 73 |
+
+**So the binding number is 800 T and it belongs to one path.** Running
+and firing is the only one that cannot carry 1,600, and everything else
+carries 2,800 — the climb, which is the path with the most logic in it,
+carries 5,600. That is the budget any new per-frame work is against,
+and it is a different question from the 3,940 T the pessimistic sum
+has left: the sum adds worsts that do not co-occur, and this does not
+add anything at all.
+
+#### And what 16-bit world Y would cost, which is what the measurement was for
+
+**World X is 16 bits and world Y is a byte** (§8.10), which caps a
+level at 256 pixels tall — sixteen tiles, the shape every level has.
+A level that is one screen wide and many tall needs the other axis
+widened, so the question is what that costs a frame with 800 T on its
+tightest path. Every Y operation in the engine is one of four shapes;
+each was written twice and both were run from a DI stub, so the gate
+array's padding is in the number:
+
+| | 8-bit | 16-bit | |
+|---|---:|---:|---:|
+| a signed step — `WY += C` | 36 T | 68 T | **+32** |
+| a bound — `WY >= n ?` | 32 | 60 | **+28** |
+| carrying it to a probe — `A = WY` against `DE = WY` | 16 | 24 | **+8** |
+| `MAP_CELL`'s row scale | 72 | 88 | **+16** |
+
+**`MAP_CELL` was the one expected to be free and it is not.** Today it
+scales the ROW out of the base address — `A AND &F0` into `L`, the base
+in `H`, three `ADD HL,HL` — which works only because an 8-bit Y's row
+fits in a nibble. A 16-bit Y needs no such trick, because the row and
+the width are both powers of two and `(Y AND &03F0) << 1` IS `row * 32`
+on a 32-tile-wide map; it is still 16 T dearer, and it would have to
+become per-LEVEL (a self-modified shift) the day two level shapes
+exist.
+
+**Counted off `src/player.asm`, 35 of the engine's 38 `KARA_WY` sites
+are there**, and they divide by branch rather than running together:
+`PLAYER_CLIMB` has nine, `PLAYER_HANG` four, `EDGE_ENTER` one,
+`PLAYER_SPAWN` and `VIEW_TO_PLAYER` two more that run once a level. A
+walking or running frame executes about **twelve** of them —
+`PLAYER_X`'s probe, `FALL_MARK`, `PLAYER_Y`'s two reads and its one
+store, `CLIMB_ENTER`'s pair, `CAMERA_V`, `PLAYER_TO_SCREEN`, and one
+each in `entity.asm` and `enemy.asm` — and a climbing frame about
+twenty.
+
+| | sites a frame | at the worst shape's +32 | the frame has |
+|---|---:|---:|---:|
+| running and firing | ~12 | **~380 T** | **800** |
+| walking, jumping, firing | ~12 | ~380 | 2,800 |
+| climbing | ~20 | ~640 | 5,600 |
+
+**So it fits, and on the one path where it is close it fits twice
+over** — she cannot climb while she runs, so the twenty-site frame and
+the 800 T frame are never the same frame.
+
+**AND THE SHIPPED LEVEL, DRONES AND ALL, LOSES NOTHING AT 392 T.**
+The table above takes the drones off to read the loop; the game has
+them. Driven on the worst path at three starting points, game frames
+per 200:
+
+| extra logic | pre-roll 86 | 90 | 95 |
+|---|---:|---:|---:|
+| none | 98 | 97 | 96 |
+| **392 T** | **98** | **97** | **96** |
+| 812 T | 97 | 96 | 95 |
+
+so the estimate has a whole frame of room under it on the one path
+that has any to lose. What it costs that is NOT
+T-states is the list to weigh a design against: 38 sites to widen, the
+AABB's Y to widen with them, `MAP_CELL`'s row scale to become the
+level's rather than the build's, and two bytes of RAM. `WORLD_CR`
+stays a byte either way — a 64-tile-tall map's `V_CR_MAX` is 104.
+
 ### Raster constraints, all of them load-bearing
 
 The order of work in the main loop is not a data-dependency order, it is a
