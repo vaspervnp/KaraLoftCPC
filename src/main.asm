@@ -898,13 +898,25 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "levels/disc.inc"
                 include "levels/banks.inc"
                 include "levels/spawns.inc"
-                ; The pickups' art, for ENT_ART. Level 1's own sheet and
-                ; the shared HUD icons - module 6 makes this per level,
-                ; with the rest of the level's table.
-                include "levels/level1_city/citypickups.inc"
+                ; THE PICKUPS' ART, FOR ENT_ART - and it is every
+                ; environment's now rather than level 1's. hudicon is the
+                ; fallback for every kind and each environment's own sheet
+                ; overrides it where it draws one specially, so what is
+                ; included here is the shared icons plus the four sheets
+                ; that override anything (entity.asm has the table and the
+                ; measurement that says why). The cave and the desert have
+                ; no pickup sheet at all and need no include.
                 include "levels/_shared/hudicon.inc"
+                include "levels/level1_city/citypickups.inc"
+                include "levels/level2_forest/forestpickups.inc"
+                include "levels/level4_underwater/seapickups.inc"
+                ; ... and the CHARACTERS, for ENEMY_TYPES. One row a
+                ; character in the game, not a row a level: an enemy
+                ; record names which character it is (CLAUDE.md 8.6), so
+                ; the level chooses and the table only has to hold them.
                 include "levels/level1_city/cityagent.inc"
                 include "levels/level1_city/citydrone.inc"
+                include "levels/level2_forest/forestsniper.inc"
                 include "levels/_shared/kcore.inc"
                 include "levels/_shared/kact.inc"
                 include "kara.asm"
@@ -953,10 +965,10 @@ BANK_STORE:     ld   a,PEN_GREEN
                 assert (SPAN_ENTRY AND 255) == 0
                 assert (SPAN_RUN AND &FF00) == (SPAN_RUN_END AND &FF00)
                 assert SPAN_SCRIPT + SPAN_SCRIPT_MAX <= BUL_SAVE + &1000
-                ; ENT_BAKE_ONE indexes ENT_ART the same way, and
+                ; ENT_ART_FOR indexes ENT_ART_CEL the same way, and
                 ; ENT_OVERLAP indexes ENT_HITBOX - both need every row
                 ; in the SAME PAGE as the label, not merely aligned.
-                assert (ENT_ART AND 255) + ENT_ART_KINDS * ENT_ART_BYTES <= 256
+                assert (ENT_ART_CEL AND 255) + ENT_ART_KINDS <= 256
                 assert (ENT_HITBOX AND 255) + EK_COUNT * 2 <= 256
                 ; ENEMY_TYPE_AT does the same with a 32-byte stride, and
                 ; the WHOLE table has to sit in one page: ADD A,low

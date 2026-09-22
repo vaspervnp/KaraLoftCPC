@@ -780,38 +780,160 @@ ENT_BAKE_WAS    equ 4
 ENT_BAKE_STRIDE equ 5
 
 ; ---------------------------------------------------------------------
-; WHICH ART A PICKUP IS. Four bytes a kind: bank and blob. It is level
-; 1's, and module 6 makes it per level along with the rest of the
-; level's table - every address comes from build/levels/banks.inc, so
-; the shape does not change, only where it is read from.
+; WHICH ART A PICKUP IS, AND IT IS THE ENVIRONMENT'S RATHER THAN LEVEL
+; ONE'S.
 ;
-; The city's own sheet draws a key and an ammo clip and nothing else,
-; which is right: a medkit is not city art. The other four kinds fall
-; back on `hudicon`, which is 4x16 as well, carries one cel of every
-; pickup in the game, and is in every level's bank set already because
-; the HUD needs it.
+; This table used to be six rows of L1_* symbols with a note saying
+; module 6 would make it per level. It never did, and what that cost is
+; invisible in exactly the way CLAUDE.md 11 step 7 is about: `hudicon`
+; is allocated at a DIFFERENT bank and address in every one of the six
+; levels - &C6:7CB8 in the city, &C0:7377 in the forest, &C7:7A16 in
+; the desert - so a medkit or a coin placed in any level but the first
+; baked its picture out of whatever happened to be at the city's
+; address in the forest's banks. The level loads, the map is right, and
+; one tile is noise.
+;
+; PINNING hudicon the way level_banks.py pins Kara's three blobs would
+; also fix it and is NOT what this does: the pinned blobs are pinned
+; because src/kara.asm addresses them by constant, and one more pin is
+; 763 bytes of fixed address in an allocation that leaves level 2 with
+; 671 bytes spare (CLAUDE.md 6.2). Naming the six addresses costs 18
+; bytes here and nothing there.
+;
+; So: EVERY kind falls back on `hudicon`, which is 4x16, carries one
+; cel of every pickup in the game and is in every level's bank set
+; already because the HUD needs it - and what an ENVIRONMENT draws
+; SPECIALLY overrides that. Counted off the shipped blobs, the whole of
+; what is special today is four rows:
+;
+;   the city     a key and an ammo clip      (a medkit is not city art)
+;   the forest   the idol - level 2's own statue-on-altar
+;   the sea      a medkit, drawn as a sea pickup
+;   the station  a keycard and a map, NEITHER of which is a PU_* yet
+;
+; The cave and the desert have no pickup sheet at all, which is not an
+; omission: they take the fallback like every kind the others do not
+; draw.
 ; ---------------------------------------------------------------------
-ENT_ART_BYTES   equ 4
-                align 32                    ; indexed with ADD A,ENT_ART AND 255
-ENT_ART:        db L1_CITYPICKUPS_BANK      ; PU_KEY
+ENT_ART_ENVS    equ 6               ; six environments (CLAUDE.md 8.1)
+
+; Where `hudicon` landed in each of them. Indexed by LEVEL_ENV, which
+; is 0 based - src/flow.asm takes the file's 1-6 down by one.
+ENT_ART_HUD_BANK:
+                db L1_HUDICON_BANK, L2_HUDICON_BANK, L3_HUDICON_BANK
+                db L4_HUDICON_BANK, L5_HUDICON_BANK, L6_HUDICON_BANK
+ENT_ART_HUD_ADDR:
+                dw L1_HUDICON_ADDR, L2_HUDICON_ADDR, L3_HUDICON_ADDR
+                dw L4_HUDICON_ADDR, L5_HUDICON_ADDR, L6_HUDICON_ADDR
+
+; ... and which of its nine cels each kind takes.
+                align 8             ; ADD A,ENT_ART_CEL AND 255 (CLAUDE.md 10)
+ENT_ART_CEL:    db HUDICON_KEY_FIRST        ; PU_KEY
+                db HUDICON_AMMO_FIRST       ; PU_AMMO
+                db HUDICON_HEART_FIRST      ; PU_MEDKIT
+                db HUDICON_COIN_FIRST       ; PU_COIN
+                db HUDICON_IDOL_FIRST       ; PU_IDOL
+                db HUDICON_BOOK_FIRST       ; PU_BOOK
+ENT_ART_KINDS   equ 6
+                assert (ENT_ART_CEL AND 255) + ENT_ART_KINDS <= 256
+
+; The overrides: environment, kind, and where its own sheet is.
+; Terminated by &FF, because it is walked once per pickup at install
+; and never again.
+ENT_ART_OVER_STRIDE equ 6
+ENT_ART_OVER:   db 0, PU_KEY, L1_CITYPICKUPS_BANK
                 dw L1_CITYPICKUPS_ADDR
                 db CITYPICKUPS_KEY_FIRST
-                db L1_CITYPICKUPS_BANK      ; PU_AMMO
+                db 0, PU_AMMO, L1_CITYPICKUPS_BANK
                 dw L1_CITYPICKUPS_ADDR
                 db CITYPICKUPS_AMMO_FIRST
-                db L1_HUDICON_BANK          ; PU_MEDKIT
-                dw L1_HUDICON_ADDR
-                db HUDICON_HEART_FIRST
-                db L1_HUDICON_BANK          ; PU_COIN
-                dw L1_HUDICON_ADDR
-                db HUDICON_COIN_FIRST
-                db L1_HUDICON_BANK          ; PU_IDOL
-                dw L1_HUDICON_ADDR
-                db HUDICON_IDOL_FIRST
-                db L1_HUDICON_BANK          ; PU_BOOK
-                dw L1_HUDICON_ADDR
-                db HUDICON_BOOK_FIRST
-ENT_ART_KINDS   equ 6
+                db 1, PU_IDOL, L2_FORESTPICKUPS_BANK
+                dw L2_FORESTPICKUPS_ADDR
+                db FORESTPICKUPS_IDOL_FIRST
+                db 3, PU_MEDKIT, L4_SEAPICKUPS_BANK
+                dw L4_SEAPICKUPS_ADDR
+                db SEAPICKUPS_MEDKIT_FIRST
+                db &FF
+
+; ---------------------------------------------------------------------
+; ENT_ART_FOR - A = PU_*, -> C = bank, DE = the blob, A = its cel.
+;
+; Paid once per pickup at MAP_INSTALL and never per frame, which is why
+; the overrides are a walked list rather than a 144-byte table.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+ENT_ART_FOR:    ld   (ENT_ART_PU),a
+                ld   a,(LEVEL_ENV)
+                cp   ENT_ART_ENVS
+                jr   c,.env
+                xor  a                      ; &FF - no level has loaded yet, so
+.env:           ld   (ENT_ART_ENV),a        ; a bake driven by a test still
+                ld   e,a                    ; draws SOMETHING rather than noise
+                ld   d,0
+                ld   hl,ENT_ART_HUD_BANK
+                add  hl,de
+                ld   a,(hl)
+                ld   (ENT_ART_BANK),a
+                ld   hl,ENT_ART_HUD_ADDR
+                add  hl,de
+                add  hl,de
+                ld   a,(hl)
+                ld   (ENT_ART_ADDR),a
+                inc  hl
+                ld   a,(hl)
+                ld   (ENT_ART_ADDR + 1),a
+                ld   a,(ENT_ART_PU)
+                add  a,ENT_ART_CEL AND 255
+                ld   l,a
+                ld   h,ENT_ART_CEL >> 8
+                ld   a,(hl)
+                ld   (ENT_ART_CELN),a
+
+                ; ---- and what this environment draws specially ------
+                ld   a,(ENT_ART_ENV)
+                ld   b,a
+                ld   a,(ENT_ART_PU)
+                ld   c,a
+                ld   hl,ENT_ART_OVER
+.scan:          ld   a,(hl)
+                inc  a
+                jr   z,.done                ; &FF - the end of the list
+                dec  a
+                cp   b
+                jr   nz,.next
+                inc  hl
+                ld   a,(hl)
+                dec  hl
+                cp   c
+                jr   nz,.next
+                ld   de,2                   ; this row is the one
+                add  hl,de
+                ld   a,(hl)
+                ld   (ENT_ART_BANK),a
+                inc  hl
+                ld   a,(hl)
+                ld   (ENT_ART_ADDR),a
+                inc  hl
+                ld   a,(hl)
+                ld   (ENT_ART_ADDR + 1),a
+                inc  hl
+                ld   a,(hl)
+                ld   (ENT_ART_CELN),a
+                jr   .done
+.next:          ld   de,ENT_ART_OVER_STRIDE
+                add  hl,de
+                jr   .scan
+.done:          ld   a,(ENT_ART_BANK)
+                ld   c,a
+                ld   de,(ENT_ART_ADDR)
+                ld   a,(ENT_ART_CELN)
+                ret
+
+ENT_ART_PU:     db 0
+ENT_ART_ENV:    db 0
+ENT_ART_BANK:   db 0
+ENT_ART_ADDR:   dw 0
+ENT_ART_CELN:   db 0
 
 ; ---------------------------------------------------------------------
 ; ENT_BAKE - composite every pickup into the map, once.
@@ -873,20 +995,9 @@ ENT_BAKE_ONE:   ld   a,(hl)
                 ; It cannot be composited in place: the art is in C7 and
                 ; the tile is in C4, and both are the SAME &4000 window.
                 ld   a,(ENT_PU)
-                add  a,a
-                add  a,a                    ; * ENT_ART_BYTES
-                add  a,ENT_ART AND 255
-                ld   l,a
-                ld   h,ENT_ART >> 8
-                ld   c,(hl)                 ; bank
-                inc  hl
-                ld   e,(hl)
-                inc  hl
-                ld   d,(hl)                 ; DE = the blob
-                inc  hl
-                ld   a,(hl)                 ; its first cel - cel 0 of the
-                ld   b,&7F                  ; animation, see the note above
-                out  (c),c
+                call ENT_ART_FOR            ; -> C bank, DE blob, A its first
+                ld   b,&7F                  ; cel - cel 0 of the animation,
+                out  (c),c                  ; see the note above
                 add  a,a
                 ld   l,a
                 ld   h,0

@@ -28,6 +28,7 @@ is asserted exactly with the drones off and as a floor with them on.
 The three measurements are beside the checks.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, "/home/vasilhs/cpcemu")
@@ -124,12 +125,35 @@ def main():
     print("  ENEMY_TYPES, against the exporter's own constants:")
     agent = inc_values("level1_city/cityagent.inc")
     drone = inc_values("level1_city/citydrone.inc")
+    sniper = inc_values("level2_forest/forestsniper.inc")
     T = sym["ENEMY_TYPES"]
+    # EN_KINDS OFF THE BUILD AND NOT OFF THIS LIST. Counting the rows
+    # the suite happens to know about made the page check pass on a
+    # table that had grown past it - a third character went in and this
+    # said "&1C80 + 64 bytes" about 96 of them. A row nobody looks at
+    # is the other half: `want` has to name every kind the engine has,
+    # and the count below is what says so.
+    kinds = sym["EN_KINDS"]
     check("the whole table is inside one page - ADD A,low cannot carry",
-          (T & 0xFF) + 2 * EN_T_STRIDE <= 256,
-          f"&{T:04X} + {2 * EN_T_STRIDE} bytes")
+          (T & 0xFF) + kinds * EN_T_STRIDE <= 256,
+          f"&{T:04X} + {kinds * EN_T_STRIDE} bytes, {kinds} kinds")
     want = [("cityagent", 0, agent, "WALK", "FIRE"),
-            ("citydrone", 1, drone, "FLY", "FIRE")]
+            ("citydrone", 1, drone, "FLY", "FIRE"),
+            # THE FOREST'S, AND THE FIRST ROW HERE THAT IS NOT THE
+            # CITY'S - so it is also the check that a character's art
+            # is named out of its OWN level's bank symbols.
+            ("forestsniper", 2, sniper, "WALK", "FIRE")]
+    check("every kind the engine has is checked below", len(want) == kinds,
+          f"{len(want)} rows against EN_KINDS {kinds}")
+
+    # ... AND THE EDITOR'S COPY OF THE SAME TABLE. Its validator refuses
+    # a p0 at or past the end, so an enum that has not caught up refuses
+    # a level the engine plays - and nothing on the hardware says so.
+    enum = editor_enum("EnemyKind")
+    check("the editor's EnemyKind is the engine's table", 
+          sorted(enum.values()) == list(range(kinds)),
+          f"{', '.join(f'{k}={v}' for k, v in sorted(enum.items(), key=lambda kv: kv[1]))} "
+          f"against EN_KINDS {kinds}")
     for name, t, v, move, fire in want:
         base = T + t * EN_T_STRIDE
         got = {k: m.peek(base + o) for k, o in EN_T.items()}
@@ -553,6 +577,27 @@ def main():
     print("ALL CHECKS PASSED")
     return 0
 
+
+def editor_enum(name):
+    """The editor's copy of an engine table, read out of its source.
+
+    A COPY OF A TABLE IS RIGHT ON THE DAY IT IS TYPED. The editor holds
+    EnemyKind and PickupKind because `p0` is always "which thing this
+    is" (CLAUDE.md 8.6) and the inspector needs a list behind the
+    number - and its validator refuses a `p0` at or past the end,
+    which is the engine's own rule. The moment the engine grows a row
+    and the enum does not, the editor refuses a level the engine
+    plays; the moment it shrinks, the editor offers one the engine
+    skips. Neither says anything on the hardware.
+    """
+    path = os.path.join(ROOT, "editor", "src", "CpcLevelEditor.Domain",
+                        f"{name}.cs")
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        mm = re.match(r"^\s{4}(\w+)\s*=\s*(\d+),", line)
+        if mm:
+            out[mm.group(1)] = int(mm.group(2))
+    return out
 
 if __name__ == "__main__":
     sys.exit(main())

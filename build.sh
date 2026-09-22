@@ -68,6 +68,13 @@ gen python3 "$ROOT/tools/make_city_map.py"
 # a level that is played on real hardware before the editor exists.
 gen python3 "$ROOT/tools/make_level.py"
 
+# LEVEL 5: THE FOREST, and the first map that is not the City's. It
+# writes the format directly - there is no city_map.bin step to mirror,
+# because there are no overlays to bake: all 42 of the forest's tiles
+# are `draw: opaque` in its tile_table.json. Gated like the other
+# generators, so --relink carries whatever build/ already holds.
+gen python3 "$ROOT/tools/make_forest_map.py"
+
 python3 "$ROOT/tools/level_banks.py"
 
 # A level's OWN bytes - its map, its entity table and its tile flags -

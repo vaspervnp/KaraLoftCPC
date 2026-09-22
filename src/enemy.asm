@@ -51,7 +51,8 @@
 ; ---------------------------------------------------------------------
 EN_AGENT        equ 0
 EN_DRONE        equ 1
-EN_KINDS        equ 2
+EN_SNIPER       equ 2           ; the forest's, and the first row here that
+EN_KINDS        equ 3           ; is not the city's
 
 EN_T_BANK       equ 0           ; the RIGHT-facing blob's bank ...
 EN_T_RIGHT      equ 1           ; dw
@@ -110,6 +111,24 @@ ENEMY_TYPES:
                 dw CITYDRONE_DURATION
                 dw 0                    ; the drone sheet has no spawn point:
                 ds EN_T_STRIDE - EN_T_USED  ; its shot leaves the box's nose
+
+                ; THE FOREST'S SNIPER, AND IT IS AN AGENT-CLASS SPRITE.
+                ; 12x64 like the cityagent, which 8.7 measured at
+                ; 40,760-48,820 T drawn and erased against a 79,872 T
+                ; frame and called unaffordable - and 9 says that at
+                ; 25 Hz it is affordable ON PAPER, with nothing having
+                ; measured it. Placing one is that measurement.
+                db L2_FORESTSNIPER_BANK
+                dw L2_FORESTSNIPER_ADDR
+                db L2_FORESTSNIPER_L_BANK
+                dw L2_FORESTSNIPER_L_ADDR
+                db FORESTSNIPER_WALK_FIRST, FORESTSNIPER_WALK_COUNT
+                db FORESTSNIPER_FIRE_FIRST, FORESTSNIPER_FIRE_COUNT
+                db FORESTSNIPER_BOX_W, FORESTSNIPER_BOX_H
+                db 2, 45, 3     ; speed, fire period, hit points
+                dw FORESTSNIPER_DURATION
+                dw FORESTSNIPER_SPAWNS
+                ds EN_T_STRIDE - EN_T_USED
 ENEMY_TYPES_END:
 
 ; ---------------------------------------------------------------------

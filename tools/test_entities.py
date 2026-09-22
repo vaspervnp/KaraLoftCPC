@@ -15,6 +15,7 @@ idol, an informant is paid once. Every one of those is a state change
 that has to happen exactly once, so each is driven twice.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, "/home/vasilhs/cpcemu")
@@ -572,6 +573,128 @@ def bake_checks(sym):
           after == plain, f"map cell is {m.peek(cell)} again")
 
 
+
+def art_checks(sym):
+    """WHERE A PICKUP'S PICTURE COMES FROM, IN EVERY ENVIRONMENT.
+
+    ENT_ART used to be six rows of L1_* symbols, and `hudicon` is
+    allocated at a different bank AND address in every one of the six
+    levels - so a medkit or a coin placed anywhere but the City baked
+    its picture out of whatever sat at the City's address in that
+    level's banks. The level loads, the map is right, and one tile is
+    noise: CLAUDE.md 11 step 7's own class of fault, and one nothing
+    here could see, because every suite measures the City.
+
+    What is checked is ENT_ART_FOR's answer for all six environments x
+    six kinds against build/levels/banks.inc and the artist's own .inc
+    files - the same sources the assembler read, taken apart by
+    different code. The control is the fault itself: how many of the 36
+    the OLD table would have got wrong.
+    """
+    print("\n  a pickup's art, in every environment:")
+    banks, cels = inc_values()
+    m = boot(sym, scroll=True)
+
+    def ask(env, kind):
+        """ENT_ART_FOR, from a DI stub, with LEVEL_ENV poked."""
+        m.poke(sym["LEVEL_ENV"], env)
+        m.write_ram(0x9000, bytes([0xF3, 0x3E, kind, 0xCD,
+                                   sym["ENT_ART_FOR"] & 0xFF,
+                                   sym["ENT_ART_FOR"] >> 8, 0x18, 0xFE]))
+        m.set_pc(0x9000)
+        # di(1) + ld a,n(2) + call nn(3) = the `jr $` sits at +6, where
+        # bench.raw's own stub has it at +4. Waiting at +5 reads back
+        # whatever the last real bake left in the scratch, which is a
+        # constant answer for every question - the shape of a test whose
+        # argument changes nothing (CLAUDE.md 10).
+        for _ in range(200000):
+            m.run_us(1)
+            if m.pc == 0x9006:
+                break
+        else:
+            raise SystemExit("ENT_ART_FOR never returned")
+        return (m.peek(sym["ENT_ART_BANK"]),
+                m.peek(sym["ENT_ART_ADDR"]) | m.peek(sym["ENT_ART_ADDR"] + 1) << 8,
+                m.peek(sym["ENT_ART_CELN"]))
+
+    # What each environment draws SPECIALLY, off the shipped sheets.
+    over = {(0, PU_KEY):    ("CITYPICKUPS", "KEY", 1),
+            (0, PU_AMMO):   ("CITYPICKUPS", "AMMO", 1),
+            (1, PU_IDOL):   ("FORESTPICKUPS", "IDOL", 2),
+            (3, PU_MEDKIT): ("SEAPICKUPS", "MEDKIT", 4)}
+    HUD_CEL = {PU_KEY: "KEY", PU_AMMO: "AMMO", PU_MEDKIT: "HEART",
+               PU_COIN: "COIN", PU_IDOL: "IDOL", PU_BOOK: "BOOK"}
+
+    wrong, moved, seen = [], 0, {}
+    for env in range(6):
+        for kind in range(6):
+            if (env, kind) in over:
+                sheet, cel, lvl = over[(env, kind)]
+                want = banks[f"L{lvl}_{sheet}"] + (cels[f"{sheet}_{cel}_FIRST"],)
+            else:
+                want = banks[f"L{env + 1}_HUDICON"] + (cels[f"HUDICON_{HUD_CEL[kind]}_FIRST"],)
+            got = ask(env, kind)
+            seen[(env, kind)] = got
+            if got != want:
+                wrong.append((env, kind, got, want))
+            # ... and what the OLD table would have said: level 1's, always
+            old = (banks["L1_CITYPICKUPS"] + (cels[f"CITYPICKUPS_{HUD_CEL[kind]}_FIRST"],)
+                   if kind in (PU_KEY, PU_AMMO)
+                   else banks["L1_HUDICON"] + (cels[f"HUDICON_{HUD_CEL[kind]}_FIRST"],))
+            if old != want:
+                moved += 1
+
+    check("every environment gets its OWN art", not wrong,
+          f"36 of 36 - 6 environments x 6 kinds, against banks.inc and the "
+          f"artist's .inc files" if not wrong else f"{wrong[:3]}")
+    check("... and that is not what the old table said", moved > 0,
+          f"{moved} of the 36 move - which is how many pickups were baking "
+          f"out of level 1's address in somebody else's banks")
+
+    # THE SHARPEST HALF: the fallback must be a DIFFERENT blob in each
+    # environment, because that is the fact the old table denied.
+    addrs = {seen[(env, PU_BOOK)] for env in range(6)}
+    check("the fallback is six different places, not one", len(addrs) == 6,
+          ", ".join(f"env {e}: &{seen[(e, PU_BOOK)][0]:02X}:"
+                    f"{seen[(e, PU_BOOK)][1]:04X}" for e in range(6)))
+
+    # ... and the City still answers exactly what it always did, which
+    # is what the bake checks above are measured against.
+    check("the City is untouched", seen[(0, PU_KEY)] ==
+          banks["L1_CITYPICKUPS"] + (cels["CITYPICKUPS_KEY_FIRST"],),
+          "its key is still citypickups cel 0")
+
+    # ... AND THE EDITOR'S COPY OF THE SAME LIST. Its validator refuses a
+    # pickup whose p0 is past ENT_ART_KINDS, which is the engine's own
+    # rule - so an enum that has not caught up refuses a level the engine
+    # bakes, and nothing on the hardware says which record was skipped.
+    enum = editor_enum("PickupKind")
+    check("the editor's PickupKind is the engine's list",
+          sorted(enum.values()) == list(range(sym["ENT_ART_KINDS"])),
+          f"{', '.join(f'{k}={v}' for k, v in sorted(enum.items(), key=lambda kv: kv[1]))} "
+          f"against ENT_ART_KINDS {sym['ENT_ART_KINDS']}")
+
+
+def inc_values():
+    """banks.inc and the art .inc files, read independently."""
+    banks, cels = {}, {}
+    for line in open(os.path.join(LEV, "banks.inc")):
+        mm = re.match(r"^(L\d_\w+?)_(BANK|ADDR)\s+equ\s+&([0-9A-F]+)", line)
+        if mm:
+            name, which, v = mm.group(1), mm.group(2), int(mm.group(3), 16)
+            b, a = banks.get(name, (0, 0))
+            banks[name] = (v, a) if which == "BANK" else (b, v)
+    for root, _, files in os.walk(LEV):
+        for f in files:
+            if not f.endswith(".inc"):
+                continue
+            for line in open(os.path.join(root, f)):
+                mm = re.match(r"^(\w+_FIRST)\s+equ\s+(\d+)", line)
+                if mm:
+                    cels[mm.group(1)] = int(mm.group(2))
+    return banks, cels
+
+
 def main():
     sym = symbols()
     for n in ("ENT_UPDATE", "ENT_TABLE", "ENTITY_COLLISION_CHECK",
@@ -888,6 +1011,7 @@ def main():
           len(blob) == ENT_MAX * 8 and used > 0, f"{len(blob)} bytes")
 
     bake_checks(sym)
+    art_checks(sym)
     every_kind_checks(sym)
     ceiling_checks(sym)
     disown_checks(sym)
@@ -899,6 +1023,27 @@ def main():
     print("ALL CHECKS PASSED")
     return 0
 
+
+def editor_enum(name):
+    """The editor's copy of an engine table, read out of its source.
+
+    A COPY OF A TABLE IS RIGHT ON THE DAY IT IS TYPED. The editor holds
+    EnemyKind and PickupKind because `p0` is always "which thing this
+    is" (CLAUDE.md 8.6) and the inspector needs a list behind the
+    number - and its validator refuses a `p0` at or past the end,
+    which is the engine's own rule. The moment the engine grows a row
+    and the enum does not, the editor refuses a level the engine
+    plays; the moment it shrinks, the editor offers one the engine
+    skips. Neither says anything on the hardware.
+    """
+    path = os.path.join(ROOT, "editor", "src", "CpcLevelEditor.Domain",
+                        f"{name}.cs")
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        mm = re.match(r"^\s{4}(\w+)\s*=\s*(\d+),", line)
+        if mm:
+            out[mm.group(1)] = int(mm.group(2))
+    return out
 
 if __name__ == "__main__":
     sys.exit(main())

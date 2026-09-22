@@ -165,6 +165,21 @@ drawn and takeable — or drawn and shootable — somewhere other than
 where the record put it, and each has a control that puts the byte read
 back and makes the fault appear on the tall level and NOT on the City.
 
+**AND STARTING A SECOND ENVIRONMENT'S MAP FOUND THE NEXT ONE OF THOSE,
+WHICH IS NOT A BYTE BUT AN ADDRESS.** `ENT_ART` named level 1's bank
+symbols for every pickup in the game and `ENEMY_TYPES` named them for
+both its characters — and `hudicon` is allocated at a **different bank
+and address in each of the six levels** (`&C6:7CB8` in the city,
+`&C0:7377` in the forest). So a medkit or a coin in any level but the
+City baked its picture out of the City's address inside somebody else's
+banks: the level loads, the map is right, one tile is noise, and every
+suite here measures the City. Every kind falls back on `hudicon`
+wherever THIS environment put it now, and what an environment draws
+specially — the forest's idol, the sea's medkit — overrides it.
+Measured: **36 answers against `banks.inc` and the artist's own `.inc`
+files, and 30 of the 36 are ones the old table got wrong** (§8.6). The
+enemy table grew its first non-City row with it (§8.7).
+
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
 puts the editor's own four files into `build/`, relinks the disc and
@@ -313,7 +328,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-four pass**, the editor's own among them. Eighteen checks in
+twenty-five pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -450,6 +465,9 @@ tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
                            and the build-time bake of its overlay tiles
 tools/make_level.py        that map + the entity table -> level_1.lvl,
                            the reference implementation of editor.md 9.2
+tools/make_forest_map.py   level 5: the forest, 128x16, straight into the
+                           format - there are no overlays to bake, so
+                           there is no city_map.bin step to mirror (8.11)
 tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
@@ -472,11 +490,14 @@ tools/test_xclip.py        the X clip: the clipped lane against the same
 tools/test_transition.py   the level after this one: a map read inside an
                            environment, an art read across one, and what
                            she carries through the door
+tools/test_forest.py       level 5 on the machine: out of the City into
+                           the forest, the bands as the engine reads
+                           them, and she walks it end to end (8.11)
 tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
                            it to the bottom (11 step 7)
-tools/test_*.py            acceptance suites, twenty-four of them
+tools/test_*.py            acceptance suites, twenty-five of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -3818,6 +3839,85 @@ written. **129,742 µs for a key before, 36,769 after.**
 against an independent reading of the span format, with the old routine
 as the control: three of its five new checks fail on it, naming `PU_5`.
 
+#### AND WHERE A PICKUP'S PICTURE COMES FROM IS THE ENVIRONMENT'S, WHICH IT WAS NOT
+
+`ENT_ART` was six rows of `L1_*` symbols with a note saying module 6
+would make it per level. **It never did, and what that cost is the same
+shape as everything else in this section: the level loads, the map is
+right, and one tile is noise.** `hudicon` is not pinned, so
+`tools/level_banks.py` puts it wherever each level's allocation has
+room — measured off the shipped `banks.inc`:
+
+| | | | | | |
+|---|---|---|---|---|---|
+| `&C6:7CB8` | `&C0:7377` | `&C0:6DEB` | `&C6:7002` | `&C7:7A16` | `&C0:77C5` |
+| city | forest | cave | undersea | desert | station |
+
+So a medkit or a coin placed in any level but the City baked its
+picture out of whatever happened to sit at the CITY's address inside
+that level's banks. Nothing could see it, because every suite here
+measures the City.
+
+**EVERY KIND FALLS BACK ON `hudicon` NOW AND THE ENVIRONMENT OVERRIDES
+IT**, which is the shape the art already has: `hudicon` is 4×16, carries
+one cel of every pickup in the game and is in every level's bank set
+because the HUD needs it, and each environment's own sheet draws only
+what that level draws specially. Counted off the shipped blobs, the
+whole of what is special is **four rows**:
+
+| environment | its sheet draws |
+|---|---|
+| city | a key and an ammo clip — a medkit is not city art |
+| forest | the **idol**, which is level 2's own statue-on-altar |
+| undersea | a medkit, drawn as a sea pickup |
+| station | a keycard and a map, **neither of which is a `PU_*` yet** |
+| cave, desert | no pickup sheet at all — they take the fallback |
+
+**PINNING `hudicon` WOULD ALSO FIX IT AND IS NOT WHAT THIS DOES.**
+`level_banks.py` already pins Kara's three blobs at one address in
+every level (§8.4), and that is why `src/kara.asm` addresses her by
+constant — but a pin is a fixed 763 bytes in an allocation that leaves
+level 2 with **671 bytes spare** (§6.2). Naming the six addresses costs
+**18 bytes** in the engine and nothing in the allocator.
+
+`ENT_ART_FOR` is paid once per pickup at `MAP_INSTALL` and never per
+frame, which is why the overrides are a walked list rather than a
+144-byte table. The whole change is **+160 bytes of core image**, and
+`CORE_END` is `&3D80` with 640 left.
+
+**What says it works is 36 answers against `banks.inc` and the artist's
+own `.inc` files**, taken apart by different code —
+`tools/test_entities.py` pokes `LEVEL_ENV`, calls `ENT_ART_FOR` from a
+DI stub for all six environments × six kinds, and compares. **All 36
+agree, and 30 of the 36 are ones the old table got wrong** — which is
+the fault measured rather than asserted. The sharpest of the four is
+that the fallback comes back as **six different places and not one**,
+because a single place is exactly what the old table claimed.
+
+**And the control is the City**: its key is still `citypickups` cel 0,
+and every bake check in the suite is unchanged.
+
+**AND THE EDITOR'S COPY OF EACH TABLE IS TIED TO THE ENGINE'S NOW,
+BECAUSE THIS CHANGE NEARLY SHIPPED THE DRIFT IT WARNS ABOUT.** The
+editor holds `PickupKind` and `EnemyKind` because `p0` is always "which
+thing this is" and the inspector needs a list behind the number (§11
+step 7) — and its validator refuses a `p0` at or past the end, which is
+the engine's own rule. `EN_KINDS` went 2 → 3 here and the enum did not,
+so for one build **the editor refused a level the engine plays**, with
+nothing on the hardware to say so. `tools/test_enemies.py` and
+`tools/test_entities.py` read the two `.cs` files and compare them
+against `EN_KINDS` and `ENT_ART_KINDS` off the build. The control is
+the drift itself: with `Sniper` taken back out, the check reports
+`Agent=0, Drone=1 against EN_KINDS 3` and fails.
+
+**The test's own bug is worth keeping.** Its DI stub is
+`di : ld a,n : call nn : jr $`, where `bench.raw`'s is
+`di : call nn : jr $` — so the spin sits at `+6` and not `+4`. Waiting
+at `+5` never matched, the loop fell through, and it read back whatever
+the last real bake had left in the scratch: **the same answer to all 36
+questions**, which is §10's own rule for a raster gate one floor down —
+a test whose argument changes nothing.
+
 #### And the bake's own Y was a byte, which is every level 16 tiles tall
 
 `ENT_CELL_OF` turns a record into the map byte it stands on, and it
@@ -3996,6 +4096,48 @@ stepped. Measured over twelve consecutive frames with a drone patrolling
 on the spot, the drawn columns were **66..73 on every one of them** while
 the record said 65 or 67 by turns. It is one byte inside `EN_HYST`'s
 four and nothing has ever shown it; it is a different axis's tidy-up.
+
+#### And the table has a third row now, and it is not the city's
+
+`EN_KINDS` was **2** and both rows named `L1_*` symbols, so the engine
+knew two characters and both of them were the City's. `EN_SNIPER` is
+the forest's, out of `L2_FORESTSNIPER_*` and
+`build/levels/level2_forest/forestsniper.inc` — art, banks and cel
+ranges that the build has been making all along and nothing referred
+to.
+
+**A row is a CHARACTER and not a level**, which is why the table simply
+grows: an enemy record names which character it is (§8.6), so the level
+chooses and the table only has to hold them. What it does NOT do is
+stop a designer placing a `citydrone` in the forest — that record would
+draw out of the City's address in the forest's banks, which is the
+pickup fault one field along, and it is the editor's to refuse.
+
+**ITS TWO FACINGS ARE IN `&C6` AND `&C4`**, which is the case the
+`EN_T_BANK_L` field exists for and the first row where the two banks
+differ in the other direction from the City's.
+
+**And it is an AGENT-CLASS sprite, which §9 no longer leaves open.**
+12×64 like the `cityagent`; §9 called it affordable at 25 Hz *on
+paper*, level 5's first map placed two, and the measurement is **80
+game frames in 200 against 100 with `ENEMY_LIVE` at 0** — the same
+level, the same spot, one thing changed. It does not fit, and the row
+stays in the table unplaced exactly as `EN_AGENT`'s does.
+
+**WHAT THE FOREST WOULD NEED IS A MELEE PATH AND THE ENGINE HAS NONE.**
+Its own creatures are `forest_wolf` and `forest_boar`, both **16×24 and
+~2,200 bytes** — between the drone and the sniper, and very likely
+affordable. But their tags are `RUN` and `ATTACK`: they are melee, and
+an enemy type's second cel range is `EN_T_FIRE`, which spawns a round.
+Driven through it a wolf would shoot invisible bullets. That is the
+work level 2's enemies are waiting on, and it is a kind of enemy this
+engine has never had.
+
+`tools/test_enemies.py` reads `EN_KINDS` **off the build** now rather
+than counting its own list, and asserts that the list names every kind.
+Written the other way it passed on a table that had outgrown it: it
+reported "`&1C80` + 64 bytes" about 96 of them, which is the page check
+that would not have noticed the page being crossed.
 
 #### And then the heroine flickered when a drone appeared
 
@@ -4442,6 +4584,115 @@ of them is standing, so none of them measures the box.
   than a copied `6, 64` — it said 64 while `KARA_BOX_H` said 60 and
   neither side knew.
 
+### 8.11 Level 5: the forest, and the first map that is not the City's
+
+**THE ARTIST COMPOSED THIS LEVEL AND `tools/make_forest_map.py` ONLY
+LAYS IT OUT.** `assets/sprites/level2_forest/manifest.json` carries the
+frame order in prose — `0 far_crowns, 1 far_trunks_a, … 41
+cave_floor_r` — and a description of every piece: the bands top to
+bottom, the two-tile tree with its roots, the branch platforms, the pit
+in the ground row, the mountain's 45-degree edge and the cave mouth.
+The names are READ from it rather than written down, and cross-checked
+against `tile_table.json`'s count; the table names these tiles
+`bg_1..cave_10` by tag and index, which is not what the artist calls
+them, and the two agree on the ORDER, which is what makes the tool
+readable rather than a second numbering.
+
+**AND THE ROW OF EVERY BAND CAME OFF THE MOCKUP** (§8.9), read back
+cell by cell. `mockup_forest.png` is 960×600, which is a **160×200
+Mode 0 screen at 6×3** — the 2:1 pixel aspect of §7.6 — so it comes
+back by sampling and every cell then matches a real tile:
+
+| rows | |
+|---|---|
+| 0-2 | `canopy_fill`, `canopy_edge_a/b`, `far_crowns` |
+| 3-7 | `far_trunks_a/b` — and the branch platforms |
+| 8 | `far_base`, and the deco |
+| **9** | **the ground** |
+| 10-15 | `dirt` |
+
+**THE GROUND IS ROW 9 BECAUSE THE CAMERA SAYS SO.** `CAMERA_V` keeps
+her middle between `CAM_TOP` 64 and `CAM_BOT` 112 (§8.8), and a floor
+at row 9 puts it at **exactly 112 — the mirror of the City's roof,
+which sits at exactly 64**. So the view stays at `WORLD_CR` 0 and what
+is on the screen is the artist's own twelve rows; a jump takes her
+middle to 76, still inside the band, and falling into a pit is the one
+thing that scrolls it.
+
+**THE LEVEL NUMBER IS 5 AND NOT 2.** An environment is a bank set and a
+level is a map (§8.1): the forest is environment 2 and its block is
+levels 5-8, so this is `level_5.lvl` with tileset 2 in its header.
+Walking out of level 1's garage goes to level 2, which is a City map
+nobody has painted — so it is reachable by `LEVEL_GOTO` and not yet by
+playing.
+
+**What the flags are, and the one rule they are all an instance of**:
+
+| | |
+|---|---|
+| `Solid` | `grass`, both `grass_edge`, `dirt`, `trunk_base_l/r`, `root_l/r`, the three `cave_floor` |
+| `Platform` | `branch_l/m/r` — **level 2's signature**, a floor from above and nothing from below |
+| `Hazard` | `spike_pit` |
+| nothing at all | the canopy, the crowns, every trunk, **the whole mountain** |
+
+**The face of the forest is background, not a wall** — the lesson the
+City's brick already paid for (§8.8). Made solid, a tree is a wall
+across the level and the mountain is the end of it. And
+`trunk_base_l/r` and `root_l/r` ARE solid, because they are in the
+ground row: without them there is a hole at the foot of every tree.
+
+**AND THE SPIKE PIT CANNOT HURT HER, WHICH IS WORTH SAYING RATHER THAN
+HIDING.** `TA_HAZARD` is defined in `src/collide.asm` and **nothing
+reads it** — counted, 0 uses outside the definition, against
+`TA_SOLID`'s 10 and `TA_CLIMB`'s 5. So the pits are flagged the way the
+level means them and, until something reads the bit, what they actually
+are is **a dip she falls 16 pixels into and jumps out of**. The data is
+right in advance; the engine is what owes. It is also why the driver in
+`tools/test_forest.py` presses UP when she stops: holding RIGHT alone
+she stands in the first pit for ever, which is the level working and a
+driver measuring a level it cannot play.
+
+**Measured on a 6128**, out of the City and into it:
+
+| | |
+|---|---|
+| the transition | **154 hardware frames** — an environment change, so 1.6 s of art came with it (§7.5) |
+| the level | `LEVEL_OK` 1, 128×16, tileset 2, `LEVEL_ENV` 1, `ENT_COUNT` 7 |
+| the ground row | **117 solid and 11 hazard of 128** |
+| the branches | rows 5 and 7, **10 and 20 tiles, no solid among them** |
+| rows 0-4 | nothing at all — background, as above |
+| the walk | **tile 3 to 124 of 128**, picking the clip up (`AMMO_RESERVE` 28 → 42), `HP` 100 throughout |
+| the loop | **100 game frames in 200 hardware** |
+
+**Its control is the branches**: with `TA_PLATFORM` taken off the three
+branch tiles in `TILE_ATTR` the level still loads, no map byte moves,
+and the branches stop being a floor — so the key, which sits on one, is
+somewhere she cannot stand.
+
+**AND THE FIRST VERSION OF THIS MAP HAD AN UNREACHABLE KEY, WHICH IS
+WHY THE TOOL NOW MODELS THE WALK.** The key went on a row-5 branch and
+the nearest row-7 branch was fifteen tiles away: **her jump is 36
+pixels and a row is 16**, so two rows is the most she can reach and a
+row-5 branch with no row-7 branch under it is scenery. The level
+loaded, played, looked right, and could not be finished — the exact
+species §11 step 7 is about, in a map the validator would pass because
+the record is perfectly legal.
+
+`make_forest_map.py` flood-fills from the start now — walk along a
+surface, fall off an edge, jump at most two rows and three tiles — and
+refuses any pickup, door or receptacle that is not in the reachable
+set. It is deliberately CONSERVATIVE, crediting her with less than the
+15-frame arc really carries, so a level that passes there passes on the
+machine. The control is the bug: with the row-7 step taken back out it
+stops the build with **"a kind-4 record at tile 38, row 5 is somewhere
+she cannot stand"**. The editor's generator has had this check since it
+was written (§11 step 7); a hand-made level needs it more.
+
+**What it does NOT have is an enemy**, and that is §9's measurement
+rather than an omission — a 12×64 sniper standing in it costs 20 game
+frames in 200. The forest's own wolf and boar would very likely fit and
+are melee, which the engine has no path for (§8.7).
+
 ## 9. Performance budget — measured directly, and it closes
 
 A hardware frame is **79,872 T-states**. **A GAME FRAME IS TWO OF THEM:
@@ -4530,11 +4781,24 @@ between tick 5 and the erase.
   of it and the enemy redraw was 376 T more than a 50 Hz frame had.
 * **The incoming ROW is painted in halves, not quarters** (`V_PARTS` 4 →
   2), so a vertical step is three game frames instead of five.
-* **And the agent is affordable on paper for the first time**: 40,760 T
-  drawn and erased against a budget of 159,744 with ~87,000 spent. That
-  is not the same as saying it fits — nothing has measured it — but the
-  entry in "what did not work" that says a second span sprite is
-  impossible was written against a 79,872 T frame.
+* **And the agent looked affordable on paper**: 40,760 T drawn and
+  erased against a budget of 159,744 with ~87,000 spent. **IT IS NOT,
+  AND LEVEL 5 IS WHERE IT WAS MEASURED.** The forest's `forestsniper`
+  is 12×64 — agent class — and two of them went into level 5's first
+  map. Standing beside one, with the same level and the same spot and
+  one thing changed:
+
+  | | game frames / 200 hardware |
+  |---|---:|
+  | beside a 12×64 sniper | **80** |
+  | ... with `ENEMY_LIVE` held at 0 | **100** |
+
+  **Twenty holes in two hundred frames**, where the City's drones cost
+  nought to five (§9's own table). A dropped frame here is not a
+  stutter, it is a frame with no heroine in it. So level 5 carries no
+  enemy and `EN_SNIPER` stays in the type table the way `EN_AGENT`
+  has — correct data the frame cannot spend. §8.7 has what the forest
+  would need instead.
 
 ### What it costs
 
@@ -6275,6 +6539,17 @@ the next one starts.
    that clears both its neighbours, and that is the rule holding rather
    than a reason to bend the test around it.**
 
+   **AND AN EIGHTH RULE IS NOW MISSING RATHER THAN ABSENT**, which the
+   engine's third enemy row created (§8.7): **an enemy whose character
+   is not in this environment's art.** A row of `ENEMY_TYPES` is a
+   CHARACTER and names its own level's bank symbols, so a `citydrone`
+   placed in the forest is a perfectly legal record that draws out of
+   the City's address inside the forest's banks — the pickups' own
+   fault one field along (§8.6), and the same silent shape: the level
+   loads, the map is right, one sprite is noise. The editor reads the
+   asset package already, so it knows which characters each environment
+   has; the rule is not written.
+
    **`EnemyKind` had to exist for the sixth of those**, and it is the
    same gap one row along: `p0` is always "which thing this is" (§8.6),
    the pickup's `p0` has been a list in the inspector since the records
@@ -6479,7 +6754,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other twenty-three levels**, which is a designer's work and
+   for the other twenty-two levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

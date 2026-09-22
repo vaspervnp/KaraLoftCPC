@@ -10,7 +10,7 @@ namespace CpcLevelEditor.Domain;
 /// <b>This is the ENGINE's type table and not the art package's.</b>
 /// <c>assets/sprites/</c> carries seven named characters across the six
 /// levels (CLAUDE.md 7.1); <c>ENEMY_TYPES</c> in <c>src/enemy.asm</c> has
-/// two rows, and <c>p0</c> indexes that table. Everything else about an
+/// three rows, and <c>p0</c> indexes that table. Everything else about an
 /// enemy — its art, both facings' banks, the box, the speed, the fire
 /// period and the hit points — comes from the row, which is why a designer
 /// places a character rather than a set of numbers (CLAUDE.md 8.7).
@@ -40,4 +40,21 @@ public enum EnemyKind : byte
     /// scrolling frame. Level 1 ships three.
     /// </summary>
     Drone = 1,
+
+    /// <summary>
+    /// <c>EN_SNIPER</c> — the forest's, and the first row in the engine's
+    /// table that is not the City's. 12×64 like the agent, so it is the
+    /// same weight; CLAUDE.md 9 says an agent-class sprite is affordable
+    /// at 25 Hz <b>on paper, with nothing having measured it</b>, and a
+    /// level 2 map that places one is that measurement.
+    /// </summary>
+    /// <remarks>
+    /// <b>A row is a CHARACTER and not a level</b>, so this enum lists
+    /// every character the engine knows and says nothing about which
+    /// environment's banks are loaded. Placing a <see cref="Drone"/> in
+    /// the forest is a legal record that draws out of the City's address
+    /// in somebody else's banks — the same fault the pickups' art had
+    /// (CLAUDE.md 8.6), and a rule this validator does not have yet.
+    /// </remarks>
+    Sniper = 2,
 }

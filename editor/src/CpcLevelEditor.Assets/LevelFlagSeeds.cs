@@ -48,12 +48,60 @@ public static class LevelFlagSeeds
             ["crate"] = TileFlags.Solid,
         };
 
+    /// <summary>Level 2, the forest.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The face of the forest is background, not a wall</b> — the lesson
+    /// the City's brick already paid for (CLAUDE.md 8.8). The trunks, the
+    /// crowns, the canopy and the whole mountain are scenery she walks in
+    /// front of: made solid, a tree would be a wall across the level and
+    /// the mountain would be the end of it.
+    /// </para>
+    /// <para>
+    /// <b>The branches are <c>Platform</c> and not <c>Solid</c></b>, which is
+    /// level 2's signature: a platform is a floor from above and nothing
+    /// from below, so she jumps up through a branch and stands on it — the
+    /// artist's own "walkable surface = tile top".
+    /// </para>
+    /// <para>
+    /// <b>And <c>Hazard</c> does nothing yet.</b> <c>TA_HAZARD</c> is defined
+    /// in <c>src/collide.asm</c> and nothing reads it, so the spike pit is
+    /// flagged the way the level means it and is, for now, a dip she falls
+    /// into and jumps out of. The data is right in advance; the engine is
+    /// what owes.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, TileFlags> Forest =
+        new Dictionary<string, TileFlags>(StringComparer.Ordinal)
+        {
+            ["grass"] = TileFlags.Solid,
+            ["grass_edge_l"] = TileFlags.Solid,
+            ["grass_edge_r"] = TileFlags.Solid,
+            ["dirt"] = TileFlags.Solid,
+            // In the ground row with the grass, so they hold her up like it
+            // — without these there is a hole at the foot of every tree.
+            ["trunk_base_l"] = TileFlags.Solid,
+            ["trunk_base_r"] = TileFlags.Solid,
+            ["root_l"] = TileFlags.Solid,
+            ["root_r"] = TileFlags.Solid,
+            ["branch_l"] = TileFlags.Platform,
+            ["branch_m"] = TileFlags.Platform,
+            ["branch_r"] = TileFlags.Platform,
+            ["spike_pit"] = TileFlags.Hazard,
+            ["cave_floor_l"] = TileFlags.Solid,
+            ["cave_floor"] = TileFlags.Solid,
+            ["cave_floor_r"] = TileFlags.Solid,
+        };
+
     /// <summary>
-    /// The seeds for one level's art package, or nothing at all — five of
+    /// The seeds for one level's art package, or nothing at all — four of
     /// the six levels have no map yet and start with every tile scenery.
     /// </summary>
     public static IReadOnlyDictionary<string, TileFlags> For(string assetLevel) =>
-        assetLevel == "level1_city"
-            ? City
-            : new Dictionary<string, TileFlags>(StringComparer.Ordinal);
+        assetLevel switch
+        {
+            "level1_city" => City,
+            "level2_forest" => Forest,
+            _ => new Dictionary<string, TileFlags>(StringComparer.Ordinal),
+        };
 }
