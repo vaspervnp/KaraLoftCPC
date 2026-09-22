@@ -163,3 +163,11 @@ public sealed record ExportView(
 public sealed record EditBatch(int Version, IReadOnlyList<EditOp> Ops);
 
 public sealed record EditResult(int Version, int Applied);
+
+/// <summary>Generate a playable level over whatever this project holds.</summary>
+public sealed record GenerateRequest(int Version);
+
+/// <summary>... and what came out, in the words a designer can check.</summary>
+public sealed record GeneratedView(
+    int Version, int Floors, int Ladders, int Holes, int Pickups, int Enemies,
+    string FloorTile, string LadderTile, string BackgroundTile);

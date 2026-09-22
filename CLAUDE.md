@@ -128,6 +128,21 @@ data the editor owns. Its level NUMBER comes from the package's own
 directory name: `level2_forest` is level 2, and a project that took the
 default would export itself as `level_1.lvl`, over the City.
 
+**AND IT CAN FILL ONE IN BY ITSELF — A LEVEL THAT PLAYS, NOT A FIELD OF
+RANDOM TILES.** `Generate` writes the scaffolding every level needs
+before any of it is a level: floors 8 rows apart, a shaft from each one
+down to the next with the column moving on so every floor has to be
+WALKED before it can be left, holes cut only where they cannot separate
+her from a ladder, and the records — her start, a key, a clip, a medkit,
+a door at the bottom and one drone. Which tile is a floor comes off the
+**flags** and never off the names, and a project with no tile in a role
+is refused with the role named. Three witnesses: the validator reports
+nothing on any of the three shapes, a flood fill says she can reach
+every pickup and the door, and **a generated 32×64 level went on a disc
+and was climbed from row 6 to row 62 on a 6128** — `WORLD_CR` 0 to 104,
+which is the whole map, taking 8 points off a drone whose `ES_Y` is 568
+on the way (§11 step 7).
+
 **AND A LEVEL CAN BE A SHAFT NOW, NOT ONLY A ROOFTOP.** `MAP_W` was
 128 and `MAP_H` 16 in the source and `MAP_INSTALL` refused anything
 else, which is one level's shape written into thirty-six immediates
@@ -298,7 +313,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-three pass**, the editor's own among them. Eighteen checks in
+twenty-four pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -457,7 +472,11 @@ tools/test_xclip.py        the X clip: the clipped lane against the same
 tools/test_transition.py   the level after this one: a map read inside an
                            environment, an art read across one, and what
                            she carries through the door
-tools/test_*.py            acceptance suites, twenty-three of them
+tools/test_generated.py    a level NOBODY painted, on the machine: the
+                           editor generates a 32x64 one, it goes on a
+                           disc, and she is driven down every shaft of
+                           it to the bottom (11 step 7)
+tools/test_*.py            acceptance suites, twenty-four of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -6322,6 +6341,101 @@ the next one starts.
    * **A document written before this carries no width at all**, and 0
      is what a missing field deserialises to — so it reads as the
      City's, which is the shape every one of them was in.
+
+   **AND IT CAN FILL A BLANK PROJECT IN WITH A LEVEL THAT PLAYS, WHICH
+   IS THE ONE THING BETWEEN "the editor paints it" AND TWENTY-THREE
+   EMPTY MAPS.** A new project is 2,048 cells of tile 0, and the first
+   hour of every one of them goes on the same scaffolding: floors she
+   can stand on, a way down from each to the next, and enough records
+   that the engine's own machinery — the bake, the patrol, the door —
+   has anything to do. `LevelGenerator.Fill` writes that, for any of
+   the three shapes, and then it is a starting point to paint over.
+
+   **THE ROLES COME OFF THE FLAGS AND NEVER OFF THE NAMES**, which is
+   the import's own lesson one floor along (the best pixel threshold
+   still calls twelve of level 1's forty-one tiles wrong). A floor is
+   `Solid && !Ladder`, a shaft is `Ladder && Platform` — the top rung
+   has to be a floor as well or she can only fall onto it (§8.8) — and
+   the background is a tile with **no flags at all**, because the face
+   of a building is scenery and a solid one puts the foot of every
+   ladder inside a wall. A project whose flag table has no such tile is
+   **refused with the role it is missing named**, rather than handed a
+   level of scenery that looks right and cannot be walked on.
+
+   **And every number in the plan is one the engine already fixed**, so
+   there is nothing in it to tune:
+
+   | | | |
+   |---|---:|---|
+   | the first floor | row **6** | her box is 64 lines and a floor above it starts her at a negative Y |
+   | between floors | **8** rows | 128 world lines — the City's own roof-to-street drop, which costs 32 of her 100 points (§8.4) |
+   | a hole in a floor | **3** tiles | `BOX_SOLID_V` ORs every tile under her six-byte box, and two is a gap she can stand across (§8.8) |
+   | between two enemies | **20 + 2×3 + 2** tiles | `ENEMY_PICK`'s near test, so a second one is never one that cannot spawn (§8.7) |
+   | the patrol | **3** tiles either side | |
+
+   **A HOLE IS ONLY CUT WHERE IT CANNOT SEPARATE HER FROM A LADDER.** A
+   gap between her and the shaft she has to reach is a level that stops
+   being playable at the second floor and looks perfectly fine in the
+   picture, so `HolePlace` takes the leftmost run of three that leaves
+   **every** ladder on that row on the same side of it, and where there
+   is nowhere like that the floor keeps its skin. Nothing there is a
+   judgement — the walk is checked, below.
+
+   **Three witnesses, each stricter than the last**, and the last one
+   is the only one that is not software checking software:
+
+   | | |
+   |---|---|
+   | the validator | **nothing reported on any of the three shapes** — all seven designer rules above, against a level nobody painted |
+   | the walk | a flood fill over the floors and the ladders from the PlayerStart reaches **every pickup and the door**, on all three shapes. The start is the fill's ORIGIN and not a destination, because it is deliberately placed a row high and falls |
+   | the route | generated over HTTP, then EXPORTED over HTTP — the three shapes, no finding of any severity, and the record count read back out of the file by the independent reader. A stale version is a 409 and a project with no floor in it a 400 with `Solid` in the message |
+   | **the machine** | `tools/test_generated.py`: a generated 32×64 level exported by the CLI, put on a disc and booted on a 6128 |
+
+   **AND THE DESCENT IS THE MEASUREMENT.** The driver reads the shaft's
+   column off the level's **own** map through `TILE_ATTR` rather than
+   being told where the generator put it, walks her to it and holds
+   DOWN, floor by floor:
+
+   ```
+   on the machine: LEVEL_OK 1, 32x64, ENT_COUNT 6, ENEMY_LIVE 1
+   the shafts, by floor row: {6: [5], 14: [14], 22: [23], 30: [5],
+                              38: [14], 46: [23], 54: [5]}
+     floor  6 -> 14   WY  160  view (0,10)   HP 100   drone SY 488
+     floor 14 -> 22   WY  288  view (15,26)  HP 100   drone SY 360
+     floor 22 -> 30   WY  416  view (24,42)  HP 100   drone SY 232
+     floor 30 -> 38   WY  544  view (0,58)   HP  92   drone SY 104  drew
+     floor 38 -> 46   WY  672  view (15,74)  HP  92   drone SY -24
+     floor 46 -> 54   WY  800  view (24,90)  HP  92   drone SY -152
+     floor 54 -> 62   WY  928  view (0,104)  HP  92   drone SY -264
+   ```
+
+   All eight floors, `WORLD_CR` 0 to **104**, which is `V_CR_MAX` for a
+   64-row map — she reached the bottom of the shaft. **And the drone is
+   §8.7's own widening being exercised by a level nobody hand-built**:
+   its `ES_Y` is **568**, its screen Y runs 488 → 104 → −264, and not
+   one of those numbers fits in the byte `ES_Y` used to be. The 8 points
+   she loses between floors 30 and 38 are `EBUL_DAMAGE` exactly: the
+   drone on row 38 saw her, fired, and hit her.
+
+   **AND THE CONTROL IS THAT A DESCENT COULD BE A FALL.** The generator
+   cuts holes in floors, so "she got to the bottom" would read the same
+   if gravity had found one — `TA_CLIMB` is taken off the ladder tile in
+   `TILE_ATTR` and the same drive is run again, with the driver keeping
+   its own copy of the table so it still walks her to the shaft and
+   still presses DOWN. **She does not leave the first floor.** The other
+   half, `ENEMY_Y_HI` put back to the eight-bit reading, is
+   `tools/test_shape.py`'s and is not repeated here.
+
+   **What it does NOT do, and each is a decision rather than a gap**:
+   it paints one tile per role and no scenery, because which of level
+   1's forty-one tiles is a window is the designer's eye and not a
+   rule; it places **one** enemy on a 32-wide map, because a second one
+   inside a screen of the first is a record that never spawns (§8.7);
+   and it puts that one on the floors in the MIDDLE of the descent, so
+   a level does not open with a fight. **The button asks twice** — once
+   for unsaved ops and once because it replaces the whole map — since
+   an accidental Generate over an afternoon's painting is the one
+   mistake in this editor nothing else can undo.
 
    **What is left**: maps. Twenty-three of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than

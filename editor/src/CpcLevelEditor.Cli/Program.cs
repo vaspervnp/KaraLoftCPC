@@ -38,6 +38,10 @@ public static class Program
                              whose top surface it stands on. Repeatable
           --region KIND,X,Y,W,H
                              place one region, in tiles. Repeatable
+          --width N          re-cut the map to N tiles across (32, 64 or
+                             128) before anything else
+          --generate         fill the map and the records in with a level
+                             that can be played, over whatever was there
           --workspace DIR    default: editor/workspace
           --sprites DIR      default: assets/sprites
           --palette FILE     default: src/palette.asm
@@ -95,12 +99,51 @@ public static class Program
         // canvas's PATCH goes through - so a level made here and a level
         // painted in the browser cannot be made in two different ways.
         var ops = new List<EditOp>();
+        if (flags.TryGetValue("width", out var width))
+            ops.Add(new EditOp("shape", Index: int.Parse(width)));
         foreach (var (x, y, name) in repeated.Paints)
             ops.Add(new EditOp("tile", x, y, (byte)IndexOf(artist, name)));
         foreach (var entity in repeated.Entities)
             ops.Add(new EditOp("entity-add", Entity: entity));
         foreach (var region in repeated.Regions)
             ops.Add(new EditOp("region-add", Region: region));
+
+        // THE SHAPE FIRST, THEN THE PLAN, THEN THE STROKES. Generating
+        // over a width that is about to change would lay the floors out on
+        // the wrong grid, and a --paint is the designer's word over the
+        // generator's - so the order here is the order a person would do
+        // it in.
+        //
+        // AND A GENERATE EMPTIES THE RECORDS BEFORE THE SHAPE IS CUT,
+        // because it is going to replace them anyway: the shape op refuses
+        // a re-cut that would leave a record off the map (which is right -
+        // the engine reads it, does nothing and carries on), and the City's
+        // own records are all off a 32-wide one.
+        if (flags.ContainsKey("generate"))
+        {
+            project.Entities.Clear();
+            project.Regions.Clear();
+            project.Overlays.Clear();
+        }
+        var shapeFirst = ops.Where(o => o.Op == "shape").ToList();
+        if (shapeFirst.Count > 0)
+        {
+            var cut = ProjectEditor.Apply(project, shapeFirst);
+            if (!cut.Ok)
+                throw new ArgumentException(cut.Rejected);
+            ops.RemoveAll(o => o.Op == "shape");
+        }
+        if (flags.ContainsKey("generate"))
+        {
+            var (made, refused) = LevelGenerator.Fill(project, artist);
+            if (made is not { } plan)
+                throw new ArgumentException(refused);
+            Console.WriteLine(
+                $"   generated {project.Width}x{project.Height}: {plan.Floors} floor(s), "
+                + $"{plan.Ladders} ladder(s), {plan.Holes} hole(s), {plan.Pickups} "
+                + $"pickup(s), {plan.Enemies} enem(ies), one door - floor "
+                + $"{plan.FloorTile}, ladder {plan.LadderTile}, sky {plan.BackgroundTile}");
+        }
 
         var outcome = ProjectEditor.Apply(project, ops);
         if (!outcome.Ok)
@@ -158,6 +201,9 @@ public static class Program
         List<Entity> Entities,
         List<Region> Regions);
 
+    /// <summary>The flags that carry no value.</summary>
+    private static readonly HashSet<string> Switches = ["generate"];
+
     /// <summary>--flag value pairs, and the repeatable placements.</summary>
     private static (Dictionary<string, string> Flags, Placements Repeated) Parse(string[] args)
     {
@@ -168,6 +214,11 @@ public static class Program
             if (!args[i].StartsWith("--", StringComparison.Ordinal))
                 throw new ArgumentException($"unexpected argument \"{args[i]}\"");
             var name = args[i][2..];
+            // A SWITCH IS NAMED, and everything else needs a value. Reading
+            // "a flag with nothing after it" as a switch would make
+            // `--out` at the end of a line mean something instead of being
+            // the mistake it is.
+            if (Switches.Contains(name)) { flags[name] = "yes"; continue; }
             if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 throw new ArgumentException($"--{name} needs a value");
             var value = args[++i];

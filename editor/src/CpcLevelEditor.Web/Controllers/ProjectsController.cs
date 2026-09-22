@@ -127,6 +127,39 @@ public sealed class ProjectsController(
         return new EditResult(project.Version, outcome.Applied);
     }
 
+    /// <summary>
+    /// <b>Fill an empty project in with a level that can be played.</b>
+    /// </summary>
+    /// <remarks>
+    /// It overwrites the map, the overlay layer and every record, so it is
+    /// a POST of its own and not an edit op: a batch is a stroke a client
+    /// can replay against its own copy, and this is none of that. The
+    /// version moves like any other change, so a second window hears about
+    /// it the next time it paints.
+    /// </remarks>
+    [HttpPost("projects/{id}/generate")]
+    public ActionResult<GeneratedView> Generate(string id, [FromBody] GenerateRequest body)
+    {
+        if (!Find(id, out var project))
+            return NotFound(id);
+        if (body.Version != project.Version)
+            return Problem(
+                $"this project is at version {project.Version} and the request was "
+                + $"made against {body.Version}; reload first",
+                statusCode: 409);
+
+        var (made, refused) = LevelGenerator.Fill(project, assets.TilesetFor(project));
+        if (made is not { } level)
+            return Problem(refused, statusCode: 400);
+
+        project.Version++;
+        store.Save(project);
+        return new GeneratedView(project.Version, level.Floors, level.Ladders,
+                                 level.Holes, level.Pickups, level.Enemies,
+                                 level.FloorTile, level.LadderTile,
+                                 level.BackgroundTile);
+    }
+
     [HttpGet("projects/{id}/tileset")]
     public ActionResult<TilesetView> TilesetOf(string id)
     {

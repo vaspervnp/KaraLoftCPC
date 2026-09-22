@@ -559,6 +559,31 @@ async function validate() {
     : 'nothing to report', true);
 }
 
+// A FLOOR PLAN, NOT A FIELD OF TILES. A blank project is 2,048 cells of
+// tile 0, and the scaffolding every level needs before it is a level -
+// floors, a way down from each to the next, and enough records that the
+// bake, the patrol and the door have something to do - is the same
+// scaffolding every time. What it may use it takes off the FLAGS, so a
+// project whose table has no floor in it is refused with the role it is
+// missing named rather than handed a level of scenery (LevelGenerator).
+async function generate() {
+  if (!state.project) return say('open a project first');
+  if (state.ops.length && !confirm(
+      `${state.ops.length} unsaved edit(s) will be thrown away. Generate anyway?`))
+    return;
+  if (!confirm('This replaces the map, the overlays and every record. Go on?'))
+    return;
+  const made = await api('POST', `/api/projects/${state.project.id}/generate`,
+                         { version: state.project.version });
+  state.ops = [];
+  say([`generated, now v${made.version}`,
+       `  ${made.floors} floor(s), ${made.ladders} ladder(s), ${made.holes} hole(s)`,
+       `  ${made.pickups} pickup(s), ${made.enemies} enem(ies), one door`,
+       `  floor ${made.floorTile}, ladder ${made.ladderTile}, `
+         + `background ${made.backgroundTile}`].join('\n'));
+  await open(state.project.id);
+}
+
 async function exportLevel() {
   const result = await api('POST', `/api/projects/${state.project.id}/export`);
   if (!result.files.length) return validate();
@@ -583,6 +608,7 @@ async function exportLevel() {
 $('projects').onchange = (e) => e.target.value && open(e.target.value);
 $('zoom').oninput = (e) => { state.zoom = Number(e.target.value); draw(); };
 $('save').onclick = () => save().catch((e) => say(String(e.message)));
+$('generate').onclick = () => generate().catch((e) => say(String(e.message)));
 $('validate').onclick = () => validate().catch((e) => say(String(e.message)));
 $('export').onclick = () => exportLevel().catch((e) => say(String(e.message)));
 

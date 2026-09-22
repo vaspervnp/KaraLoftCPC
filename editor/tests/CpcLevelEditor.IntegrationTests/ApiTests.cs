@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using CpcLevelEditor.Assets;
 using CpcLevelEditor.Domain;
 using CpcLevelEditor.Exporters;
 
@@ -413,6 +414,116 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
                  .CopyTo(picture.AsSpan(cell * Tile.ByteCount));
         return picture;
     }
+
+    /// <summary>
+    /// <b>A blank project is filled in with a level that plays, over HTTP,
+    /// and the server's own validator has nothing to say about it.</b>
+    /// </summary>
+    /// <remarks>
+    /// The unit suite checks the plan; this checks the ROUTE — that the
+    /// generated map and records are what the store kept and what the
+    /// exporter then reads. The export is the witness rather than the
+    /// response: it runs the same seven designer rules a painted level
+    /// meets, on the bytes the engine would be given.
+    /// <c>scratchpad/disc_from.py</c> is the half of it that runs on a 6128.
+    /// </remarks>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    [InlineData(128)]
+    public async Task A_generated_level_goes_through_the_API_and_exports_clean(int width)
+    {
+        var client = app.As(EditorApp.Admin);
+        var id = "gen-" + Guid.NewGuid().ToString("N")[..8];
+        await client.PostAsJsonAsync("/api/projects",
+            new { id, name = "generated", width }, Json);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/projects/{id}/generate", new { version = 0 }, Json);
+        response.EnsureSuccessStatusCode();
+        var made = await response.Content.ReadFromJsonAsync<GeneratedDto>(Json);
+
+        Assert.NotNull(made);
+        Assert.Equal(1, made.Version);
+        Assert.True(made.Floors >= 2, $"{made.Floors} floor(s)");
+        Assert.Equal(made.Floors - 1, made.Ladders);
+        Assert.True(made.Pickups >= 1 && made.Enemies >= 1);
+        // The roles are the FLAGS' and not the names', so what they came
+        // out as is read back off the tileset rather than written here.
+        var tileset = await client.GetFromJsonAsync<TilesetDto>(
+            $"/api/projects/{id}/tileset", Json);
+        var floor = tileset!.Tiles.Single(t => t.Name == made.FloorTile);
+        var ladder = tileset.Tiles.Single(t => t.Name == made.LadderTile);
+        Assert.Equal((byte)TileFlags.Solid, (byte)(floor.Flags & (byte)TileFlags.Solid));
+        Assert.Equal((byte)(TileFlags.Ladder | TileFlags.Platform), ladder.Flags);
+        Assert.Equal(0, tileset.Tiles.Single(t => t.Name == made.BackgroundTile).Flags);
+
+        // ... and the level the store kept is one the exporter will take
+        var exported = await client.PostAsync($"/api/projects/{id}/export", null);
+        exported.EnsureSuccessStatusCode();
+        var result = await exported.Content.ReadFromJsonAsync<ExportDto>(Json);
+        Assert.NotNull(result);
+        Assert.DoesNotContain(result.Findings,
+            f => f.Severity == "Error" || f.Severity == "Warning");
+
+        var level = new BinaryLevelReader().Read(
+            Convert.FromBase64String(result.Files[0].Bytes));
+        Assert.Equal(width, level.Width);
+        Assert.Equal(EngineLimits.MapBytes / width, level.Height);
+        Assert.Equal(made.Pickups + made.Enemies + 2, level.Entities.Count);
+    }
+
+    /// <summary>
+    /// <b>And a project with nothing marked is refused with the role it is
+    /// missing named</b> — five of the six art packages have no flag seeds
+    /// at all (<see cref="LevelFlagSeeds"/>), so this is the state a new
+    /// forest project is really in, not a contrived one.
+    /// </summary>
+    [Fact]
+    public async Task A_project_with_no_floor_in_it_is_refused_and_says_so()
+    {
+        var client = app.As(EditorApp.Admin);
+        var id = "gen-bare-" + Guid.NewGuid().ToString("N")[..8];
+        await client.PostAsJsonAsync("/api/projects",
+            new { id, name = "a forest", assetLevel = "level2_forest",
+                  sheet = "forest_tiles" }, Json);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/projects/{id}/generate", new { version = 0 }, Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Solid", await response.Content.ReadAsStringAsync());
+
+        var project = await client.GetFromJsonAsync<ProjectDto>($"/api/projects/{id}", Json);
+        Assert.Equal(0, project!.Version);          // and nothing was written
+    }
+
+    /// <summary>
+    /// <b>Generate takes the version check every other change takes.</b> It
+    /// replaces the whole map, so a stale one is the one edit in this editor
+    /// whose loss could not be reconstructed from the canvas.
+    /// </summary>
+    [Fact]
+    public async Task A_generate_against_a_stale_version_is_refused()
+    {
+        var client = app.As(EditorApp.Admin);
+        var id = "gen-stale-" + Guid.NewGuid().ToString("N")[..8];
+        await client.PostAsJsonAsync("/api/projects", new { id, name = "scratch" }, Json);
+        await client.PatchAsJsonAsync($"/api/projects/{id}",
+            new { version = 0, ops = new[] { new { op = "tile", x = 3, y = 4, tile = 7 } } }, Json);
+
+        var stale = await client.PostAsJsonAsync(
+            $"/api/projects/{id}/generate", new { version = 0 }, Json);
+
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        var project = await client.GetFromJsonAsync<ProjectDto>($"/api/projects/{id}", Json);
+        Assert.Equal(1, project!.Version);
+        Assert.Equal(7, Convert.FromBase64String(project.Map)[4 * EngineLimits.MapWidth + 3]);
+    }
+
+    private sealed record GeneratedDto(
+        int Version, int Floors, int Ladders, int Holes, int Pickups, int Enemies,
+        string FloorTile, string LadderTile, string BackgroundTile);
 
     private sealed record LevelAssetsDto(string Level, List<string> Sheets);
     private sealed record ProjectDto(
