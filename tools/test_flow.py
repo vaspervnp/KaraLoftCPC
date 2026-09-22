@@ -296,9 +296,22 @@ FREE = {"FRAME_COUNT", "IRQ_TICKS", "IRQ_LAST", "FRAME_TICK0",
 # repaint's and DRAW_CELL's working cell, the record the AABB last
 # found, and the fade's own. Each is named rather than a range, and the
 # control below is what says the list is not just long enough to pass.
-DEAD = ("SPAN_", "CX_", "HUD_STEP", "HUD_V_", "HUD_BANK", "FADE_PAL",
-        "FADE_STEP", "ENT_HIT", "ENT_RP_WC", "ENT_RP_WR", "ENT_RP_WORD",
-        "CELL_WORD", "CELL_WC", "CELL_WR", "CELL_COUNT")
+#
+# AND COL_*, ROW_* AND HUD_A_* ARE ON IT ONLY BECAUSE OF A FIX. They
+# are DRAW_COLUMN's and DRAW_ROW's arguments and working bytes, and
+# every caller sets its own - EXCEPT that DRAW_PLAYFIELD did not, and
+# painted whatever slice the last caller had left behind. That is not
+# dead state, it is a level installed on the wrong rows: measured, a
+# playfield repainted with HUD_VACATE's leftover 22/1 left **6,631 of
+# 16,384 bytes of the screen wrong** against 819 with the full-column
+# values. DRAW_PLAYFIELD sets them itself now (src/tilemap.asm), which
+# is what makes them dead and what makes this line honest. The sweep is
+# where it showed: the view stopped panning at a level start
+# (CLAUDE.md 8.1), and the pan had been rewriting them.
+DEAD = ("SPAN_", "CX_", "HUD_STEP", "HUD_V_", "HUD_BANK", "HUD_A_",
+        "FADE_PAL", "FADE_STEP", "ENT_HIT", "ENT_RP_WC", "ENT_RP_WR",
+        "ENT_RP_WORD", "CELL_WORD", "CELL_WC", "CELL_WR", "CELL_COUNT",
+        "COL_", "ROW_")
 
 
 def sweep(sym, ra, rb):

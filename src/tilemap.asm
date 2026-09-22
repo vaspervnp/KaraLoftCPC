@@ -162,6 +162,19 @@ SCROLL_INIT:    ld   b,CRTC_R6
                 ; says so with the carry, which nothing here asks
                 ; about: there is nowhere better to put her.
                 call PLAYER_SPAWN
+                ; ... AND THE VIEW GOES WHERE SHE IS, before the
+                ; playfield is painted rather than over the next second
+                ; and a half of the camera panning to find her. It has
+                ; to be after PLAYER_SPAWN, which is what puts her
+                ; where the level says, and before DRAW_PLAYFIELD,
+                ; which paints whatever the view then is.
+                call VIEW_TO_PLAYER
+                ; ... and her screen column with it, so the first frame
+                ; after this draws her at the column the view was just
+                ; built around. The loop's own PLAYER_TO_SCREEN is at
+                ; the END of the second sweep (7.8), so without this
+                ; the first drawn frame uses the LAST level's.
+                call PLAYER_TO_SCREEN
                 ; AND ITS CARRY IS NOT THIS ROUTINE'S VERDICT. SCROLL_INIT
                 ; says "the level was refused" with the carry and
                 ; PLAYER_SPAWN says "the level had a start record" with
@@ -783,7 +796,28 @@ ROW_NEXT_TILE:  ld   hl,(ROW_MAPPTR)
 ; DRAW_PLAYFIELD - the whole screen. ~9 frames; level entry only.
 ; Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-DRAW_PLAYFIELD: call BANK_SET_C4
+                ; AND IT SETS ITS OWN SLICE, WHICH IT DID NOT AND
+                ; WAS RIGHT BY COURTESY. COL_FIRST and COL_N are
+                ; DRAW_COLUMN's arguments and every other caller sets
+                ; them - H_HEAD takes rows 0..COL_HEAD, H_TAIL the
+                ; rest, HUD_VACATE one cell of row 22 or 23. This one
+                ; used to set neither and rely on the others putting
+                ; the full-column values back afterwards, which is the
+                ; §10 class of fault exactly: it is free at four call
+                ; sites and not at the fifth. HUD_VACATE's general
+                ; path is the one that does not restore them, so a
+                ; level installed on a frame after the strip vacated a
+                ; word painted ONE character row of each column and
+                ; left the rest of the old picture where it was.
+                ; Measured by hand, the view put back to where the
+                ; level opens and the playfield repainted: 819 bytes
+                ; of 16,384 wrong with 0/24 - her own sprite and a
+                ; drone - and **6,631 with 22/1**.
+DRAW_PLAYFIELD: xor  a
+                ld   (COL_FIRST),a
+                ld   a,SCR_CHAR_ROWS
+                ld   (COL_N),a
+                call BANK_SET_C4
                 ld   a,SCR_CHARS - 1
 .next:          push af
                 call DRAW_COLUMN
@@ -981,12 +1015,8 @@ H_TAIL:         ld   a,(H_TAIL_DUE)
                 call BANK_SET_C4
                 ld   a,(H_COL)
                 call DRAW_COLUMN
-                call BANK_RESTORE
-                xor  a                      ; leave the defaults alone for
-                ld   (COL_FIRST),a          ; DRAW_PLAYFIELD
-                ld   a,SCR_CHAR_ROWS
-                ld   (COL_N),a
-                ret
+                jp   BANK_RESTORE           ; and no restore: DRAW_PLAYFIELD
+                                            ; sets its own slice now
 
 ; ---------------------------------------------------------------------
 ; SCROLL_V_STEP / SCROLL_V_FINISH - one character row, 8 scanlines.

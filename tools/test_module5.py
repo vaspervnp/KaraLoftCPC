@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, "/home/vasilhs/cpcemu")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench import boot, symbols, Bench                         # noqa: E402
+from bench import boot, symbols, sync, Bench                   # noqa: E402
 
 STUB = 0x9400
 MAP_ADDR, MAP_W = 0xA000, 128
@@ -176,11 +176,30 @@ def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False,
     if no_hud:
         m.poke(sym["HUD_SERVICE"], 0xC9)
     m.run_frames(5)
+    # ANCHOR THE WINDOW TO THE TOP OF A GAME FRAME. A game frame is two
+    # hardware ones, so `frames` of them hold exactly half that many
+    # boundaries - but only if the window STARTS on one, and an
+    # unanchored one reads a frame under or over by turns on a build
+    # that has not changed. tools/test_enemies.py carries the sweep.
+    sync(m, sym, half=0)
     f0 = m.peek(sym["FRAME_COUNT"])
     x0 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
     peak, aim_frames, last_fc = 0, 0, m.peek(sym["FRAME_COUNT"])
+    aim_taps, was_aiming = 0, False
     for t in range(frames):
-        m.joystick(pattern(t))
+        # THE PATTERN IS HANDED A GAME FRAME AND NOT A HARDWARE ONE, and
+        # the two comments below are what that is for: everything this
+        # routine reports - the frames she was planted on, the bytes she
+        # covered, the step she takes on one game frame in two - is on
+        # the game's clock, and a trigger written on the hardware's held
+        # it down for three game frames in some of its windows and two
+        # in the rest. AIM_ROOTS_HER refuses her step on a GAME frame,
+        # so a window of three covers two of her step frames and a
+        # window of two covers one: the same tap then cost her 34 bytes
+        # where the count of aiming frames predicted 28, and the check
+        # below failed for the sampler's arithmetic rather than the
+        # engine's.
+        m.joystick(pattern((m.peek(sym["FRAME_COUNT"]) - f0) % 256))
         if kill_enemies:
             m.poke(sym["ENEMY_LIVE"], 0)    # ENEMY_PICK then finds nobody
         if top is not None:
@@ -204,15 +223,30 @@ def walk(sym, pattern, frames=FRAMES, top=None, kill_enemies=False,
         # the trigger spends down - the release runs four cels of KST_FIRE
         # and she walks through those - so counting the STATE came out
         # eleven bytes short of what she actually lost.
+        #
+        # AND WHAT IS COUNTED IS THE TAPS, NOT ONLY THE FRAMES. She
+        # steps on one game frame in two inside the camera's push zone
+        # (CLAUDE.md 8.2), and a tap holds the trigger down across one
+        # or two consecutive game frames - so what a tap costs her is
+        # ONE step, whichever of the two it covers, and a count of
+        # aiming FRAMES is a count of 1s and 2s that does not divide by
+        # anything. Measured frame by frame on this walk: three taps in
+        # a row were seen as two aiming frames, one and two, and every
+        # one of them cost her exactly one step of P_PUSH.
         fc = m.peek(sym["FRAME_COUNT"])
         if fc != last_fc:
             last_fc = fc
             if m.peek(sym["INPUT_NOW"]) & IN_FIRE:
                 aim_frames += 1
+                if not was_aiming:
+                    aim_taps += 1
+                was_aiming = True
+            else:
+                was_aiming = False
     loops = (m.peek(sym["FRAME_COUNT"]) - f0) % 256
     x1 = m.peek(sym["KARA_WX"]) | (m.peek(sym["KARA_WX"] + 1) << 8)
     m.joystick(0)
-    return loops, x1 - x0, peak, aim_frames
+    return loops, x1 - x0, peak, (aim_frames, aim_taps)
 
 
 def firing_costs_her_nothing(sym):
@@ -241,16 +275,20 @@ def firing_costs_her_nothing(sym):
 
     plain, plain_x, _, _ = walk(sym, lambda t: JOY_RIGHT)
     held, held_x, held_top, _ = walk(sym, lambda t: JOY_RIGHT | JOY_FIRE)
-    tap = (lambda t: JOY_RIGHT | (JOY_FIRE if (t % 12) < 4 else 0))
+    # TWO GAME FRAMES DOWN IN EVERY SIX - the same third of the time the
+    # old four-in-twelve hardware pattern asked for, said on the clock
+    # the engine reads the trigger on (walk() above).
+    tap = (lambda g: JOY_RIGHT | (JOY_FIRE if (g % 6) < 2 else 0))
     fired, fired_x, peak, _ = walk(sym, tap)
 
-    aiming = sum(1 for t in range(FRAMES) if tap(t) & JOY_FIRE)
+    aiming = sum(1 for g in range(FRAMES // 2) if tap(g) & JOY_FIRE)
 
     print(f"    walking            {plain} loops, {plain_x} bytes")
     print(f"    walking + AIM      {held} loops, {held_x} bytes "
           f"(BUL_TOP {held_top} - a HELD trigger never fires)")
     print(f"    walking + firing   {fired} loops, {fired_x} bytes "
-          f"(BUL_TOP peaked at {peak}, {aiming} of {FRAMES} frames aiming)")
+          f"(BUL_TOP peaked at {peak}, {aiming} of {FRAMES // 2} game "
+          f"frames aiming)")
 
     check("a held trigger really is only AIM, and fires nothing",
           held_top == 0, "BUL_TOP stayed 0, so the pool never had a round in it")
@@ -267,8 +305,8 @@ def firing_costs_her_nothing(sym):
     # - the one it comes into view on and the one it leaves on (8.7) -
     # land on frames already carrying the heaviest cel in the game (9).
     alone, alone_x, _, _ = walk(sym, tap, kill_enemies=True)
-    steady, steady_x, _, aim_game = walk(sym, tap, kill_enemies=True,
-                                          no_hud=True)
+    steady, steady_x, _, (aim_game, aim_taps) = walk(
+        sym, tap, kill_enemies=True, no_hud=True)
     base, base_x, _, _ = walk(sym, lambda t: JOY_RIGHT,
                               kill_enemies=True, no_hud=True)
     print(f"    ... and with no drone   {alone} loops, {alone_x} bytes")
@@ -341,18 +379,30 @@ def firing_costs_her_nothing(sym):
     # nothing on the frames between (CLAUDE.md 8.2), so a trigger-down
     # frame that lands on an off-frame costs her nothing and one that
     # lands on an on-frame costs two. One byte apiece is the AVERAGE,
-    # and the sum is therefore right to within a single push step -
-    # which is what is asserted, on a run whose loop dropped nothing so
-    # that a dropped frame cannot be hiding inside the slack.
-    costs = aim_game
+    # and the sum was asserted to within a single push step.
+    #
+    # AND THAT AVERAGE IS NOT GOOD ENOUGH, WHICH ONLY SHOWED ONCE THE
+    # SAMPLER STOPPED WOBBLING. A TAP is what costs her a step, not a
+    # FRAME: the trigger is down across one or two consecutive game
+    # frames and she steps on every other one, so each tap takes
+    # exactly one step of P_PUSH whichever frames it covers. Counting
+    # frames instead, the same walk came out 34 bytes lost against 29
+    # frames seen aiming - five over a tolerance of two, and neither
+    # number wrong. Counted in taps it is 17 of them, 34 bytes, exact.
+    #
+    # THE FRAME COUNT IS STILL WORTH HAVING and it is printed: a tap
+    # seen as ONE aiming frame rather than two is the engine scanning
+    # the joystick before the sampler moved it, which is a hardware
+    # frame of slack in the driver and not something the engine did.
     push = sym["P_PUSH"]
+    costs = push * aim_taps
     check("and tapping costs her the aiming frames and nothing else",
           steady == FRAMES // 2 and abs((base_x - steady_x) - costs) <= push,
           f"{steady_x} bytes against {base_x} walking - she lost "
-          f"{base_x - steady_x} to {costs} game frames with the trigger down, "
-          f"which is within one push step of {push}; the loop held "
-          f"{steady} of {FRAMES // 2} game frames, so none of it is a "
-          f"dropped frame")
+          f"{base_x - steady_x} to {aim_taps} taps at {push} bytes the tap, "
+          f"which is within one push step of {costs}; {aim_game} game frames "
+          f"were seen with the trigger down; the loop held {steady} of "
+          f"{FRAMES // 2} game frames, so none of it is a dropped frame")
     check("... and the strip's dropped frames move it by no more than they can",
           abs(alone_x - steady_x) <= 2 * abs(steady - alone) + 2,
           f"{alone_x} bytes in play against {steady_x} with the HUD off, over "

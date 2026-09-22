@@ -14,7 +14,10 @@ dies, the screen fades and the level comes back out of the pristine
 copy at `&B000`; **the garage opens and she goes to the NEXT LEVEL**,
 which inside one environment is a map read of one sector and no art at
 all — 54 hardware frames, fade and all. Four levels an environment,
-six environments.
+six environments. **And a level opens on the view the camera
+would have panned to** rather than panning there over the first second
+and a half, which four levels an environment is what made reachable
+(§8.1).
 What says the restart is a level start is not a reading of the code
 but 32,448 bytes of engine RAM compared with a machine that has just
 booted, with a line of `LEVEL_RESET` knocked out as the control.
@@ -300,10 +303,11 @@ to the second sweep, where the head gate is idle for 40,468 T; its copy
 became the health bar's own unrolled `LDI` run instead of a second pair
 of `LDIR`s; and — the last two frames, and the surprise — **a pickup's
 repaint stops disowning the whole strip's layout when it cannot reach
-it.** Six of the seven paths are 100 of 200 now with the strip in them
-and `HUD_SERVICE` poked out changing nothing on any of them; the
-seventh is the run with the gun at 98 either way, which is its own
-cels. §7.8 has the measurements, including the one that settled it: a
+it.** All seven paths are 100 of 200 now with the strip in them, once
+the level's drones are taken off; with them on, the only thing any path
+still loses is the ENCOUNTER, and the run with the gun loses one of its
+frames to the strip rather than none (§9). §7.8 has the measurements,
+including the one that settled it: a
 delay of a KNOWN length in `HUD_INV`'s place, which cost the frame at
 484 T and at 2,884 alike — so no cheaper copy could ever have bought
 it.
@@ -348,7 +352,8 @@ src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
 src/collide.asm   tile attributes, box probes, and the ladder's one-column
                   probe
-src/player.asm    walking, jumping, gravity, the ladder, and both cameras
+src/player.asm    walking, jumping, gravity, the ladder, both cameras,
+                  and where the view starts when a level does (8.1)
 src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
 src/action.asm    her action state machine and the cel timer (8.4)
 src/entity.asm    the entity table, the AABB, the five interaction
@@ -487,6 +492,24 @@ would write the generator's straight back over it. Nothing else should
 use it, and a disc built that way is exactly as current as whatever
 happened to be in `build/` when it ran. Measured: with nothing swapped
 it produces the same `kara.dsk`, byte for byte, as a full build.
+
+**AND THAT LAST SENTENCE STOPPED BEING TRUE FOR A WHILE, WHICH IS WORTH
+KNOWING BECAUSE OF HOW IT HID.** `tools/level_banks.py` is one of the
+few steps `--relink` does NOT skip, and it takes a level's art to be
+every `.bin` in the level's directory that is not one of its own bank
+images. `tools/make_level_image.py` writes `map_<n>.bin` there — the
+map, the entity table and the tile flags, which go on the disc as a
+stream of their own and are never paged into a bank — and a full build
+never sees one, because it runs `rm -rf build/levels` first and
+`level_banks.py` BEFORE `make_level_image.py`. **A second run in the
+same tree allocates the map as if it were a character sheet**: level
+1's `&C0` bank went from 9,933 raw bytes to 12,346 — exactly the 2,149
+of `level_1.lvl` — its stream from 2,931 packed to 3,291, which is a
+seventh sector, and **every data sector on the disc after it moved one
+along**. Nothing failed: the disc boots, the game plays, `banks.inc`
+and `disc.inc` agree with each other, and the only thing that says so
+is the md5. The prefix is excluded now and the two builds are byte for
+byte again.
 
 `-t 1` = binary, `-c` = load address, `-e` = execution address, `-f` = overwrite.
 
@@ -1976,12 +1999,20 @@ frames of the start — on the frame she picks the key up.
    and two columns, so it meets row 23 only from row 22 and only left
    of the strip's last cell.
 
-**Six of the seven paths are 100 of 200 with the whole strip in them**,
-and `HUD_SERVICE` poked out changes nothing on any of them. The seventh
-is the run with the gun at 98 either way — its cels are 351 span bytes
-against the 324 of her heaviest `kcore` one (§9), and that is not the
-bottom row. `tools/test_enemies.py` asserts each path exactly, with the
-whole-HUD control on the one that is short; `tools/test_entities.py`
+**ALL SEVEN PATHS ARE 100 OF 200 WITH THE WHOLE STRIP IN THEM**, with
+the level's drones taken off — and that is a correction, not a
+restatement. This paragraph used to say six of the seven, the seventh
+being the run with the gun "at 98 either way — its cels are 351 span
+bytes against the 324 of her heaviest `kcore` one, and that is not the
+bottom row". Measured with the sampler anchored and the tap driven on
+the game's clock (§9), the run's cels cost nothing at all: it is 100 of
+200 with nothing to shoot at, 96 to 99 with the drones on depending on
+where the window starts, and `HUD_SERVICE` poked to `RET` gives **one
+of those frames back at eight of ten starting points**. So the strip
+does cost the run a frame, and only on the frames the encounter is
+already paying for. `tools/test_enemies.py` asserts the drone-free
+count exactly and the in-game one as a floor, with the whole-HUD
+control on the run; `tools/test_entities.py`
 drives the guard at a cell chosen to land on row 22 and at two that do
 not, because a guard that never fired would pass the negative halves on
 its own.
@@ -2422,6 +2453,19 @@ they were dead and clearing them changes no behaviour at all — but half
 a record cleared and half left is the shape of every bug in §10, and
 nine bytes once a level is not a price.
 
+**AND THE SECOND THING IT FOUND WAS NOT DEAD AT ALL, WHICH IS WHY THE
+INSTRUMENT IS WORTH ITS RUNTIME.** Putting the view where the camera
+would have panned it (below) made six more bytes disagree —
+`COL_ODD`, `COL_FIRST`, `H_COL`, `H_SCROLL`, `H_WX` and `HUD_A_LO` —
+and they had agreed before only because **the pan rewrote them on its
+way to her.** Five of the six are a routine's own working bytes and the
+sweep names them as such now; `COL_FIRST` was not, and chasing it found
+a level install that could repaint **one character row of each column**
+and leave the rest of the old picture on the screen — §10's new first
+rule, with the 6,631 wrong bytes measured there. The step's own
+PARAMETERS went into `LEVEL_ENTER`'s clear beside the flags that gate
+them, which is the paragraph above with six bytes instead of nine.
+
 #### A LEVEL IS A MAP AND AN ENVIRONMENT IS A BANK SET
 
 This section used to end "there is nowhere to go when a level is
@@ -2506,16 +2550,47 @@ rather than letting `MAP_INSTALL` parse whatever `&B000` held. That is
 a full `LEVEL_RESET` and not a transition — starting the game over is
 not walking through a door — and the suite checks both halves.
 
-**What is NOT solved is where the view starts.** `SCROLL_INIT` puts it
-at the top left and the camera pans to find her, which was invisible
-while every level's start was in the first screen: level 1's is at byte
-43 and the camera settles in about eight frames. A start placed further
-along pans for longer — measured at a start 64 bytes in, **about 40
-game frames, 1.6 s, with her at the right-hand edge** (clipped now
-rather than folded, §8.2). It is a pre-existing behaviour that four
-levels an environment makes reachable, and the fix is to place the view
-where `CAM_TRAIL` says before the playfield is painted rather than
-after.
+#### AND THE VIEW STARTS WHERE THE CAMERA WOULD HAVE PANNED IT
+
+`SCROLL_INIT` used to leave the view at the top left and let
+`CAMERA_DECIDE` and `CAMERA_V` walk it to her a character and a row at
+a time. That was invisible while every level started in its own first
+screen — level 1's record is byte 43 and the camera settles in about
+eight frames — and **four levels an environment is what made it
+reachable**: measured at a start 64 bytes in, the view panned for about
+**forty game frames with the loop at 98 of 200** while it did, and she
+spent them clipped against the right-hand edge.
+
+`VIEW_TO_PLAYER` computes **where the camera STOPS**, not where it
+would like to be, so the first frame is the frame the pan converges to
+and nothing moves afterwards:
+
+| | |
+|---|---|
+| across | `CAMERA_DECIDE` steps right while her box column is at or past `CAM_TRAIL`, so it stops one character PAST `(KARA_WX - CAM_TRAIL) / 2` |
+| down | `CAMERA_V` steps down while her MIDDLE is past `CAM_BOT`, so it stops at `ceil((KARA_WY - (CAM_BOT - KARA_BOX_H / 2)) / 8)` |
+| and `SCROLL` | `WORLD_CR * SCR_CHARS + WORLD_X`, because that is what the two counters mean when a step moves them together from 0 |
+
+Measured, and the arithmetic is checked against the camera rather than
+against itself — **the numbers below are the ones the pan used to
+arrive at**:
+
+| | before | after |
+|---|---|---|
+| level 1, the instant it is ready | `WORLD_X` 0, panning to 9 | **9**, and it does not move in 200 frames |
+| a level starting 64 bytes in | 0, panning to 41 over ~40 frames | **41**, `KARA_X` 22 |
+| the loop while that happened | 98 of 200 | **99-100** |
+
+**IT IS 16-BIT ACROSS AND `PLAYER_SCREEN_X` IS NOT**, which is the one
+trap in it: that routine wants a small DIFFERENCE and takes `KARA_WX`
+modulo 256 to get it (§8.10), where this wants an absolute column of a
+512-byte world. Reading the low byte here would put the view at the
+wrong end of the map from byte 256 on — §8.7's own bug with the
+operands the other way round.
+
+**And `PLAYER_TO_SCREEN` goes with it.** The loop's own call is at the
+END of the second sweep (§7.8), so without one here the first drawn
+frame of a new level would use the LAST level's screen column.
 
 ### 8.2 Scrolling — implemented and measured
 
@@ -4305,10 +4380,56 @@ thing cost while the frame was the budget, which is the record of how
 the engine got here and the first place to look when something has to be
 taken back out.
 
-| Loop, at 25 Hz | game frames / 200 hardware |
+| Loop, at 25 Hz, the level's drones off | game frames / 200 hardware |
 |---|---:|
-| standing, walking either way, walking + firing, jumping + firing, running right | **100** |
-| running right + firing | **98** |
+| standing, walking either way, running right | **100** |
+| walking + firing, jumping + firing, running + firing | **100** |
+
+**EVERY PATH REACHES THE LOCK, AND THAT IS NOT WHAT THIS TABLE SAID
+UNTIL THE SAMPLER WAS MADE HONEST.** It carried 98 for the
+run-and-fire path and named the run's own cels as the reason — "351
+span bytes against the 324 of her heaviest `kcore` one". **The cels
+are not the reason.** Three things in `tools/test_enemies.py` were
+deciding the number and none of them was the engine:
+
+* **the window was not anchored to a game frame.** A game frame is two
+  hardware ones, so 200 of them hold exactly 100 boundaries — but only
+  if the window starts on one. Measured on an unchanged build, the same
+  path read **99, 100 and 101 by turns** over ten unanchored windows
+  and **100 forty times out of forty** anchored to
+  `bench.sync(m, sym, half=0)`;
+* **the tap was written in HARDWARE frames.** "Four down in every
+  twelve" is two game frames in six only when the twelve start on a
+  game frame; straddling one it holds the trigger down for three game
+  frames in some windows and two in the rest. Over the twelve
+  alignments, anchored: walking and firing 99 ten times and 100 twice,
+  jumping and firing 99 eight and 100 four, running and firing 97 three
+  times, 98 eight and 99 once — **a spread the suite was sampling one
+  point of**;
+* **and what was left moved with the PRE-ROLL**, the same build and the
+  same window started one frame further along the roof. That is a count
+  about WHERE IN THE LEVEL the two hundred frames fall, and the thing
+  it falls on is the drone.
+
+**SO THE DROPPED FRAMES ARE THE ENCOUNTER, ALL OF THEM.** Measured over
+ten starting points, 86 to 95 frames of walking in, with the tap driven
+on the game's own clock:
+
+| | with the drones | with `ENEMY_LIVE` held at 0 |
+|---|---|---:|
+| standing, walking either way, running right | 100 × 10 | **100 × 10** |
+| walking right + firing | 99, 100 | **100 × 10** |
+| jumping + firing | 99, 100 | **100 × 10** |
+| running right + firing | 96 .. 99 | **100 × 10** |
+
+and on the run — the only path that loses more than one — **one of
+those frames is the bottom row**: `HUD_SERVICE` poked to `RET` gives
+back exactly one at eight of the ten starting points and nothing at the
+other two, against §7.8's own claim that it gives back nothing at all.
+Both halves are asserted now, because either alone hides something: the
+drone-free count is the LOOP and is exact, the in-game one is the loop
+plus an encounter whose phase the pre-roll moves and can only carry a
+floor.
 
 **IT WAS NOT 100 EVERYWHERE FOR A WHILE, AND THE INVENTORY WAS BLAMED
 FOR ALL OF IT.** The six cells of §7.8's inventory group went on the
@@ -4318,9 +4439,7 @@ into the floors as the cause. **Two of those frames were not the copy
 at all** — they were a pickup's repaint disowning the whole strip's
 layout on a sweep that had under 484 T to give, which is §7.8's third
 measurement and the one that needed an instrument with no model in it.
-All four are back. The run-and-fire path is **98 with the whole of
-`HUD_SERVICE` silent as well**: its two frames are the run's own cels,
-351 span bytes against the 324 of her heaviest `kcore` one.
+All four are back.
 
 **EVERY COLUMN OF THIS TABLE IS THE SAME BUILD WITH ONE THING CHANGED**,
 in the order the changes happened, so what a row costs can be read off
@@ -4980,6 +5099,34 @@ frame, so this only helps a standing player on a still screen.
   what §9's tick table measures from; and the test to apply to any raster
   gate is not "is the number right" but **"does changing the number
   change anything"**.
+* **A COUNT OF GAME FRAMES IS PHASE-SENSITIVE AND HAS TO BE ANCHORED.**
+  A game frame is two hardware ones (§9), so a window of 200 hardware
+  frames holds exactly 100 of them — **and only if it starts on one**.
+  Measured on a build that had not changed, the same path read 99, 100
+  and 101 by turns over ten unanchored windows, which is a suite that
+  reports a regression, a lock and a blank sweep for the same engine.
+  `bench.sync(m, sym, half=0)` is the anchor. **The same is true of
+  anything a test DRIVES on the hardware's clock**: a trigger written as
+  "four hardware frames down in twelve" is two game frames down in six
+  only when the twelve start on a game frame, and otherwise it holds
+  the trigger for three of them in some windows and two in the rest —
+  so the load it puts on the loop is the sampler's phase. Both faults
+  were in `tools/test_enemies.py` and between them they had written
+  a frame of the run-and-fire path's floor down as the run's own cels
+  (§9). The test to apply is the one this section already applies to a
+  raster gate: **does changing something that should not matter change
+  the answer?**
+* **A TOOL THAT SCANS A DIRECTORY MUST EXCLUDE WHAT ANOTHER TOOL WRITES
+  THERE.** `tools/level_banks.py` takes a level's art to be the `.bin`
+  files in its directory, and `tools/make_level_image.py` writes
+  `map_<n>.bin` into the same one — so the map was allocated into a
+  bank as if it were a character sheet. It cannot happen on a full
+  build, because `build.sh` clears `build/levels` and runs the two in
+  the order that hides it; it happens on every `--relink`, and what it
+  costs is a sector, every data sector after it, and the claim in §3
+  that the two builds agree byte for byte. **Nothing fails**: both
+  builds are self-consistent, so only an md5 of the whole disc can see
+  it.
 * **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
   `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
   group and `B` = bytes in this span, and copied with `LDI` — so the
@@ -5001,6 +5148,25 @@ frame, so this only helps a standing player on a still screen.
   "is this register free here" but **"is it free at every instruction
   between where I set it and where I read it"** — `LDI`, `LDIR`, `CPIR`
   and `OUTI` all count.
+* **A ROUTINE'S ARGUMENTS ARE NOT DEFAULTS, AND A CONVENTION THAT PUTS
+  THEM BACK IS FREE AT FOUR CALL SITES AND NOT AT THE FIFTH.**
+  `COL_FIRST` and `COL_N` are which rows of a column `DRAW_COLUMN`
+  paints. Four of its five callers set them; `DRAW_PLAYFIELD` set
+  neither and relied on the others restoring the full-column values
+  afterwards — and `HUD_VACATE`'s general path is the one that does
+  not, because it walks a list of leftover words and returns from the
+  middle of it. So a level installed on a frame after the strip vacated
+  a word repainted **one character row of each column** and left the
+  rest of the old picture on the screen. Measured by hand, the view put
+  back to where the level opens and the playfield repainted: **819
+  bytes of 16,384 wrong with 0/24 — her own sprite and a drone — and
+  6,631 with 22/1.** It had never fired, because the fade before a
+  restart is a still frame and a still frame's last writer is `H_TAIL`,
+  which did restore them. `DRAW_PLAYFIELD` sets its own slice now and
+  both courtesy restores are gone. **What found it was a byte the
+  RESTART forgot** (§8.1), not a picture: the view stopped panning at a
+  level start, the pan had been rewriting those bytes on the way, and
+  the sweep with no model in it saw them stop agreeing.
 * **`B` IS A LOOP COUNTER SOMEWHERE ABOVE YOU.** `EBUL_HITS_HER` was
   given a second register for the crouch's shorter hitbox and took `B`;
   its caller holds the pool's slot count there and finishes with `DJNZ`,
@@ -5763,10 +5929,13 @@ the next one starts.
    a screen; the raster-interrupt water rise, which is level 4's; **maps
    for the other twenty-three levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
-   carries a zero for each one nobody has made; and **where the view
-   starts**, which is §8.1's last paragraph: `SCROLL_INIT` puts it at
-   the top left and the camera pans to find her, which is eight frames
-   for level 1's start and 1.6 s for one placed further along.
+   carries a zero for each one nobody has made.
+
+   * ~~**Where the view starts**~~ — done: `VIEW_TO_PLAYER` puts it
+     where the camera would have panned it, which is the frame the pan
+     converged to, so nothing moves afterwards. Level 1 opens at
+     `WORLD_X` 9 and a level starting 64 bytes in opens at 41 instead
+     of panning there over forty frames (§8.1).
 9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
    interrupt, Channel C SFX priority.
 

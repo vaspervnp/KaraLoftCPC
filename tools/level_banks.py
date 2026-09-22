@@ -90,11 +90,26 @@ SETPIECE = {"citycar", "desertshuttle", "desertbasedoor",
 
 
 def blobs(level):
-    """The level's own blobs - not the bank images this tool writes."""
+    """The level's own ART - not the bank images this tool writes, and
+    not the level's own MAP.
+
+    `map_<n>.bin` is tools/make_level_image.py's: the map, the entity
+    table and the tile flags of one level, which travel as a stream of
+    their own and are unpacked into base RAM at LEVEL_IMAGE, never into
+    a bank (CLAUDE.md 8.1). Picked up here it is allocated as if it
+    were a character sheet, and the fault is invisible on a FULL build
+    because build.sh runs this tool BEFORE make_level_image.py and
+    `rm -rf build/levels` before that - so only a SECOND run in the
+    same tree ever sees one. Measured: level 1's &C0 bank went from
+    10,197 raw bytes to 12,346 - exactly the 2,149 of level_1.lvl -
+    its stream from 2,931 packed to 3,291, which is a seventh sector,
+    and every data sector on the disc after it moved one along. That is
+    what `./build.sh --relink` was doing, against a claim in CLAUDE.md 3
+    that it reproduces a full build byte for byte."""
     d = os.path.join(LEV, level)
     return sorted(f for f in os.listdir(d)
                   if f.endswith(".bin")
-                  and not f.startswith(("lvl_", "set_")))
+                  and not f.startswith(("lvl_", "set_", "map_")))
 
 
 def stem(f):

@@ -17,7 +17,15 @@ THE DRAWING IS A BUDGET. One enemy on screen costs 17,968 T against a
 scrolling frame's 420, so it is a PERSISTENT sprite: drawn once, left
 on the screen between refreshes, and refreshed only on a frame that can
 pay. The two things worth checking are that its pixels really do
-survive a skipped frame, and that the loop still locks 50 Hz.
+survive a skipped frame, and that the loop still locks 25 Hz - 100 game
+frames in 200 hardware ones.
+
+AND A COUNT OF GAME FRAMES IS A SAMPLER BEFORE IT IS A MEASUREMENT.
+The window has to start on a game frame, the tap has to be driven on
+the game's clock rather than the hardware's, and what is left still
+moves with where in the LEVEL the two hundred frames fall - so the loop
+is asserted exactly with the drones off and as a floor with them on.
+The three measurements are beside the checks.
 """
 import os
 import sys
@@ -338,12 +346,12 @@ def main():
     #   running + firing  -   -   -  185  -  151 164
     #
     # and of those, the two run rows are what 25 Hz was for.
-    def loop_count(joy, tap, shift, quiet=None):
+    def loop_count(joy, tap, shift, quiet=None, drones=True, pre=90):
         mm = boot(sym, scroll=True)
         if quiet:
             mm.poke(sym[quiet], 0xC9)       # RET
         mm.joystick(JOY_RIGHT)
-        for _ in range(90):
+        for _ in range(pre):
             mm.run_frames(1)
         if shift:
             # THERE IS NO KEYCODE FOR SHIFT ON ITS OWN HERE, so what is
@@ -354,10 +362,34 @@ def main():
             mm.key_down('A')
         mm.joystick(joy)
         mm.run_frames(5)
+        # ANCHOR THE WINDOW TO THE TOP OF A GAME FRAME, or the count
+        # below is the sampler's phase as much as the loop's. A game
+        # frame is two hardware ones, so 200 of them hold exactly 100
+        # boundaries - but only if the window STARTS on one. Measured on
+        # an unchanged build, the same path over ten unanchored windows
+        # reads 99, 100 and 101 by turns; anchored it reads 100 forty
+        # times out of forty.
+        sync(mm, sym, half=0)
         f0 = mm.peek(sym["FRAME_COUNT"])
         for t in range(200):
+            if not drones:
+                mm.poke(sym["ENEMY_LIVE"], 0)   # ENEMY_PICK finds nobody
             if tap:
-                mm.joystick(joy | (JOY_FIRE if (t % 12) < 4 else 0))
+                # AND THE TAP IS COUNTED IN GAME FRAMES, NOT HARDWARE
+                # ONES. It was "four hardware frames down in every
+                # twelve", which at 25 Hz is two game frames down in six
+                # - but only when the twelve happen to start on a game
+                # frame. Straddling one, the same pattern holds the
+                # trigger down for THREE game frames in some of its
+                # windows and two in the rest, so how hard it drives the
+                # loop is a property of where the sampler started.
+                # Measured over the twelve hardware alignments of the
+                # old pattern, anchored, game frames per 200: walking
+                # right + firing 99 ten times and 100 twice, jumping +
+                # firing 99 eight and 100 four, running + firing 97
+                # three times, 98 eight and 99 once.
+                g = (mm.peek(sym["FRAME_COUNT"]) - f0) % 256
+                mm.joystick(joy | (JOY_FIRE if (g % 6) < 2 else 0))
             mm.run_frames(1)
         got = (mm.peek(sym["FRAME_COUNT"]) - f0) % 256
         mm.joystick(0)
@@ -365,52 +397,98 @@ def main():
             mm.key_up('A')
         return got
 
-    # AND SIX OF THE SEVEN REACH THE LOCK, WITH THE WHOLE STRIP IN
-    # THEM. They did not when the six inventory cells went in: walking
-    # right, jumping-and-firing and running right were each one game
-    # frame short and running-and-firing three, and HUD_INV poked to RET
-    # closed the gap on all four - so the strip was blamed for it, and
-    # written down here as measured rather than allowed for.
+    # AND EVERY PATH REACHES THE LOCK WITH THE LEVEL'S DRONES OFF -
+    # EVERY ONE, INCLUDING THE RUN WITH THE GUN. That is not what this
+    # suite used to say: it carried 98 for the run-and-fire path and
+    # named the run's own cels as the reason, "351 span bytes against
+    # the 324 of her heaviest kcore one". The cels are not the reason
+    # and CLAUDE.md 7.8 and 9 are corrected with it.
     #
-    # Two things took it back and neither was the copy (CLAUDE.md 7.8):
-    # the inventory's LAYOUT moved to the second sweep, where the head
-    # gate is idle for 40,468 T; and the repaint that follows a pickup
-    # now disowns the strip's layout only when it can actually reach it
-    # (src/entity.asm). The second was worth the last two frames, and a
-    # 484 T delay poked in where HUD_INV stands no longer costs them -
-    # which is what says the frame was the disowned layout and not the
-    # six cells.
+    # What found it was making the sampler honest. Two things in it were
+    # deciding the number: the window was not anchored to a game frame,
+    # and the tap was written in hardware frames (both above). With both
+    # fixed the count still moved when nothing but the PRE-ROLL did -
+    # the same build, the same window, started one frame further along
+    # the roof - which is a count that is about WHERE IN THE LEVEL the
+    # two hundred frames fall. Measured over ten starting points, 86 to
+    # 95 frames of walking in:
     #
-    # The one path left is the run with the gun, and it is NOT the
-    # strip: HUD_SERVICE poked out gives the same 98, because a run's
-    # cels are 351 span bytes against the 324 of her heaviest kcore one
-    # (CLAUDE.md 9).
-    for label, joy, tap, shift, want, without in (
-            ("standing still", 0, False, False, 100, None),
-            ("walking right, scrolling", JOY_RIGHT, False, False, 100, None),
-            ("walking left, into it", JOY_LEFT, False, False, 100, None),
-            ("walking right + firing", JOY_RIGHT, True, False, 100, None),
+    #                            with the drones      with them off
+    #   standing / walking /     100 x 10             100 x 10
+    #     walking left / running
+    #   walking right + firing   99, 100              100 x 10
+    #   jumping + firing         99, 100              100 x 10
+    #   running right + firing   96 .. 99             100 x 10
+    #
+    # So the drone-free count is the LOOP and it is exact; the in-game
+    # one is the loop plus an ENCOUNTER whose phase the pre-roll moves,
+    # and what can honestly be asserted about it is a floor with the
+    # sweep above beside it. Both are checked, because either alone
+    # would hide something: the exact one cannot see a frame the
+    # encounter costs, and the floor cannot see a frame the loop lost.
+    #
+    # WHAT THESE PATHS USED TO MEASURE IS KEPT, because it is the record
+    # of what each thing cost while the frame was the budget and it is
+    # the first place to look when something has to come back out. The
+    # columns are the same build with one thing changed: the energy bar,
+    # the artist's redrawn land sheet, the half-speed walk, the fourteen
+    # ammo pips, the magazine digit, and the touch sweep moved to one
+    # frame in four - all of them 50 Hz numbers, 200 of 200 being the
+    # lock.
+    #
+    #   standing         201 199 198 201 201 201 201
+    #   walking right    199 199 198 199 198 198 198
+    #   walking left     194 190 186 193 192 191 191
+    #   + firing         196 195 173 194 184 183 191
+    #   jumping + firing 195 193 158 191  -  174 189
+    #   running           -   -   -  172 161 151 160
+    #   running + firing  -   -   -  185  -  151 164
+    #
+    # and of those, the two run rows are what 25 Hz was for.
+    seen = {}
+    for label, joy, tap, shift, floor in (
+            ("standing still", 0, False, False, 100),
+            ("walking right, scrolling", JOY_RIGHT, False, False, 100),
+            ("walking left, into it", JOY_LEFT, False, False, 100),
+            ("walking right + firing", JOY_RIGHT, True, False, 99),
             ("jumping + firing, scrolling",
-             JOY_RIGHT | JOY_UP, True, False, 100, None),
-            ("running right, scrolling", JOY_RIGHT, False, True, 100, None),
-            ("running right + firing", JOY_RIGHT, True, True, 98, 98)):
-        got = loop_count(joy, tap, shift)
-        # EXACTLY THE FLOOR, NOT "AT LEAST" AND NOT "AT MOST". A game
+             JOY_RIGHT | JOY_UP, True, False, 99),
+            ("running right, scrolling", JOY_RIGHT, False, True, 100),
+            ("running right + firing", JOY_RIGHT, True, True, 96)):
+        # EXACTLY THE LOCK, NOT "AT LEAST" AND NOT "AT MOST". A game
         # frame that took three hardware frames reads one under and one
         # that took a single frame reads one over, and both are faults:
         # the first is a dropped game frame - a sweep with no heroine in
         # it - and the second is the erase landing on the frame of the
         # draw, which is a blank sweep.
-        check(f"25 Hz: {label}", got == want,
-              f"{got} game frames in 200 hardware frames, want {want}")
-        if without is None:
-            continue
-        quiet = loop_count(joy, tap, shift, quiet="HUD_SERVICE")
-        check(f"... and what {label} drops is not the strip",
-              quiet == without,
-              f"{quiet} of 200 with the WHOLE of HUD_SERVICE returning at "
-              f"once, against {got} with it - so the {100 - want} frame(s) "
-              f"it drops are the run's own cels and not the bottom row")
+        bare = loop_count(joy, tap, shift, drones=False)
+        check(f"25 Hz: {label}, the level's drones off", bare == 100,
+              f"{bare} game frames in 200 hardware frames, want 100")
+        got = seen[label] = loop_count(joy, tap, shift)
+        check(f"... and the encounter costs {label} no more than "
+              f"{100 - floor}", floor <= got <= 100,
+              f"{got} in the game against {bare} with nothing to shoot at, "
+              f"and {floor} is the worst of ten starting points")
+
+    # AND ONE OF THE FRAMES THE RUN'S ENCOUNTER COSTS IS THE BOTTOM ROW.
+    # This check used to claim the opposite - "what it drops is not the
+    # strip" - on the strength of the two counts being equal at one
+    # starting point. Over the ten, the strip is worth exactly one game
+    # frame at eight of them and nothing at the other two, so it is a
+    # part of the encounter's cost and not the whole of it:
+    #
+    #   with the strip     98 99 99 97 97 98 98 98 98 96
+    #   HUD_SERVICE = RET  99 99 99 98 98 99 99 99 99 97
+    #
+    # and with the drones off both are 100, which is what says the strip
+    # only costs anything on the frames the encounter is already paying
+    # for.
+    label = "running right + firing"
+    quiet = loop_count(JOY_RIGHT, True, True, quiet="HUD_SERVICE")
+    check("... and the strip is at most one frame of what it costs",
+          0 <= quiet - seen[label] <= 1,
+          f"{quiet} of 200 with the WHOLE of HUD_SERVICE returning at once, "
+          f"against {seen[label]} with it")
 
     print()
     if fails:

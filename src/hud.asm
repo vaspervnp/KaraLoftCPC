@@ -702,12 +702,11 @@ HUD_VACATE:     ld   a,b
                 call BANK_SET_C4
                 pop  af
                 call DRAW_COLUMN
-                call BANK_RESTORE
-                xor  a
-                ld   (COL_FIRST),a
-                ld   a,SCR_CHAR_ROWS
-                ld   (COL_N),a
-                ret
+                jp   BANK_RESTORE           ; ... and no restore of
+                                            ; COL_FIRST/COL_N: they are
+                                            ; DRAW_COLUMN's arguments and
+                                            ; every caller sets its own
+                                            ; (tilemap.asm, DRAW_PLAYFIELD)
 
 ; ONE RUN AND ONE MAP LOOKUP, because the three are adjacent: fourteen
 ; cells from column 0. At the other end of the row it was two DRAW_ROWs

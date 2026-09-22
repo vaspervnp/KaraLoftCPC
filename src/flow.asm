@@ -356,12 +356,31 @@ LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
                 ; picture that had moved under it, and a vertical one
                 ; would latch a start address worked out against the
                 ; view it was asked in.
+                ; AND ITS PARAMETERS GO WITH ITS FLAGS. The five
+                ; bytes below are what SAYS a step is in flight; the
+                ; six after them are what the step WAS - the column
+                ; and the view it was asked in, and the same for the
+                ; row. Nothing reads them while the flags are clear,
+                ; so they are dead - and half a record cleared with
+                ; half left is the shape of every bug in CLAUDE.md 10.
+                ; They are also what tools/test_flow.py's sweep found
+                ; when the view stopped panning at a level start
+                ; (CLAUDE.md 8.1): the pan used to rewrite them on the
+                ; way, so a restart and a fresh boot agreed by accident.
                 xor  a
                 ld   (H_PENDING),a
                 ld   (H_TAIL_DUE),a
                 ld   (V_REQUEST),a
                 ld   (VIEW_STEP),a
                 ld   (V_PHASE),a
+                ld   (H_COL),a
+                ld   (H_WX),a
+                ld   (V_WCR),a
+                ld   (V_ROW),a
+                ld   (H_SCROLL),a
+                ld   (H_SCROLL + 1),a
+                ld   (V_SCROLL),a
+                ld   (V_SCROLL + 1),a
                 ld   hl,0
                 ld   (ENT_RP_DUE),hl        ; a pickup's cell, waiting to be
                                             ; repainted out of a map that is

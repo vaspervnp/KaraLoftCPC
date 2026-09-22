@@ -1053,6 +1053,104 @@ CAMERA_V:       ld   a,(V_REQUEST)
 .none:          xor  a
                 ret
 
+; ---------------------------------------------------------------------
+; VIEW_TO_PLAYER - put the view where the camera would have panned it,
+; at the START of a level rather than over the next second and a half.
+;
+; OUT: WORLD_X, WORLD_CR and SCROLL set, and LATCHED.
+;      destroys AF,BC,DE,HL
+;
+; SCROLL_INIT used to leave the view at the top left and let CAMERA_V
+; and CAMERA_DECIDE walk it to her a character and a row at a time.
+; That was invisible while every level started in its own first screen
+; - level 1's record is byte 43 and the camera settles in about eight
+; frames - and four levels an environment (CLAUDE.md 8.1) is what makes
+; it reachable: measured at a start 64 bytes in, the view panned for
+; about FORTY game frames with the loop at 98 of 200 while it did, and
+; she spent them clipped against the right-hand edge.
+;
+; WHAT IT COMPUTES IS WHERE THE CAMERA STOPS, not where it would like
+; to be, so that the first frame is the frame the pan converges to and
+; nothing moves afterwards:
+;
+;   across  CAMERA_DECIDE steps right while her box column is at or past
+;           CAM_TRAIL, so it stops one character PAST (KARA_WX -
+;           CAM_TRAIL) / 2. Measured: level 1 settles at WORLD_X 9 and
+;           this gives 9.
+;   down    CAMERA_V steps down while her MIDDLE is past CAM_BOT, so it
+;           stops at the first row that brings it inside the band -
+;           ceil((KARA_WY - (CAM_BOT - KARA_BOX_H / 2)) / 8).
+;
+; AND IT IS 16-BIT ACROSS, which PLAYER_SCREEN_X is not: that one wants
+; a small DIFFERENCE and takes KARA_WX modulo 256 to get it (8.10),
+; where this wants an absolute column of a 512-byte world. Reading the
+; low byte here would put the view at the wrong end of the map from
+; byte 256 on, which is CLAUDE.md 8.7's own bug with the operands the
+; other way round.
+; ---------------------------------------------------------------------
+VIEW_TO_PLAYER: ld   hl,(KARA_WX)
+                ld   de,CAM_TRAIL
+                or   a
+                sbc  hl,de
+                jr   c,.left                ; she is inside the first screen
+                srl  h                      ; / 2: bytes to characters
+                rr   l
+                inc  hl                     ; ... and one past, which is where
+                                            ; the stepping actually stops
+                ld   a,h
+                or   a
+                jr   nz,.right              ; over 255, so over the limit too
+                ld   a,l
+                cp   WORLD_W / 2 - SCR_CHARS + 1
+                jr   c,.across
+.right:         ld   a,WORLD_W / 2 - SCR_CHARS
+                jr   .across
+.left:          xor  a
+.across:        ld   (WORLD_X),a
+
+                ld   a,(KARA_WY)
+                sub  CAM_BOT - KARA_BOX_H / 2
+                jr   c,.top                 ; her middle is inside the band
+                jr   z,.top                 ; with the view at the very top
+                add  a,7                    ; ceil, and it cannot carry: the
+                srl  a                      ; subtraction left 1..175
+                srl  a
+                srl  a
+                cp   V_CR_MAX + 1
+                jr   c,.down
+                ld   a,V_CR_MAX
+                jr   .down
+.top:           xor  a
+.down:          ld   (WORLD_CR),a
+
+                ; ---- and the start address the two of them mean -----
+                ; SCROLL is in WORDS and the counters are what a step
+                ; moves beside it: a character across is 1 and a row
+                ; down is SCR_CHARS. From 0/0/0 that makes it exactly
+                ; WORLD_CR * SCR_CHARS + WORLD_X, and the mask is the
+                ; 1024-word ring of CLAUDE.md 6.4 - which this cannot
+                ; reach (8 rows and 216 characters is 536) and states.
+                ld   h,0
+                ld   l,a
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; x8
+                ld   d,h
+                ld   e,l
+                add  hl,hl
+                add  hl,hl                  ; x32
+                add  hl,de                  ; x40 = SCR_CHARS
+                ld   a,(WORLD_X)
+                add  a,l
+                ld   l,a
+                jr   nc,.word
+                inc  h
+.word:          ld   a,h
+                and  &03
+                ld   h,a
+                ld   (SCROLL),hl
+                jp   SCROLL_APPLY
+
 ; PLAYER_SCREEN_X - A = her BOX's screen byte column (KARA_WX -
 ; WORLD_X * 2) in the view that is on screen NOW. This is what the
 ; physics and the camera reason about; the sprite's column is
