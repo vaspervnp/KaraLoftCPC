@@ -15,3 +15,15 @@ editor/workspace/
 # THE ACCOUNT LIST IS NOT SOURCE. It is real people's email addresses and it
 # lives beside the editor rather than in it (editor/src/.../App_Data/).
 App_Data/
+
+# THE ARTIST'S OWN VIEWER FOR THE TWO TITLE PICTURES, delivered beside them:
+# MODE 0, the sixteen INKs, LOAD"INTRO.BIN",&C000, CALL &BB18. It is the
+# loader 7.7 measured as WRONG - the .scr is 200 lines one after another and
+# a CPC screen is eight interleaved raster blocks, so it comes up in eight
+# bands. make_intro.py does the conversion the game uses; these stay on disk
+# and out of the repository so nobody reaches for them.
+#
+# Uppercase, and that is why *.bin above does not already cover them: git's
+# patterns are case-sensitive on this filesystem.
+assets/intro/INTRO*.BAS
+assets/intro/INTRO*.BIN
