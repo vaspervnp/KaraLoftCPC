@@ -37,9 +37,16 @@ from bench import boot, symbols, sync                        # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 LEV = os.path.join(ROOT, "build", "levels")
 EK_ENEMY, EF_ACTIVE, EF_TAKEN = 2, 1, 2
-ES = dict(REC=0, X=2, Y=4, TYPE=5, FACE=6, CEL=7, TIMER=8, FIRE=9, HP=10,
-          HOME=11, SPAN=13, DIR=14, DIE=15)
-ES_STRIDE = 16
+# THE SLOT'S SHAPE COMES OFF THE BUILD, not out of this file. ES_Y went
+# from a byte to a word and the stride from 16 to 17 when the map stopped
+# being 16 rows tall (src/enemy.asm), and every offset after it moved;
+# a copy written down here is a second statement of the layout that is
+# right on the day it is typed and silently wrong afterwards - it would
+# have read ES_TYPE out of the high byte of ES_Y and reported a drone
+# with no type at all.
+ES_FIELDS = ("REC", "X", "Y", "TYPE", "FACE", "CEL", "TIMER", "FIRE", "HP",
+             "HOME", "SPAN", "DIR", "DIE")
+ES, ES_STRIDE = {}, 0
 EN_T = dict(BANK=0, RIGHT=1, BANK_L=3, LEFT=4, MOVE_F=6, MOVE_N=7,
             FIRE_F=8, FIRE_N=9, W=10, H=11, SPEED=12, PERIOD=13, HP=14,
             DUR=15, SPAWNS=17)
@@ -65,6 +72,12 @@ def inc_values(path):
             except ValueError:
                 pass
     return out
+
+
+def es_layout(sym):
+    global ES, ES_STRIDE
+    ES = {k: sym["ES_" + k] for k in ES_FIELDS}
+    ES_STRIDE = sym["ES_STRIDE"]
 
 
 def slot(m, sym, i, field):
@@ -104,6 +117,7 @@ def to_drone(sym, frames=400):
 
 def main():
     sym = symbols()
+    es_layout(sym)
     m = boot(sym, scroll=True)
 
     # ---- the type table -------------------------------------------
@@ -149,7 +163,8 @@ def main():
         hp = m.peek(T + r[6] * EN_T_STRIDE + EN_T["HP"])
         # HOME, not X: it has been patrolling since the level installed.
         if (word(m, sym["ENEMIES"] + i * ES_STRIDE + ES["HOME"]) != x
-                or slot(m, sym, i, "Y") != (y - h) & 0xFF
+                or word(m, sym["ENEMIES"] + i * ES_STRIDE
+                        + ES["Y"]) != (y - h) & 0xFFFF
                 or slot(m, sym, i, "HP") != hp
                 or slot(m, sym, i, "SPAN") != r[7] * 8):
             ok = False
@@ -168,7 +183,7 @@ def main():
     m = to_drone(sym)
     check("the first drone came into view and is drawable",
           m.peek(sym["ENEMY_VIS"]) == 1 and word(m, sym["ENEMY_CUR"]) != 0,
-          f"sx={m.peek(sym['ENEMY_SX'])} sy={m.peek(sym['ENEMY_SY'])}")
+          f"sx={m.peek(sym['ENEMY_SX'])} sy={word(m, sym['ENEMY_SY'])}")
     home = word(m, sym["ENEMIES"] + ES["HOME"])
     span = slot(m, sym, 0, "SPAN")
     xs, cels, faces, dirs = set(), set(), set(), set()
@@ -270,14 +285,20 @@ def main():
     # a bug: the shot and the disappearance are the same frame, so
     # nothing on screen says one caused the other. It keeps its slot
     # for ES_DIE more frames, falling and flashing (CLAUDE.md 8.7).
-    y0 = slot(m, sym, 0, "Y")
+    # ES_Y IS A WORD (CLAUDE.md 8.7), so the fall is read as one: on the
+    # City every value of it fits in a byte and the two readings agree,
+    # which is exactly why a byte read here would never say so.
+    def slot_y(mm):
+        return word(mm, sym["ENEMIES"] + ES["Y"])
+
+    y0 = slot_y(m)
     seen, ys = set(), []
     # EN_DIE_FRAMES COUNTS GAME FRAMES AND THIS LOOP COUNTS HARDWARE
     # ONES, and a game frame is two of them (CLAUDE.md 9).
     for _ in range(2 * sym["EN_DIE_FRAMES"] + 24):
         m.run_frames(1)
         seen.add(m.peek(sym["ENEMY_DREW"]) != 0)
-        ys.append(slot(m, sym, 0, "Y"))
+        ys.append(slot_y(m))
     check("it falls", ys[-1] > y0 + 40, f"world y {y0} -> {ys[-1]}")
     check("... and flashes on the way down", seen == {True, False},
           "drawn on some of those frames and not on others, which is what "
@@ -421,6 +442,7 @@ def main():
     #   running right + firing   96 .. 99             100 x 10
     #
     #   running right + firing   95 .. 99  <- 16-bit world Y
+    #   running right + firing   95 .. 98  <- ... and 16-bit ES_Y
     #
     # AND THE LAST ROW MOVED BY ONE WHEN WORLD Y BECAME SIXTEEN BITS
     # (CLAUDE.md 8.1), WHICH IS THE COST OF IT AND THE WHOLE OF THE
@@ -497,17 +519,26 @@ def main():
     # encounter's cost and not the whole of it; sixteen-bit world Y then
     # took it to two and three:
     #
-    #                      8-bit Y                 16-bit Y
+    #                      8-bit world Y                   16-bit world Y
     #   with the strip     98 99 99 97 97 98 98 98 98 96   97 99 99 95 95 96 97 97 97 95
     #   HUD_SERVICE = RET  99 99 99 98 98 99 99 99 99 97   99 99 99 98 98 99 99 99 99 97
     #   the strip's share   1  0  0  1  1  1  1  1  1  1    2  0  0  3  3  3  2  2  2  2
     #
-    # THE MIDDLE ROW IS THE SAME TEN NUMBERS ON BOTH BUILDS, and that is
-    # the measurement rather than a coincidence: what the widening costs
-    # is only frames that were already paying 3,568 T for a step right,
-    # which on a run is every game frame. And with the drones off both
-    # columns are 100, which is what says the strip costs anything at
-    # all only on the frames the encounter is already paying for.
+    #                                                      ... and 16-bit ES_Y
+    #   with the strip                                     98 98 98 95 95 96 97 97 97 95
+    #   HUD_SERVICE = RET                                  99 99 99 97 97 99 99 99 99 97
+    #   the strip's share                                   1  1  1  2  2  3  2  2  2  2
+    #
+    # THE MIDDLE ROW WAS THE SAME TEN NUMBERS ON THE FIRST TWO BUILDS,
+    # and that is the measurement rather than a coincidence: what the
+    # WORLD Y widening cost is only frames that were already paying
+    # 3,568 T for a step right, which on a run is every game frame.
+    # THE ENEMY SLOT'S OWN Y IS DIFFERENT AND SMALLER: two of the ten
+    # lose a frame with the strip silent as well - ENEMY_PICK is
+    # 924 T -> 1,024 and ENEMY_SHOT_CHECK 224 -> 252, benched from a DI
+    # stub with a drone in view - and the worst of the ten, which is
+    # what the floor below asserts, does not move at all. With the
+    # drones off all three columns are 100.
     label = "running right + firing"
     quiet = loop_count(JOY_RIGHT, True, True, quiet="HUD_SERVICE")
     check("... and the strip is at most three frames of what it costs",

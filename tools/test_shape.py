@@ -26,14 +26,23 @@ So the order here is the order of how much each step could be fooled by:
                          a model that knows only W, H and the tiles -
                          standing, walked to the map's own right-hand
                          bound, and scrolled down and back up
+  6. an ENEMY below world line 255 - the same picture with a drone in
+                         it, and the enemy is a PERSISTENT sprite, so
+                         every byte of the picture that is not the map
+                         IS the drone and where those bytes are is the
+                         whole question
 
-and there are two negative controls, because there are two things that
-could be doing nothing. MAP_SHAPE_SET poked to RET leaves the engine in
-the City's shape: every check above still passes on the City and the
-vertical level draws 13,000 wrong bytes. And ENT_CELL_YHI put back to
-`ld d,0` - the record's y read as one byte, in the same two bytes of
+and there are three negative controls, because there are three things
+that could be doing nothing. MAP_SHAPE_SET poked to RET leaves the
+engine in the City's shape: every check above still passes on the City
+and the vertical level draws 13,000 wrong bytes. ENT_CELL_YHI put back
+to `ld d,0` - the record's y read as one byte, in the same two bytes of
 code - moves 110 of 143 pickups on a 32x64 map and NONE AT ALL on the
-City, which is why nothing had ever seen it.
+City, which is why nothing had ever seen it. And ENEMY_Y_HI put back
+the same way makes the two drones fail the OPPOSITE ways round: the one
+she is standing next to is placed in the top quarter of the map and
+vanishes, and one 200 lines below the floor is drawn into the middle of
+the picture.
 """
 import os
 import sys
@@ -53,6 +62,7 @@ KARA_W_BYTES, KARA_ART_X = 12, 3
 STUB = 0x9200
 LVL_HEADER = 21
 TILE_BYTES = 64
+EK_ENEMY = 2
 
 fails = []
 
@@ -186,25 +196,36 @@ def tile_flags():
     return bytes(f)
 
 
-def level_file(w, h, level_map, y=320):
+def level_file(w, h, level_map, y=320, enemies=()):
     """docs/editor.md 9.2's bytes, written by hand.
 
     Written here and not imported from tools/make_level.py, because a
     level built by the generator and read by the engine is one writer
     against one reader; this is a second writer, and the City's own
     file is what says the two agree (tools/test_format.py).
+
+    `enemies` is (x, base y, EN_*, patrol half-width in tiles) per
+    record - the same eight bytes with kind EK_ENEMY, which is what the
+    enemy slice below needs and what the City cannot show: its own
+    drones are all above world line 255 because its map is 16 rows.
     """
     ents = bytes([0,                        # EK_PLAYER_START
                   80 & 255, 80 >> 8,        # x, world pixels
                   y & 255, y >> 8,          # y, the BASE of the hitbox
                   1,                        # EF_ACTIVE
                   0, 0])
+    for ex, ey, kind, span in enemies:
+        ents += bytes([EK_ENEMY,
+                       ex & 255, ex >> 8,
+                       ey & 255, ey >> 8,
+                       1,                   # EF_ACTIVE
+                       kind, span])
     off_map = LVL_HEADER
     off_ent = off_map + MAP_BYTES
     end = off_ent + len(ents)
     return (b"LV" + bytes([1, 1, 0])
             + w.to_bytes(2, "little") + h.to_bytes(2, "little")
-            + bytes([1, 1, 0, 0])
+            + bytes([1, 1 + len(enemies), 0, 0])
             + off_map.to_bytes(2, "little") + off_ent.to_bytes(2, "little")
             + end.to_bytes(2, "little") + end.to_bytes(2, "little")
             + level_map + ents)
@@ -536,6 +557,129 @@ def main():
           f"the view went from {seen[0]} across to {max(across)} of a bound "
           f"of {limit}, and down {min(down)}..{max(down)} of 104")
     M4.MAP_W, M4.MAP_H = 128, 16
+
+    # -----------------------------------------------------------------
+    # AND AN ENEMY BELOW WORLD LINE 255, which is the pickup's fault one
+    # slot along: ES_Y was a BYTE, so a drone a designer put in the lower
+    # three quarters of a 32x64 map was PLACED in the top quarter - and
+    # the City cannot show it, because 16 rows is 256 world lines and
+    # every drone it has ever carried fits in one. That is why this is
+    # here and not in tools/test_enemies.py.
+    #
+    # WHAT IT IS COMPARED AGAINST IS THE MAP, and that is a witness with
+    # no model of the blitter in it. The enemy is a PERSISTENT sprite
+    # (CLAUDE.md 8.7) and Kara is not: she is drawn and erased inside one
+    # game frame, so at the sample video RAM is pure tilemap with the
+    # drone's pixels left standing on it. Every byte of the picture that
+    # is not the map is therefore the drone, and where those bytes are
+    # is the whole question.
+    print("\n  an enemy below world line 255, on a 32x64 map:")
+    blobs = M4.load_blobs()
+    level_map = pattern(32, 64, floor=True)
+    m = boot(sym, scroll=True)
+    en_h = m.peek(sym["ENEMY_TYPES"] + sym["EN_DRONE"] * sym["EN_T_STRIDE"]
+                  + sym["EN_T_H"])
+    # It hovers with its feet on the floor she is standing on, 40 bytes
+    # to her right: EN_H_SIGHT is 40 lines and her own box top is
+    # FLOOR_ROW * 16 - KARA_BOX_H, so it is a screen away from her
+    # vertically and does not open fire - a round in the air would be a
+    # second thing on the picture that is not the map.
+    NEAR_BASE = FLOOR_ROW * 16
+    FAR_BASE = NEAR_BASE + 200              # ... and one below the view
+
+    def tall_with(drone_base, byte_y=False):
+        # A FRESH MACHINE EACH TIME, because entering a level that is
+        # already running leaves the frame it interrupted on the screen:
+        # she is drawn in the top border and erased at her raster gate,
+        # and a jump into SCROLL_INIT between the two is 290 bytes of
+        # heroine that the repaint does not own.
+        nonlocal m
+        m = boot(sym, scroll=True)
+        if byte_y:
+            m.write_ram(sym["ENEMY_Y_HI"],
+                        bytes([0xDD, 0x36, sym["ES_Y"] + 1, 0, 0, 0]))
+        tiles = tile_bank(m, sym)
+        m.write_ram(sym["LEVEL_TILEFLAGS"], tile_flags())
+        m.write_ram(sym["LEVEL_LVL"],
+                    level_file(32, 64, level_map, y=FLOOR_ROW * 16,
+                               enemies=[(80 + 40 * 2, drone_base,
+                                         sym["EN_DRONE"], 0)]))
+        enter_level(m, sym)
+        for _ in range(30):                 # the entry draw waits for a frame
+            M4.next_frame_top(m, sym)       # with room - EN_DEFER_MAX of them
+        M4.settle(m, sym)
+        M4.MAP_W, M4.MAP_H = 32, 64
+        st = M4.state(m, sym)
+        want = M4.model(tiles, level_map, blobs, st, with_kara=False)
+        M4.MAP_W, M4.MAP_H = 128, 16
+        vram = m.read_ram(0xC000, 0x4000)
+        bad = [a for a, v in want.items() if vram[a - 0xC000] != v]
+        return st, bad
+
+    def lines_of(st, bad):
+        """Which screen lines the bytes that are not the map are on.
+
+        THE CHECK IS THE LINE AND NOT THE COLUMN, because the column is
+        a different axis's question and it has an answer of its own:
+        the pixels go down at ENEMY_SX, which ENEMY_PICK worked out at
+        the TOP of the frame, and the drone has patrolled since - so on
+        a frame the refresh holds, its pixels are a byte behind where
+        its slot says it is. That is CLAUDE.md 8.7's persistent sprite
+        working as designed, and it is not what a 16-bit ES_Y is about.
+        """
+        scroll = st[0]
+        where = {}
+        for cr in range(SCR_CHAR_ROWS):
+            for raster in range(8):
+                base = (2 * scroll + 80 * cr) & 0x7FF
+                for x in range(SCR_CHARS * 2):
+                    where.setdefault(0xC000 + (raster << 11) + ((base + x) & 0x7FF),
+                                     cr * 8 + raster)
+        return [where.get(a, -1) for a in bad]
+
+    st, bad = tall_with(NEAR_BASE)
+    top = NEAR_BASE - en_h
+    slot_y = (m.peek(sym["ENEMIES"] + sym["ES_Y"])
+              | m.peek(sym["ENEMIES"] + sym["ES_Y"] + 1) << 8)
+    check("a drone below world line 255 is placed where the record says",
+          slot_y == top,
+          f"the record's base is {NEAR_BASE} and the type is {en_h} lines "
+          f"tall, so ES_Y is {top}; the slot holds {slot_y}")
+    sy = top - st[2] * 8
+    lines = lines_of(st, bad)
+    check("... and its pixels are on the screen lines the record puts them on",
+          bool(bad) and lines and min(lines) >= sy and max(lines) < sy + en_h,
+          f"{len(bad)} bytes of the picture are not the map, on lines "
+          f"{min(lines) if lines else '-'}..{max(lines) if lines else '-'} "
+          f"of the {sy}..{sy + en_h - 1} the record asks for")
+    drawn_near = len(bad)
+
+    st, bad = tall_with(FAR_BASE)
+    check("... and one 200 lines below the floor is not drawn into the view "
+          "at all", not bad and m.peek(sym["ENEMY_VIS"]) == 0,
+          f"{len(bad)} bytes wrong, ENEMY_VIS {m.peek(sym['ENEMY_VIS'])}")
+
+    # ... WITH THE RECORD'S Y READ AS ONE BYTE, in the six bytes that
+    # store the high half: `ld (ix + ES_Y + 1),0` and two NOPs, which is
+    # what the slot did before this slice. The two levels then fail the
+    # OPPOSITE ways round, and that pair is the point - one fault, two
+    # symptoms, and neither of them an error the engine can report.
+    print("\n  ... with the record's y read as ONE byte:")
+    st, bad = tall_with(NEAR_BASE, byte_y=True)
+    slot_y = (m.peek(sym["ENEMIES"] + sym["ES_Y"])
+              | m.peek(sym["ENEMIES"] + sym["ES_Y"] + 1) << 8)
+    check("the drone she is standing next to is placed in the top quarter "
+          "of the map and vanishes", slot_y == top & 0xFF and not bad,
+          f"ES_Y {slot_y} against the record's {top}, and {len(bad)} bytes "
+          f"of the picture are not the map, against {drawn_near}")
+    st, bad = tall_with(FAR_BASE, byte_y=True)
+    lines = lines_of(st, bad)
+    check("... and the one below the floor is drawn into the middle of the "
+          "picture", bool(bad),
+          f"{len(bad)} bytes on lines {min(lines) if lines else '-'}.."
+          f"{max(lines) if lines else '-'}, of a drone whose record puts it "
+          f"at world line {FAR_BASE - en_h} against a view of "
+          f"{st[2] * 8}..{st[2] * 8 + 191}")
 
     # -----------------------------------------------------------------
     # THE NEGATIVE CONTROL, AND IT IS THE WHOLE POINT. With

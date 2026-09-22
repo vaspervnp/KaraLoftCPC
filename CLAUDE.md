@@ -142,6 +142,14 @@ on a 6128 and scrolled on all three axes — **15,360 bytes of playfield
 with none wrong** — against 13,083 wrong with the patcher poked to
 `RET`.
 
+**AND A TALL LEVEL IS WHAT FOUND THE TWO BYTES THAT SHOULD HAVE BEEN
+WORDS**, neither of which the City could ever show, because 16 rows is
+256 world lines and a byte reaches all of them: a pickup's record y in
+`ENT_CELL_OF` (§8.6) and **the enemy slot's `ES_Y`** (§8.7). Each was
+drawn and takeable — or drawn and shootable — somewhere other than
+where the record put it, and each has a control that puts the byte read
+back and makes the fault appear on the tall level and NOT on the City.
+
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
 puts the editor's own four files into `build/`, relinks the disc and
@@ -440,7 +448,8 @@ tools/test_painter.py      the EDITOR's own level, on the emulator: the
                            same picture out of different bytes
 tools/test_shape.py        the map's three shapes: the patched bytes, the
                            refusals, MAP_CELL swept, and a 32x64 level
-                           drawn and scrolled on the machine
+                           drawn and scrolled on the machine, with a
+                           drone below world line 255 in it
 tools/test_flow.py         where she starts, the fade, and a restart
                            compared with a fresh boot byte for byte
 tools/test_xclip.py        the X clip: the clipped lane against the same
@@ -2986,7 +2995,7 @@ question this raises is CLAUDE.md §10's own about a raster gate: not
 "is the number right" but **"does changing it change anything"** — and
 the City would draw perfectly with the patcher deleted, since the
 source's immediates already hold the City's shape.
-`tools/test_shape.py` is four checks of increasing strength, each with
+`tools/test_shape.py` is five checks of increasing strength, each with
 the one below as the thing it could be fooled by:
 
 | | |
@@ -2996,16 +3005,19 @@ the one below as the thing it could be fooled by:
 | `MAP_CELL` | **2,594 world placements** across the three shapes, against `MAP_ADDR + row * W + col` — the format, with no engine in it |
 | the bake's cell | `ENT_CELL_OF` and `ENT_CELL_REPAINT` over a swept map, the same packing forwards and backwards, so they are each other's control as well as the format's — **426 placements** |
 | **the picture** | a 32×64 level built by the suite's own writer, installed through `SCROLL_INIT`, and **15,360 bytes of playfield with 0 wrong** — standing, walking to the map's right edge, scrolling down and back up |
+| **an ENEMY below line 255** | the same picture with a drone in it, and the enemy is a persistent sprite, so every byte that is not the map IS the drone — §8.7 |
 
-and it carries **two** controls, because there are two things that could
-be doing nothing:
+and it carries **three** controls, because there are three things that
+could be doing nothing:
 
 * `MAP_SHAPE_SET` poked to `RET` leaves the engine in the City's shape:
   every check still passes on the City and the same vertical level then
   draws **13,083 wrong bytes of 15,360**, because a 32-wide map read
   with a 128-wide map's masks is a picture of the wrong cells;
-* and `ENT_CELL_YHI` put back to `ld d,0` — §8.6's own eight-bit Y, in
-  the same two bytes of code.
+* `ENT_CELL_YHI` put back to `ld d,0` — §8.6's own eight-bit Y, in the
+  same two bytes of code;
+* and `ENEMY_Y_HI` put back the same way, which makes two drones fail
+  the OPPOSITE ways round — §8.7.
 
 **And one check inside it is "put it back" rather than "change
 nothing", which is the difference between a check and a shrug.**
@@ -3027,11 +3039,16 @@ takeable where the record said. §8.6 has it and the control that
 measures it — 110 of 143 placements move on a 32×64 map and **none at
 all on the City**, which is why nothing had ever seen it.
 
-**What is NOT in this slice**: the enemy slot's `ES_Y` is still a byte,
-so a drone below world line 256 of a tall level is a separate piece of
-work; and a 32×64 level painted in the EDITOR and put on a disc — the
-suite builds its own by hand, which is a second writer and not a
-designer.
+**AND `ES_Y` WAS THE NEXT ONE AND IT IS DONE TOO** — §8.7, and it is
+the same fault a third time: the enemy slot's y was a byte, so a drone
+a designer put below world line 255 of a tall level was PLACED in the
+top quarter of the map. `tools/test_shape.py` drives it on a 32×64
+level with a drone in it, and its control makes the two drones fail the
+opposite ways round.
+
+**What is NOT in this slice**: a 32×64 level painted in the EDITOR and
+put on a disc — the suite builds its own by hand, which is a second
+writer and not a designer.
 
 #### Byte 3 and byte 9 are DIFFERENT NUMBERS, and they were the same one
 
@@ -3889,6 +3906,77 @@ wants a SIGNED 16-bit column — "112 to the left" has to be told from
 apply to any `ADD A,A` on a world coordinate is whether the RESULT is
 used modulo 256**; `bullets.asm` and `enemy.asm`'s round-vs-tile probes
 add `WORLD_X` twice into `HL` and were never affected.
+
+#### And the slot's own Y is a WORD now, which is that bug one field along
+
+`ES_Y` was a BYTE, so as far as an enemy was concerned a level was 256
+world lines tall — which was true for exactly as long as every map was
+128×16. A map is 2,048 tiles of any power-of-two shape now (§8.3), so a
+32-wide level is 64 rows and **1,024 world lines**, and a drone a
+designer put below line 255 was placed in the top quarter of the map
+and drawn there. Five sites carry it and each is a different question:
+
+| | |
+|---|---|
+| `ENEMY_ADD` | reads the record's y as a word and takes the type's height off it in sixteen bits. **The record on disc was always two bytes; only the slot was one** (§8.3's §9.2) |
+| `ENEMY_PICK` | ... and the view's TOP is 16-bit for the same reason its left edge is: `WORLD_CR` reaches `V_CR_MAX` = 104 on a 32×64 map, so `WORLD_CR * 8` is **832** and three `ADD A,A` in the accumulator throw the carry away — the bug above, one field along. `ENEMY_SY` is a signed WORD and **only a high byte of 0 is a line of this picture** |
+| `ENEMY_SHOT_CHECK` | her rounds are in SCREEN coordinates and this runs on the enemy that is NEAR, drawable or not — so without that high byte a drone 300 lines below the view compares at line 44 and **is shot through the floor** |
+| `ENEMY_DYING` | the fall steps the word, and "off the bottom of the world" is the MAP's own height instead of a byte's carry. The row count is a power of two of at least 16, so `rows * 16` has a low byte of zero and the high byte is the whole comparison |
+| `ENEMY_SEES` | **unchanged, and that is the interesting one.** It wants a small modular DIFFERENCE within `EN_H_SIGHT`, so a byte of each is right for the same reason `PLAYER_SCREEN_X`'s truncation is — a modular difference needs no high byte |
+
+**The slot was FULL, so `ES_STRIDE` went 16 → 17** and every field after
+`ES_Y` moved up one. Nothing indexes a slot by shifting — both walks are
+`LD BC,ES_STRIDE : ADD IX,BC` and the clear is one `LDIR` — and
+`tools/test_enemies.py` reads the whole layout off `build/game.sym` now
+rather than writing it down, because a copy of a layout in a suite is
+right on the day it is typed: written down, it would have read
+`ES_TYPE` out of the high byte of `ES_Y` and reported a drone with no
+type at all.
+
+**Measured, benched from a DI stub with a drone in view**, and it is
+the two per-frame routines that pay:
+
+| | 8-bit | 16-bit |
+|---|---:|---:|
+| `ENEMY_PICK` | 924 T | **1,024** |
+| `ENEMY_SHOT_CHECK` | 224 | **252** |
+| `ENEMY_SEES` | 308 | 308 |
+| the core image | | **+61 bytes**, `CORE_END` &3CE0 |
+
+**128 T a frame against the 800 the tightest path has** (§9), and in
+play it does not show where it matters: over ten starting points on the
+run-and-fire path the band went 96..99 → 95..99 → **95..98** across the
+two widenings, and **the worst of the ten — which is what the suite
+asserts — has not moved from 95**. With the level's drones taken off
+every path is 100 of 200 on all three builds, so the LOOP has lost
+nothing; what moved is two of the ten points with `HUD_SERVICE` poked
+to `RET`, 98 → 97, which is the first thing either widening has cost on
+a frame that was not already paying 3,568 T for a step right.
+
+**And the check is the PICTURE, with no model of the blitter in it.**
+The enemy is a persistent sprite and Kara is not — she is drawn and
+erased inside one game frame — so at the sample video RAM is pure
+tilemap with the drone's pixels standing on it, and **every byte of the
+picture that is not the map IS the drone**. `tools/test_shape.py` builds
+a 32×64 level with a drone whose record puts it at world line 300, and:
+
+| | |
+|---|---|
+| the slot | `ES_Y` = 300, the record's base less the type's height |
+| the picture | 87 bytes are not the map, **on screen lines 125..142 of the 124..143 the record asks for** |
+| a second drone, 200 lines below the floor | **0 bytes** — it is not drawn into the view at all |
+| ... with `ENEMY_Y_HI` put back as `ld (ix + ES_Y + 1),0` | the near one is placed at **44** instead of 300 and vanishes; the far one is **drawn into the middle of the picture**, 80 bytes on lines 69..86 |
+
+**The control fails the two levels the OPPOSITE ways round**, which is
+the point: one fault, two symptoms, and neither of them something the
+engine can report. What the line check deliberately does NOT assert is
+the COLUMN, and that has an answer of its own — the pixels go down at
+`ENEMY_SX`, which `ENEMY_PICK` worked out at the top of the frame, while
+`ENEMY_DREW_WX` is re-read from `ES_X` at the draw, after the patrol has
+stepped. Measured over twelve consecutive frames with a drone patrolling
+on the spot, the drawn columns were **66..73 on every one of them** while
+the record said 65 or 67 by turns. It is one byte inside `EN_HYST`'s
+four and nothing has ever shown it; it is a different axis's tidy-up.
 
 #### And then the heroine flickered when a drone appeared
 

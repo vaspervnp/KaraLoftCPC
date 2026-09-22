@@ -113,22 +113,29 @@ ENEMY_TYPES:
 ENEMY_TYPES_END:
 
 ; ---------------------------------------------------------------------
-; One live enemy. Sixteen bytes, one per EK_ENEMY record in the level.
+; One live enemy. Seventeen bytes, one per EK_ENEMY record in the level.
+;
+; ES_Y IS A WORD AND WAS A BYTE, which is the same widening KARA_WY and
+; ENT_CELL_OF have had: a map is 2,048 tiles of any power-of-two shape
+; now (mapshape.asm), so a 32-wide level is 64 rows - 1,024 world lines
+; - and a byte holds the top quarter of it. The slot was full, so the
+; stride went 16 -> 17; nothing indexes a slot by shifting, both walks
+; are LD BC,ES_STRIDE : ADD IX,BC.
 ; ---------------------------------------------------------------------
 ES_REC          equ 0           ; dw - its record, 0 for an empty slot
 ES_X            equ 2           ; dw - world pixels
-ES_Y            equ 4           ; db - world pixels, the TOP of the box
-ES_TYPE         equ 5
-ES_FACE         equ 6           ; 0 right, 1 left - KARA_FACING's convention
-ES_CEL          equ 7           ; cel inside the blob
-ES_TIMER        equ 8
-ES_FIRE         equ 9           ; frames to the next shot
-ES_HP           equ 10          ; 0 = dead, and the slot goes quiet
-ES_HOME         equ 11          ; dw - where it was placed: the patrol centre
-ES_SPAN         equ 13          ; db - half-width of the patrol, in pixels
-ES_DIR          equ 14          ; db - 0 = moving right
-ES_DIE          equ 15          ; db - frames of dying left, 0 = not
-ES_STRIDE       equ 16
+ES_Y            equ 4           ; dw - world pixels, the TOP of the box
+ES_TYPE         equ 6
+ES_FACE         equ 7           ; 0 right, 1 left - KARA_FACING's convention
+ES_CEL          equ 8           ; cel inside the blob
+ES_TIMER        equ 9
+ES_FIRE         equ 10          ; frames to the next shot
+ES_HP           equ 11          ; 0 = dead, and the slot goes quiet
+ES_HOME         equ 12          ; dw - where it was placed: the patrol centre
+ES_SPAN         equ 14          ; db - half-width of the patrol, in pixels
+ES_DIR          equ 15          ; db - 0 = moving right
+ES_DIE          equ 16          ; db - frames of dying left, 0 = not
+ES_STRIDE       equ 17
 EN_DIE_FRAMES   equ 20          ; game frames the fall and the flashing last
 EN_DIE_VY_MAX   equ 12          ; pixels a game frame on the way down
 ENEMY_MAX       equ 4
@@ -246,14 +253,24 @@ ENEMY_ADD:      ld   a,(hl)
                 ld   (ix + ES_HOME + 1),a
                 inc  hl
                 ld   c,(hl)                 ; y - the record anchors the BASE
+                inc  hl
+                ld   b,(hl)                 ; ... and the record's y is a word
 
                 ld   a,(ix + ES_TYPE)
                 call ENEMY_TYPE_AT          ; -> HL = the type's row
                 ld   de,EN_T_H
                 add  hl,de
                 ld   a,c
-                sub  (hl)                   ; top = base - height
-                ld   (ix + ES_Y),a
+                sub  (hl)                   ; top = base - height, in sixteen
+                ld   (ix + ES_Y),a          ; bits: a drone placed on row 20
+                ld   a,b                    ; of a 64-row map anchors at world
+                sbc  a,0                    ; line 336
+                ld   (ix + ES_Y + 1),a
+ENEMY_Y_HI      equ  $ - 6                  ; the six bytes a suite replaces
+                                            ; with `ld (ix + ES_Y + 1),0` and
+                                            ; two NOPs, to ask what the 8-bit
+                                            ; slot would have done with the
+                                            ; same record
                 ld   de,EN_T_HP - EN_T_H
                 add  hl,de
                 ld   a,(hl)
@@ -301,7 +318,8 @@ ENEMY_TYPE_AT:  add  a,a
 ;
 ; OUT: (ENEMY_CUR) = its slot, or 0 for none
 ;      (ENEMY_SX)  = screen byte column of its box
-;      (ENEMY_SY)  = screen line of its top, unsigned
+;      (ENEMY_SY)  = screen line of its top, a SIGNED WORD: only a
+;                    high byte of 0 is a line of this picture
 ;      (ENEMY_TYP) = its type's row
 ;      (ENEMY_VIS) = 1 if it can actually be DRAWN there
 ;
@@ -393,7 +411,8 @@ ENEMY_PICK:     xor  a
                 or   a
                 jr   z,.plus
                 inc  a
-                jr   nz,.skip               ; more than 255 to the left
+                jp   nz,.skip               ; more than 255 to the left. JP,
+                                            ; not JR: the body below grew
                 ld   a,l
                 cp   256 - EN_NEAR
                 jp   c,.skip                ; ... or more than EN_NEAR
@@ -424,15 +443,29 @@ ENEMY_PICK:     xor  a
                 ld   (ENEMY_H),a
                 pop  hl
 
+                ; AND THE VIEW'S TOP IS A 16-BIT NUMBER FOR THE SAME
+                ; REASON ITS LEFT EDGE IS. WORLD_CR reaches V_CR_MAX,
+                ; which is 104 on a 32x64 map, so WORLD_CR * 8 is 832 and
+                ; three ADD A,A in the accumulator throw the carry away -
+                ; the bug above, one field along. HL is holding the
+                ; signed screen COLUMN here and the window test below
+                ; still wants it, so the row goes through DE.
                 ld   a,(WORLD_CR)
+                ld   d,0
                 add  a,a
+                rl   d
                 add  a,a
-                add  a,a                    ; the view's top, in lines
-                ld   c,a
+                rl   d
+                add  a,a
+                rl   d
+                ld   e,a                    ; DE = the view's top, in lines
                 ld   a,(ix + ES_Y)
-                sub  c
-                ld   (ENEMY_SY),a           ; unsigned: 192-255 is above
-                ld   (ENEMY_CUR),ix
+                sub  e
+                ld   (ENEMY_SY),a
+                ld   a,(ix + ES_Y + 1)
+                sbc  a,d
+                ld   (ENEMY_SY + 1),a       ; signed: 0 is the only drawable
+                ld   (ENEMY_CUR),ix         ; high byte, and 255 is above
 
                 ; ... and can its whole box be put down there?
                 ;
@@ -483,6 +516,16 @@ ENEMY_PICK:     xor  a
                 ; lines run through the off-screen margin and fold back
                 ; over the top of the picture - the same fault KARA_DRAW
                 ; is culled for in CLAUDE.md 8.2.
+                ;
+                ; AND ES_Y IS A WORD NOW, so "above" is no longer the
+                ; only way to be off the picture by more than a byte: on
+                ; a 64-row map a drone 300 lines BELOW the view has a low
+                ; byte of 44, which is a screen line in the middle of the
+                ; picture. The high byte is the whole test and the two
+                ; below are what is left of it.
+                ld   a,(ENEMY_SY + 1)
+                or   a
+                jr   nz,.hidden             ; more than a byte above or below
                 ld   a,(ENEMY_SY)
                 ld   c,a
                 ld   a,(ENEMY_H)
@@ -656,8 +699,9 @@ ENEMY_SEES:     ld   c,(ix + ES_X)
                 ; is (8.7): what is wanted is a small DIFFERENCE, and
                 ; modular arithmetic gives it as long as the two are
                 ; within 128 lines - which EN_H_SIGHT is what enforces.
-                ; ES_Y is a byte, so an enemy below world line 255 is a
-                ; thing this slot cannot hold; that is the next slice.
+                ; Both are words now and both are read a byte at a time
+                ; here, and that is the same answer as before rather than
+                ; a saving: a modular difference needs no high byte.
                 ld   a,(KARA_WY)
                 sub  c
                 jr   nc,.below
@@ -1056,6 +1100,15 @@ ENEMY_SHOT_CHECK:
                 ld   a,(ix + ES_HP)
                 or   a
                 ret  z
+                ; AND ITS SCREEN LINE HAS TO BE ONE. This runs on the one
+                ; that is NEAR, drawable or not (ENEMY_PICK), and the
+                ; pool holds screen positions - so with a 16-bit ES_Y a
+                ; drone 300 lines below the view compares at line 44 and
+                ; is shot through the floor. ENEMY_PICK's own vertical
+                ; test, which is the high byte and nothing else.
+                ld   a,(ENEMY_SY + 1)
+                or   a
+                ret  nz
                 ld   hl,(ENEMY_TYP)
                 ld   de,EN_T_W
                 add  hl,de
@@ -1167,9 +1220,29 @@ ENEMY_DYING:    ld   a,(ix + ES_DIE)
                 cp   EN_DIE_VY_MAX + 1
                 jr   c,.vy
                 ld   a,EN_DIE_VY_MAX
-.vy:            add  a,(ix + ES_Y)
-                jr   c,.gone                ; off the bottom of the world
-                ld   (ix + ES_Y),a
+.vy:            ; AND "OFF THE BOTTOM OF THE WORLD" IS THE MAP'S OWN
+                ; HEIGHT NOW, not a byte's. It used to be the carry out
+                ; of an 8-bit add, which is the same number only while a
+                ; level is 16 rows; the map is 2,048 tiles of any
+                ; power-of-two shape (mapshape.asm), the row count is a
+                ; power of two of at least 16, so rows * 16 has a low
+                ; byte of zero and the high byte is the whole comparison.
+                add  a,(ix + ES_Y)
+                ld   e,a
+                ld   a,(ix + ES_Y + 1)
+                adc  a,0
+                ld   d,a                    ; DE = where it has fallen to
+                ld   a,(SHAPE_NOW + SH_ROW_MASK)
+                inc  a                      ; rows
+                rrca
+                rrca
+                rrca
+                rrca                        ; (rows * 16) >> 8
+                cp   d
+                jr   c,.gone                ; past the bottom of the map
+                jr   z,.gone
+                ld   (ix + ES_Y),e
+                ld   (ix + ES_Y + 1),d
                 jp   EBUL_UPDATE
 
 .gone:          ld   (ix + ES_DIE),0        ; the refresh lifts it off next
@@ -1611,7 +1684,7 @@ ENEMY_LIVE:     db 0            ; slots in use
 ENEMY_CUR:      dw 0            ; the one on screen, 0 for none
 ENEMY_TYP:      dw 0            ; ... and its row of ENEMY_TYPES
 ENEMY_SX:       db 0
-ENEMY_SY:       db 0
+ENEMY_SY:       dw 0            ; signed: see ENEMY_PICK
 ENEMY_W:        db 0
 ENEMY_H:        db 0
 ENEMY_FACE_WANT:db 0
