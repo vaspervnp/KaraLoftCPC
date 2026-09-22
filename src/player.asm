@@ -5,7 +5,9 @@
 ; units on purpose:
 ;
 ;   KARA_WX  world byte column, 0-511   1 unit = 2 Mode 0 pixels
-;   KARA_WY  world pixel row,   0-255   the box's TOP line
+;   KARA_WY  world pixel row,   0-1023  the box's TOP line. SIXTEEN
+;            BITS, because a level taller than 256 pixels is a level
+;            this byte cannot address (8.1)
 ;
 ; BOTH ARE THE COLLISION BOX, NOT THE SPRITE. The sprite is 12 bytes
 ; wide and the box 6, and the box is centred in it: PLAYER_TO_SCREEN
@@ -262,7 +264,7 @@ PLAYER_X:       ld   a,(INPUT_NOW)
 .probe_r:       push hl
                 ld   de,KARA_BOX_W - 1
                 add  hl,de                  ; ... and its leading edge
-                ld   a,(KARA_WY)
+                ld   de,(KARA_WY)
                 call BOX_SOLID_H
                 pop  hl
                 ret  nz                     ; blocked - the step is refused
@@ -309,7 +311,7 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                                             ; left. The map wraps with an AND,
                                             ; so there is no edge tile to stop
                                             ; her - the bound has to be here.
-.probe_l:       ld   a,(KARA_WY)
+.probe_l:       ld   de,(KARA_WY)
                 push hl
                 call BOX_SOLID_H
                 pop  hl
@@ -385,22 +387,34 @@ FALL_MARK:      ld   a,(KARA_VY)
                 jr   nz,.follow
                 or   a
                 ret  nz                     ; descending: leave it where it is
-.follow:        ld   a,(KARA_WY)
-                ld   (FALL_TOP),a
+.follow:        ld   hl,(KARA_WY)
+                ld   (FALL_TOP),hl
                 ret
 
 ; ---------------------------------------------------------------------
 ; FALL_DAMAGE - what the drop cost her, on the frame she lands.
 ;
-; IN:  A = the line she has landed on     destroys AF,C,HL
+; IN:  DE = the line she has landed on    destroys AF,BC,DE,HL
+;
+; THE DISTANCE IS SIXTEEN BITS AND THE DAMAGE IS EIGHT, which is a
+; question a 256-pixel level could not ask: a fall of more than 255
+; pixels is one no byte can hold, and rather than let it wrap it is
+; taken as the most a fall can cost. Nothing survives 255 points.
 ; ---------------------------------------------------------------------
-FALL_DAMAGE:    ld   hl,FALL_TOP
-                sub  (hl)                   ; how far down she came
+FALL_DAMAGE:    ld   hl,(FALL_TOP)
+                ex   de,hl                  ; HL = where she landed
+                or   a
+                sbc  hl,de                  ; how far down she came
                 ret  c                      ; ... and up is not a fall
+                ld   a,h
+                or   a
+                ld   a,255                  ; LD does not touch the flags
+                jr   nz,.hurt
+                ld   a,l
                 cp   FALL_FREE + 1
                 ret  c                      ; a step, a jump, a ledge: free
                 sub  FALL_FREE              ; only the excess is paid for,
-                ld   c,a                    ; a point a pixel
+.hurt:          ld   c,a                    ; a point a pixel
                 ld   hl,PLAYER_HP
                 ld   a,(hl)
                 sub  c
@@ -431,8 +445,10 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ; line. Probing the feet line makes GROUNDED blink two
                 ; frames in three, and because the jump is edge-triggered
                 ; that swallows two jump presses out of every three.
-                ld   a,(KARA_WY)
-                add  a,KARA_BOX_H
+                ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H
+                add  hl,de
+                ex   de,hl                  ; DE = the line under her feet
                 ld   hl,(KARA_WX)
                 ld   b,TA_BLOCK
                 call BOX_SOLID_V
@@ -485,34 +501,50 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ld   a,P_VY_MAX             ; velocity the instant she jumped.
 .store_vy:      ld   (KARA_VY),a            ; Test the sign bit first.
 
-                ld   b,a                    ; B = velocity
-                ld   a,(KARA_WY)
-                add  a,b                    ; the proposed top line
-                ld   c,a
+                ; ---- the proposed top line, in sixteen bits ---------
+                ; THE VELOCITY IS A SIGNED BYTE AND THE LINE IS A WORD, so
+                ; the byte is sign-extended into BC before it is added:
+                ; RLA puts its sign in the carry and SBC A,A turns that
+                ; into 0 or &FF, which is the whole of it.
+                ld   c,a                    ; C = the velocity
+                rla                         ; ... its sign into the carry
+                sbc  a,a
+                ld   b,a                    ; BC = it, sign-extended
+                ld   hl,(KARA_WY)
+                add  hl,bc
+                ex   de,hl                  ; DE = the proposed top line
                 bit  7,b
                 jr   nz,.rising
 
                 ; ---- falling: probe just past her feet ---------------
-                add  a,KARA_BOX_H
+                push de
+                ld   hl,KARA_BOX_H
+                add  hl,de
+                ex   de,hl
                 ld   hl,(KARA_WX)
                 ld   b,TA_BLOCK             ; a one-way platform blocks this
-                push bc
                 call BOX_SOLID_V
-                pop  bc
+                pop  de
                 jr   nz,.land
-                ld   a,c
-                ld   (KARA_WY),a
+                ld   (KARA_WY),de
                 ret
 
 .land:          ; Snap her feet ONTO the tile rather than into it: the
                 ; blocking tile's top pixel row is (footY AND &F0), and the
-                ; box's last line must be the row above it.
-                ld   a,c
-                add  a,KARA_BOX_H
+                ; box's last line must be the row above it. Only the LOW
+                ; byte is masked, because a tile boundary is every 16
+                ; pixels and the high byte passes through.
+                ld   hl,KARA_BOX_H
+                add  hl,de
+                ld   a,l
                 and  &F0
-                sub  KARA_BOX_H
-                ld   (KARA_WY),a
-                call FALL_DAMAGE            ; A is still the line she landed on
+                ld   l,a
+                ld   de,KARA_BOX_H
+                or   a
+                sbc  hl,de
+                ld   (KARA_WY),hl
+                ex   de,hl                  ; DE = the line she landed on
+                call FALL_DAMAGE
                 xor  a
                 ld   (KARA_VY),a
                 ld   (KARA_FELL),a
@@ -524,13 +556,11 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ; ---- rising: probe the top line ---------------------
 .rising:        ld   hl,(KARA_WX)
                 ld   b,TA_SOLID             ; a platform is climbed through
-                ld   a,c
-                push bc
+                push de
                 call BOX_SOLID_V
-                pop  bc
+                pop  de
                 jr   nz,.bump
-                ld   a,c
-                ld   (KARA_WY),a
+                ld   (KARA_WY),de
                 ret
 
 .bump:          xor  a                      ; head hit - cancel the rest of
@@ -578,8 +608,10 @@ CLIMB_ENTER:    ld   a,(KARA_GROUND)
                 ; DOWN: the tile she is STANDING ON. Her feet line is
                 ; that tile's top line, so this is the tile itself and
                 ; not the one below it.
-                ld   a,(KARA_WY)
-                add  a,KARA_BOX_H
+                ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H
+                add  hl,de
+                ex   de,hl
                 call CLIMB_AT
                 and  TA_CLIMB
                 jr   nz,CLIMB_GRAB
@@ -590,9 +622,10 @@ CLIMB_ENTER:    ld   a,(KARA_GROUND)
                 ret  z
                 ; UP: the tile directly ABOVE the floor she is on - one
                 ; line higher is inside it, whatever her feet are on.
-                ld   a,(KARA_WY)
-                add  a,KARA_BOX_H
-                dec  a
+                ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H - 1      ; one line higher is inside it
+                add  hl,de
+                ex   de,hl
                 call CLIMB_AT
                 and  TA_CLIMB
                 ret  z
@@ -678,8 +711,10 @@ CLIMB_TURN_OFF: ld   a,(INPUT_NOW)
 ; ---------------------------------------------------------------------
 ; PLAYER_CLIMB - one frame on a ladder.
 ;
-; C holds the feet line she is proposing and B the attributes of the
-; tile it lands in, which is why CLIMB_AT preserves BC.
+; DE holds the feet line she is proposing and B the attributes of the
+; tile it lands in - the line was C until it grew a second byte, and
+; what CLIMB_AT preserving BC buys now is the ATTRIBUTES across the
+; probe rather than the line, which goes on the stack.
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
 PLAYER_CLIMB:   ld   a,(INPUT_NOW)
@@ -691,16 +726,20 @@ PLAYER_CLIMB:   ld   a,(INPUT_NOW)
                 ret  z                      ; hanging on, going nowhere
 
                 ; ---- down ------------------------------------------
-                ld   a,(KARA_WY)
-                add  a,KARA_BOX_H + P_CLIMB ; her feet, after the step
-                ld   c,a
+                ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H + P_CLIMB
+                add  hl,de                  ; her feet, after the step
+                ex   de,hl
+                push de
                 call CLIMB_AT
+                pop  de
                 ld   b,a
                 and  TA_CLIMB
                 jr   z,.off_bottom
-                ld   a,(KARA_WY)
-                add  a,P_CLIMB
-                ld   (KARA_WY),a
+                ld   hl,(KARA_WY)
+                ld   de,P_CLIMB
+                add  hl,de
+                ld   (KARA_WY),hl
                 ret
 
                 ; Past the last rung. If there is a floor under it she
@@ -710,36 +749,42 @@ PLAYER_CLIMB:   ld   a,(INPUT_NOW)
 .off_bottom:    ld   a,b
                 and  TA_BLOCK
                 jr   z,.let_go
-                ld   a,c
-                and  &F0                    ; the floor is that tile's top line
-                sub  KARA_BOX_H
-                ld   (KARA_WY),a
-                jr   CLIMB_LAND
-.let_go:        ld   a,c
-                sub  KARA_BOX_H
-                ld   (KARA_WY),a
+                ld   a,e                    ; the floor is that tile's top
+                and  &F0                    ; line, and only the LOW byte is
+                ld   e,a                    ; masked: a tile row is 16 lines
+.let_go:        ld   hl,0 - KARA_BOX_H      ; ... and her box hangs above it
+                add  hl,de
+                ld   (KARA_WY),hl
+                ld   a,b
+                and  TA_BLOCK
+                jr   nz,CLIMB_LAND
                 jr   CLIMB_LEAVE
 
                 ; ---- up --------------------------------------------
-.up:            ld   a,(KARA_WY)
-                add  a,KARA_BOX_H - P_CLIMB
-                ld   c,a
+.up:            ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H - P_CLIMB
+                add  hl,de
+                ex   de,hl
+                push de
                 call CLIMB_AT
+                pop  de
                 and  TA_CLIMB
                 jr   z,.off_top
-                ld   a,(KARA_WY)
-                sub  P_CLIMB
-                ld   (KARA_WY),a
+                ld   hl,(KARA_WY)
+                ld   de,0 - P_CLIMB
+                add  hl,de
+                ld   (KARA_WY),hl
                 ret
 
                 ; Off the top: her feet are in the tile ABOVE the shaft,
                 ; so the floor is that tile's BOTTOM - which is the top
                 ; line of the last rung's tile, 16 on from the mask.
-.off_top:       ld   a,c
+.off_top:       ld   a,e
                 and  &F0
-                add  a,16
-                sub  KARA_BOX_H
-                ld   (KARA_WY),a
+                ld   e,a
+                ld   hl,16 - KARA_BOX_H     ; the carry out of the mask is the
+                add  hl,de                  ; 16-bit add's, not a byte's
+                ld   (KARA_WY),hl
                 ; fall through
 
                 ; SHE ARRIVED ON A FLOOR, so she turns off the ladder
@@ -819,8 +864,12 @@ EDGE_ENTER:     ld   a,(KARA_GROUND)
                 jr   .probe
 .look_l:        dec  hl
 .probe:         push hl
-                ld   a,(KARA_WY)
-                add  a,KARA_BOX_H           ; the line under her feet
+                ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H          ; the line under her feet
+                add  hl,de
+                ex   de,hl
+                pop  hl
+                push hl
                 call MAP_ATTR
                 pop  hl
                 and  TA_BLOCK
@@ -863,9 +912,10 @@ PLAYER_HANG:    ld   a,(KARA_HANG)
                 ld   hl,KARA_HANG_T
                 dec  (hl)
                 ret  nz
-                ld   a,(KARA_WY)
-                add  a,HANG_DROP
-                ld   (KARA_WY),a
+                ld   hl,(KARA_WY)
+                ld   de,HANG_DROP
+                add  hl,de
+                ld   (KARA_WY),hl
                 ld   a,2
                 ld   (KARA_HANG),a
                 xor  a
@@ -895,9 +945,10 @@ PLAYER_HANG:    ld   a,(KARA_HANG)
                 ; ---- nobody said drop, so she pulls herself back up -
                 xor  a
                 ld   (KARA_HANG),a
-                ld   a,(KARA_WY)
-                sub  HANG_DROP
-                ld   (KARA_WY),a
+                ld   hl,(KARA_WY)
+                ld   de,0 - HANG_DROP
+                add  hl,de
+                ld   (KARA_WY),hl
                 ld   a,1
                 ld   (KARA_GROUND),a
                 ret
@@ -1014,21 +1065,44 @@ CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
 CAMERA_V:       ld   a,(V_REQUEST)
                 or   a
                 ret  nz                     ; one is already waiting
+                ; THE VIEW'S TOP IS SIXTEEN BITS NOW and it has to be:
+                ; WORLD_CR reaches V_CR_MAX, which is 8 on a 16-tile map
+                ; and 104 on a 64-tile one, so WORLD_CR * 8 is 832 lines
+                ; and no byte holds it.
+                ;
+                ; HER HALF-HEIGHT GOES ON TO HER AND NOT OFF THE VIEW,
+                ; which is the same difference and NOT the same carry.
+                ; Taking it off the view is one subtract fewer and the
+                ; view's top is 0 for the first four rows of any level,
+                ; so the subtrahend goes NEGATIVE - and `SBC HL,DE` sets
+                ; the carry on an unsigned borrow, so every frame then
+                ; read as "she is above the view" and the camera never
+                ; followed her down a ladder. Her MIDDLE is what the band
+                ; wants: measured from her head the band has to sit 30
+                ; lines higher to frame her, and the view then stops one
+                ; character row short of its limit with the road half off
+                ; the bottom of the display.
                 ld   a,(WORLD_CR)
-                add  a,a
-                add  a,a
-                add  a,a                    ; the view's top, in lines
-                ld   e,a
-                ld   a,(KARA_WY)
-                add  a,KARA_BOX_H / 2       ; HER MIDDLE, not the top of her
-                                            ; box: measured from her head the
-                                            ; band has to sit 30 lines higher
-                                            ; to frame her, and the view then
-                                            ; stops one character row short of
-                                            ; its limit with the road half off
-                                            ; the bottom of the display
-                sub  e                      ; her screen line
+                ld   l,a
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; the view's top, in lines
+                ex   de,hl                  ; ... which is never negative
+                ld   hl,(KARA_WY)
+                ld   a,l
+                add  a,KARA_BOX_H / 2       ; HER MIDDLE, in sixteen bits and
+                ld   l,a                    ; without BC, which this routine
+                ld   a,h                    ; has never destroyed
+                adc  a,0
+                ld   h,a
+                or   a
+                sbc  hl,de                  ; her middle's screen line
                 jr   c,.up                  ; above the view entirely
+                ld   a,h
+                or   a
+                jr   nz,.down               ; more than 255 lines below it
+                ld   a,l
                 cp   CAM_BOT + 1
                 jr   nc,.down
                 cp   CAM_TOP
@@ -1108,17 +1182,29 @@ VIEW_TO_PLAYER: ld   hl,(KARA_WX)
 .left:          xor  a
 .across:        ld   (WORLD_X),a
 
-                ld   a,(KARA_WY)
-                sub  CAM_BOT - KARA_BOX_H / 2
+                ld   hl,(KARA_WY)
+                ld   de,CAM_BOT - KARA_BOX_H / 2
+                or   a
+                sbc  hl,de
                 jr   c,.top                 ; her middle is inside the band
+                ld   a,h
+                or   l
                 jr   z,.top                 ; with the view at the very top
-                add  a,7                    ; ceil, and it cannot carry: the
-                srl  a                      ; subtraction left 1..175
-                srl  a
-                srl  a
+                ld   de,7                   ; ceil, in sixteen bits: on a tall
+                add  hl,de                  ; map the distance is not a byte
+                srl  h
+                rr   l
+                srl  h
+                rr   l
+                srl  h
+                rr   l
+                ld   a,h
+                or   a
+                jr   nz,.bottom             ; past 255 rows down
+                ld   a,l
                 cp   V_CR_MAX + 1
                 jr   c,.down
-                ld   a,V_CR_MAX
+.bottom:        ld   a,V_CR_MAX
                 jr   .down
 .top:           xor  a
 .down:          ld   (WORLD_CR),a
@@ -1236,12 +1322,17 @@ PLAYER_SPAWN:   ld   a,(ENT_COUNT)
                 inc  hl
                 ld   d,(hl)                 ; DE = x, world pixels
                 inc  hl
-                ld   a,(hl)                 ; y, and only the low byte can
-                                            ; mean anything: the map is 256
-                                            ; pixels tall and KARA_WY a byte
-                sub  KARA_BOX_H             ; the record's y is the BASE
-                ld   (KARA_WY),a
-                ld   (FALL_TOP),a           ; ... and she is not falling from
+                ld   c,(hl)
+                inc  hl
+                ld   b,(hl)                 ; BC = y, world pixels - BOTH
+                                            ; bytes of it now, because a
+                                            ; level can be taller than 256
+                                            ; pixels (8.1). B is free here:
+                                            ; the search's counter is spent
+                ld   hl,0 - KARA_BOX_H      ; the record's y is the BASE
+                add  hl,bc
+                ld   (KARA_WY),hl
+                ld   (FALL_TOP),hl          ; ... and she is not falling from
                                             ; anywhere yet, so the mark is
                                             ; her own line (FALL_MARK)
                 ex   de,hl
@@ -1285,14 +1376,18 @@ PLAYER_TO_SCREEN:
                 sub  e                      ; and the blitter wants the sprite
                 ld   (KARA_X),a
                 call VIEW_NEXT_CR
-                add  a,a
-                add  a,a
-                add  a,a                    ; WORLD_CR * 8 = screen top, pixels
-                ld   e,a
-                ld   a,(KARA_WY)
-                sub  e
-                ld   (KARA_Y),a
-                ret
+                ld   l,a
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; WORLD_CR * 8 = screen top, pixels
+                ex   de,hl
+                ld   hl,(KARA_WY)
+                or   a
+                sbc  hl,de
+                ld   a,l                    ; ... and KARA_Y is a BYTE, which
+                ld   (KARA_Y),a             ; is what makes 192-255 mean above
+                ret                         ; the display (8.2)
 
 PLAYER_STEP:    db P_WALK       ; byte columns a free step carries her: 1
                                 ; walking, 2 running. SHE STEPS ON EVERY
@@ -1301,14 +1396,14 @@ PLAYER_STEP:    db P_WALK       ; byte columns a free step carries her: 1
                                 ; are - at 25 Hz there is no half-frame to
                                 ; skip (src/main.asm).
 KARA_WX:        dw 43           ; her BOX - the sprite's left edge is 40
-KARA_WY:        db 16           ; starts in the air and falls onto the roof.
+KARA_WY:        dw 16           ; starts in the air and falls onto the roof.
                                 ; HIGH ENOUGH THAT HER FEET START ABOVE IT:
                                 ; 64 was right for a 44-line box and puts a
                                 ; 64-line one inside the tiles, where the
                                 ; landing snaps her a whole tile row too low
                                 ; and BOX_SOLID_H then refuses every step -
                                 ; she animates on the spot and never moves.
-FALL_TOP:       db 0            ; the line this descent began at - her own
+FALL_TOP:       dw 0            ; the line this descent began at - her own
                                 ; if she is not descending (FALL_MARK)
 KARA_VY:        db 0
 KARA_GROUND:    db 0

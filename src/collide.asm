@@ -114,35 +114,48 @@ TILE_ATTR_N     equ 256
 ; ---------------------------------------------------------------------
 ; MAP_CELL - address in bank C4 of the cell covering a world position.
 ;
-; row*128 falls out of the base address: load L with Y AND &F0
-; (= row*16) and H with MAP_ADDR >> 11, then ADD HL,HL three times.
-; &1400 -> &2800 -> &5000 -> &A000, so the map base and the row scaling
-; come from the same three adds - which is why MAP_ADDR has to be a
-; multiple of 2048 and main.asm asserts it. The column then fits in L
-; without carrying, because (row AND 1)*128 + 127 = 255.
+; THE ROW IS SIXTEEN BITS AND IT IS SCALED SEPARATELY FROM THE BASE,
+; which is a change and the reason for it is a level taller than 256
+; pixels. It used to fold the two together: L took Y AND &F0 (= row*16),
+; H took MAP_ADDR >> 11, and three ADD HL,HL carried both to row*128 and
+; to &A000 at once - elegant, 28 T cheaper, and it ties the map's WIDTH
+; to the base address's alignment, so a map of another shape cannot have
+; one without moving the other.
 ;
-; IN : HL = world byte column 0-511, A = world pixel row 0-255
+; Scaled apart, the two numbers are what they say they are:
+;
+;   row * W = (Y AND ((H - 1) * 16)) << (log2 W - 4)
+;
+; and the base is added at the end. The column still cannot carry into
+; H: row*W's low byte is a multiple of W and the column is at most
+; W - 1, so their sum is at most 255 for every shape.
+;
+; IN : HL = world byte column, DE = world pixel row
 ; OUT: HL = map cell address, in BASE RAM - no paging needed.
 ;      destroys AF,DE,HL.  *** BC IS PRESERVED *** - BOX_SOLID_H keeps
 ;      its row counter in B and BOX_SOLID_V its column counter.
 ; ---------------------------------------------------------------------
-MAP_CELL:       and  &F0                    ; Y AND &F0 = map row * 16
-                ld   e,a
+MAP_CELL:       ld   a,d
+                and  MAP_ROW_MASK >> 4      ; the row's own high bits
+                ld   d,a
+                ld   a,e
+                and  &F0                    ; ... and the pixel inside the
+                ld   e,a                    ; tile goes, leaving row * 16
+                sla  e                      ; * MAP_W / 16: three doublings
+                rl   d                      ; at 128 wide, one at 32
+                sla  e
+                rl   d
+                sla  e
+                rl   d
                 ld   a,l
                 srl  h
                 rra
                 srl  h
                 rra                         ; A = BX >> 2
                 and  MAP_COL_MASK           ; map column 0-127
-                ld   d,a
-                ld   l,e
-                ld   h,MAP_ADDR >> 11       ; >> 11, NOT / 2048: RASM's "/"
-                add  hl,hl                  ; rounds to nearest
-                add  hl,hl
-                add  hl,hl
-                ld   a,d
-                add  a,l                    ; cannot carry
                 ld   l,a
+                ld   h,MAP_ADDR >> 8
+                add  hl,de
                 ret
 
 ; ---------------------------------------------------------------------
@@ -156,7 +169,7 @@ ATTR_OF:        ld   e,a
                 ret
 
 ; MAP_ATTR - the isolated form: world position -> attribute byte.
-; IN : HL = world byte column, A = world pixel row   OUT: A = attributes
+; IN : HL = world byte column, DE = world pixel row  OUT: A = attributes
 ;      destroys AF,DE,HL.  BC preserved.
 MAP_ATTR:       call MAP_CELL
                 ld   a,(hl)
@@ -203,15 +216,18 @@ MAP_COL_RIGHT:  ld   a,l
 ; to walk toward a wall a whole tile beneath her - invisible in a static
 ; test, obvious on a rooftop.
 ;
-; IN : HL = leading edge, A = world pixel row of the box top
+; IN : HL = leading edge, DE = world pixel row of the box top
 ; OUT: Z = clear, NZ = blocked. (PROBE_ACC) = OR of every attribute seen,
 ;      so a hazard falls out of the reads the wall test already did.
 ;      destroys AF,BC,DE,HL.
 ; ---------------------------------------------------------------------
-BOX_SOLID_H:    push af
+                ; THE NIBBLE IS TAKEN BEFORE THE CALL, not after it: the
+                ; row is sixteen bits now and MAP_CELL destroys DE.
+BOX_SOLID_H:    ld   a,e
+                and  15                     ; how far into its tile is the top?
+                push af
                 call MAP_CELL               ; the column, resolved once
                 pop  af
-                and  15                     ; how far into its tile is the top?
                 add  a,KARA_BOX_H - 1
                 rrca
                 rrca
@@ -244,19 +260,17 @@ BOX_SOLID_H:    push af
 ; probing the last quarter of her width, which is a wall she walks into
 ; from the left and through from the right.
 ;
-; IN : HL = box left edge, A = world pixel row,
+; IN : HL = box left edge, DE = world pixel row,
 ;      B  = attribute mask (TA_SOLID rising, TA_BLOCK falling)
 ; OUT: Z = clear, NZ = blocked. (PROBE_ACC) = merged attributes.
 ;      destroys AF,BC,DE,HL - HL included now, where it used to be
 ;      pushed and popped for no caller that wanted it.
 ; ---------------------------------------------------------------------
-BOX_SOLID_V:    ld   c,a                    ; C = the scanline for a moment
-                ld   a,b
+BOX_SOLID_V:    ld   a,b
                 ld   (PROBE_MASK),a         ; the mask, out of the way: B is
                                             ; the only register left to count
                                             ; columns with, once MAP_CELL has
-                                            ; HL, ATTR_OF has DE and the
-                                            ; accumulator has C
+                                            ; HL and ATTR_OF has DE
                 ld   a,l
                 and  TILE_W_BYTES - 1       ; how far into its tile the edge is
                 add  a,KARA_BOX_W - 1       ; ... plus her width: 0..8
@@ -265,8 +279,7 @@ BOX_SOLID_V:    ld   c,a                    ; C = the scanline for a moment
                 and  &3F                    ; below is not optional
                 inc  a
                 ld   b,a                    ; B = 1, 2 or 3 tiles across
-                ld   a,c
-                call MAP_CELL               ; BC preserved
+                call MAP_CELL               ; DE = the row, BC preserved
                 ld   c,0                    ; ... and now C accumulates
 .col:           ld   a,(hl)
                 call ATTR_OF                ; HL preserved
@@ -295,15 +308,15 @@ BOX_SOLID_V:    ld   c,a                    ; C = the scanline for a moment
 ; see the note by KARA_ART_X. A player lines a ladder up with what they
 ; can see, and CLIMB_GRAB puts what they can see on it.
 ;
-; IN : A = world pixel row      OUT: A = attribute byte
+; IN : DE = world pixel row      OUT: A = attribute byte
 ;      destroys AF,DE,HL.  BC preserved - PLAYER_CLIMB keeps the line it
 ;      proposed in C and the attribute it read in B.
 ; ---------------------------------------------------------------------
-CLIMB_AT:       push af
+CLIMB_AT:       push de
                 ld   hl,(KARA_WX)
                 ld   de,KARA_BOX_W / 2      ; the middle of her
                 add  hl,de
-                pop  af
+                pop  de
                 jp   MAP_ATTR
 
 PROBE_ACC:      db 0

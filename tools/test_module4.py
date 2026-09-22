@@ -42,6 +42,7 @@ SCR_CHARS = 40
 SCR_CHAR_ROWS = 24
 SCR_LINES = SCR_CHAR_ROWS * 8
 MAP_W, MAP_H = 128, 16           # the drawn tiles are 8x16, not 16x16
+V_CR_MAX = (MAP_H * 16 - SCR_CHAR_ROWS * 8) // 8   # player.asm's own
 SCREEN_WIDTH_BYTES = 80
 KARA_W, KARA_H = 12, 64          # the drawn sprite, stored as spans
 KARA_RASTER_SAFE = 43            # the highest line she can be DRAWN FROM and
@@ -84,6 +85,30 @@ COL_HEAD = 14                    # rows of the incoming column painted behind
 N_TILES = os.path.getsize(os.path.join(
     ROOT, "build", "levels", "level1_city", "citytiles.bin")) // 64
 MAP_ADDR = 0xA000              # base RAM: bank C4 belongs to the art
+
+
+def live_map(machine):
+    """The map AS IT IS, not as the level shipped it.
+
+    ENT_SETTLE puts a taken pickup's cell back to the tile underneath
+    and repaints it (CLAUDE.md 8.6), so the map is play state exactly
+    like SCROLL is, and a snapshot of it describes a screen that has
+    since changed. Every model built below therefore reads it at the
+    sample it is about.
+
+    IT COST THREE RENDERED CHECKS AND READ AS TEARING. The driver walks
+    her along the roof, she crosses the key and the clip, and the model
+    went on drawing them: 41 pixels of pickup art against plain sky,
+    on ALL THREE axes at once, which is the tell - a tear is a property
+    of one axis' latch order and this was the same 41 pixels whichever
+    way the view moved. What named it was reading video RAM at the same
+    coordinates: the RAM agreed with the GLASS and both disagreed with
+    the model, and a disagreement the beam is not party to is not a
+    raster fault.
+    """
+    return machine.read_ram(MAP_ADDR, MAP_W * MAP_H)
+
+
 # The map is a section of level_1.lvl now, not an incbin of its own:
 # docs/editor.md 9.2's header is 21 bytes and the map follows it.
 LVL_HEADER = 21
@@ -214,6 +239,29 @@ def drive(machine, sym, phase):
         # game frames now and not three (CLAUDE.md 7.8), so the catch-up
         # is half again as fast and reaches into a window it used to
         # finish before.
+        # AND THE VIEW IS PUT BACK INSIDE THE MAP FIRST, by this driver
+        # and not by the camera. The phases above hold V_REQUEST up on
+        # EVERY frame to sweep the address model across the 1024-word
+        # ring, and SCROLL_V_STEP has no bound of its own - the bound
+        # is CAMERA_V's - so they leave the view a long way below a map
+        # that is V_CR_MAX rows deep. Waiting for the camera to walk it
+        # back is 2 game frames a row and the window is 240 of them.
+        #
+        # It USED to converge, and that is the part worth writing down:
+        # with WORLD_CR at 192 the 8-bit camera read the view's top as
+        # (192 * 8) AND 255 = 0 and sat still, content, 1,536 lines
+        # below the map - so the settle broke on the FIRST sample and
+        # the horizontal step was measured on a view nowhere near her.
+        # World Y is sixteen bits now (CLAUDE.md 8.1) and the camera
+        # can see where it really is, so it climbs - correctly, and for
+        # longer than this window. What undoes an excursion only a
+        # driver can make is the driver.
+        machine.poke(sym["V_REQUEST"], 0)
+        for _ in range(400):
+            if machine.peek(sym["WORLD_CR"]) <= V_CR_MAX:
+                break
+            machine.poke(sym["V_REQUEST"], 2)       # 2 = up the map
+            next_frame_top(machine, sym)
         machine.poke(sym["V_REQUEST"], 0)
         steady, last = 0, None
         for _ in range(240):
@@ -996,7 +1044,7 @@ def main():
         # level and a pickup she touches is un-baked - its cell goes
         # back to the tile underneath - so a map snapshot taken before
         # the sweep describes a screen that has since changed.
-        level_map = machine.read_ram(MAP_ADDR, MAP_W * MAP_H)
+        level_map = live_map(machine)
         want = model(tiles, level_map, blobs, st, with_kara=False)
         vram = machine.read_ram(0xC000, 0x4000)
         bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
@@ -1080,6 +1128,7 @@ def main():
     prev = state(machine, sym)
     sync_to_vsync(machine, sym)
     st = state(machine, sym)
+    level_map = live_map(machine)
     y0, hits, probes, margin = find_display_top(
         machine, [expected_pens(model(tiles, level_map, blobs, st, True, kara_st=prev), st[0])],
         pen_to_hw)
@@ -1095,11 +1144,12 @@ def main():
 
     for phase, name in [(0, "horizontal"), (1, "vertical down"), (2, "vertical up")]:
         drive(machine, sym, phase)
-        history = []
+        history, maps = [], []
         for _ in range(6):
             (vstep if phase else pump_h)(machine, sym)
             sync_to_vsync(machine, sym)
             history.append(state(machine, sym))   # mid-step frames included
+            maps.append(live_map(machine))        # ... and the map they saw
         # Kara is drawn at the top of a frame from the position the frame
         # before worked out, so the frame that ended at sample i showed
         # sample i's view with sample i-1's Kara. i-2 is allowed as well:
@@ -1125,7 +1175,7 @@ def main():
                 safe = raster_safe(blobs, history[k])
                 skip = None if safe else (history[k][3] * 2,
                                           (history[k][3] + KARA_W) * 2)
-                pens = expected_pens(model(tiles, level_map, blobs, history[i],
+                pens = expected_pens(model(tiles, maps[i], blobs, history[i],
                                            True, kara_st=history[k]), history[i][0])
                 scores.append((render_mismatch(machine, pens, pen_to_hw, y0, skip),
                                history[i], safe))
@@ -1154,7 +1204,7 @@ def main():
     worst, latched = {}, 0
     for phase in (1, 2):
         drive(machine, sym, phase)
-        hist = []
+        hist, hmaps = [], []
         # DRIVEN UNTIL IT HAS SEEN BOTH SIDES OF THE THRESHOLD, not for
         # a fixed number of frames. What this needs is a range of screen
         # positions, and how many frames that takes is a property of the
@@ -1172,6 +1222,7 @@ def main():
             vstep(machine, sym)
             sync_to_vsync(machine, sym)
             hist.append(state(machine, sym))
+            hmaps.append(live_map(machine))
             if len(hist) < 3:
                 continue
             i = len(hist) - 1
@@ -1212,7 +1263,7 @@ def main():
             # 20 - because a view one character out is 160 wrong pixels
             # a row, not five.
             n = min(render_mismatch(machine,
-                                    expected_pens(model(tiles, level_map, blobs, hist[v],
+                                    expected_pens(model(tiles, hmaps[v], blobs, hist[v],
                                                         True, kara_st=hist[k]), hist[v][0]),
                                     pen_to_hw, y0)
                     for k in (i - 1, i - 2, i - 3)
@@ -1313,6 +1364,7 @@ def main():
             machine.run_frames(2)
             sync_to_vsync(machine, sym)
             st = state(machine, sym)
+            level_map = live_map(machine)
             if prev is None:
                 prev = st
                 continue

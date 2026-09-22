@@ -420,6 +420,25 @@ def main():
     #   jumping + firing         99, 100              100 x 10
     #   running right + firing   96 .. 99             100 x 10
     #
+    #   running right + firing   95 .. 99  <- 16-bit world Y
+    #
+    # AND THE LAST ROW MOVED BY ONE WHEN WORLD Y BECAME SIXTEEN BITS
+    # (CLAUDE.md 8.1), WHICH IS THE COST OF IT AND THE WHOLE OF THE
+    # COST. Re-measured over the same ten starting points on the
+    # widened build, the drone-free count is still exactly 100 on all
+    # seven paths - so the LOOP did not lose a frame anywhere - and
+    # every band above is the one it was except the run with the gun,
+    # which went from 96..99 to 95..99.
+    #
+    # What says where the frame went is the strip's own column below:
+    # with HUD_SERVICE returning at once the widened build measures
+    # 99 99 99 98 98 99 99 99 99 97, which is the 8-bit build's ten
+    # numbers EXACTLY. So the ~380 T of 16-bit Y costs nothing on a
+    # frame that is not also paying for the bottom row, and on the one
+    # path that steps the camera every game frame - a run's step IS one
+    # CRTC character (CLAUDE.md 8.2) - it pushes one or two more of
+    # those 3,568 T frames over the edge.
+    #
     # So the drone-free count is the LOOP and it is exact; the in-game
     # one is the loop plus an ENCOUNTER whose phase the pre-roll moves,
     # and what can honestly be asserted about it is a floor with the
@@ -454,7 +473,7 @@ def main():
             ("jumping + firing, scrolling",
              JOY_RIGHT | JOY_UP, True, False, 99),
             ("running right, scrolling", JOY_RIGHT, False, True, 100),
-            ("running right + firing", JOY_RIGHT, True, True, 96)):
+            ("running right + firing", JOY_RIGHT, True, True, 95)):
         # EXACTLY THE LOCK, NOT "AT LEAST" AND NOT "AT MOST". A game
         # frame that took three hardware frames reads one under and one
         # that took a single frame reads one over, and both are faults:
@@ -470,23 +489,29 @@ def main():
               f"{got} in the game against {bare} with nothing to shoot at, "
               f"and {floor} is the worst of ten starting points")
 
-    # AND ONE OF THE FRAMES THE RUN'S ENCOUNTER COSTS IS THE BOTTOM ROW.
+    # AND MOST OF WHAT THE RUN'S ENCOUNTER COSTS IS THE BOTTOM ROW.
     # This check used to claim the opposite - "what it drops is not the
     # strip" - on the strength of the two counts being equal at one
-    # starting point. Over the ten, the strip is worth exactly one game
-    # frame at eight of them and nothing at the other two, so it is a
-    # part of the encounter's cost and not the whole of it:
+    # starting point. Over the ten it is worth one game frame at eight
+    # of them and nothing at the other two, so it was a part of the
+    # encounter's cost and not the whole of it; sixteen-bit world Y then
+    # took it to two and three:
     #
-    #   with the strip     98 99 99 97 97 98 98 98 98 96
-    #   HUD_SERVICE = RET  99 99 99 98 98 99 99 99 99 97
+    #                      8-bit Y                 16-bit Y
+    #   with the strip     98 99 99 97 97 98 98 98 98 96   97 99 99 95 95 96 97 97 97 95
+    #   HUD_SERVICE = RET  99 99 99 98 98 99 99 99 99 97   99 99 99 98 98 99 99 99 99 97
+    #   the strip's share   1  0  0  1  1  1  1  1  1  1    2  0  0  3  3  3  2  2  2  2
     #
-    # and with the drones off both are 100, which is what says the strip
-    # only costs anything on the frames the encounter is already paying
-    # for.
+    # THE MIDDLE ROW IS THE SAME TEN NUMBERS ON BOTH BUILDS, and that is
+    # the measurement rather than a coincidence: what the widening costs
+    # is only frames that were already paying 3,568 T for a step right,
+    # which on a run is every game frame. And with the drones off both
+    # columns are 100, which is what says the strip costs anything at
+    # all only on the frames the encounter is already paying for.
     label = "running right + firing"
     quiet = loop_count(JOY_RIGHT, True, True, quiet="HUD_SERVICE")
-    check("... and the strip is at most one frame of what it costs",
-          0 <= quiet - seen[label] <= 1,
+    check("... and the strip is at most three frames of what it costs",
+          0 <= quiet - seen[label] <= 3,
           f"{quiet} of 200 with the WHOLE of HUD_SERVICE returning at once, "
           f"against {seen[label]} with it")
 

@@ -4809,6 +4809,41 @@ AABB's Y to widen with them, `MAP_CELL`'s row scale to become the
 level's rather than the build's, and two bytes of RAM. `WORLD_CR`
 stays a byte either way — a 64-tile-tall map's `V_CR_MAX` is 104.
 
+#### AND THEN IT WAS DONE, AND IT COST THE ONE FRAME THE TABLE ABOVE PUT BETWEEN ITS TWO ROWS
+
+`KARA_WY` and `FALL_TOP` are `dw` now, `MAP_CELL` takes the world
+pixel row in `DE`, `entity.asm`'s AABB compares Y in sixteen bits, and
+`bullets.asm` and `enemy.asm` build a 16-bit world row for their tile
+probes. Measured the way the estimate was — the same seven paths of
+`tools/test_enemies.py` over the same ten starting points, 86 to 95
+frames of walking in:
+
+| | 8-bit Y | **16-bit Y** |
+|---|---|---|
+| all seven, with the level's drones OFF | 100 × 10 | **100 × 10** |
+| standing / walking either way / running | 100 × 10 | **100 × 10** |
+| walking right + firing | 99, 100 | **99, 100** |
+| jumping + firing | 99, 100 | **99, 100** |
+| **running right + firing** | 96 .. 99 | **95 .. 99** |
+
+**The drone-free count is still exactly 100 on every path**, which is
+the loop saying it lost nothing; one band moved, by one, at the worst
+of its ten starting points. That is between the delay stub's two rows —
+392 T was free and 812 cost a frame — and the widening is ~380 T of
+about a dozen sites, so the stub was measuring the right thing and
+reading it half a frame optimistically.
+
+**AND WHERE THE FRAME WENT IS THE BOTTOM ROW, WHICH THE SAME SWEEP
+NAMES WITHOUT BEING ASKED.** With `HUD_SERVICE` poked to `RET` the
+widened build measures **99 99 99 98 98 99 99 99 99 97** over the ten —
+the 8-bit build's ten numbers EXACTLY, not approximately — so 16-bit Y
+costs nothing at all on a frame that is not also paying 3,568 T for a
+step right. On a run it is every game frame, because a run's step IS
+one CRTC character (§8.2), and the strip's share of the encounter goes
+from one frame at eight of the ten starting points to two or three at
+eight of them. §7.8's save-under ring is the lever that would take
+them back, and it is still not written.
+
 ### Raster constraints, all of them load-bearing
 
 The order of work in the main loop is not a data-dependency order, it is a
@@ -5214,6 +5249,37 @@ frame, so this only helps a standing player on a still screen.
   (§9). The test to apply is the one this section already applies to a
   raster gate: **does changing something that should not matter change
   the answer?**
+* **A MODEL BUILT FROM A SNAPSHOT OF ENGINE STATE DESCRIBES A SCREEN
+  THAT HAS SINCE MOVED ON, AND IT READS AS TEARING.** `tools/test_module4.py`
+  reconstructs the playfield from the map, and the MAP IS PLAY STATE:
+  `ENT_SETTLE` puts a taken pickup's cell back to the tile underneath
+  and repaints it (§8.6). The driver walks her along the roof, she
+  crosses the key and the clip, and the model went on drawing them —
+  **41 wrong pixels on the glass, on all three axes at once**, which is
+  the tell, because a tear is a property of ONE axis' latch order and
+  this was the same 41 pixels whichever way the view moved. What named
+  it was reading video RAM at the same coordinates: **the RAM agreed
+  with the GLASS and both disagreed with the model**, and a
+  disagreement the beam is not party to is not a raster fault. The
+  sample loop already re-read the map and said why; the three rendered
+  checks did not. All of them do now, `live_map()` is where it is
+  written down, and the same rule is why `ENEMY_LIVE` is poked to 0 for
+  the whole suite.
+* **`SCROLL_V_STEP` HAS NO BOUND OF ITS OWN AND IS NOT GETTING ONE —
+  THE BOUND IS `CAMERA_V`'S.** A test that holds `V_REQUEST` up on
+  every frame to sweep the address model across the 1024-word ring
+  leaves the view a long way below a map that is `V_CR_MAX` rows deep,
+  and the 16-bit camera then climbs back — correctly, and for longer
+  than the settle's window. A clamp in the step was written and
+  measured and **thrown away**: it fixed the settle and cost four
+  checks, because the ring sweep and the sprite's own vertical range
+  are driven by exactly the excursion it refuses. What undoes an
+  excursion only a driver can make is the driver, and
+  `tools/test_module4.py`'s phase 0 now walks the view back itself.
+  **It used to converge by accident and that is the part worth having
+  written down**: with `WORLD_CR` at 192 the 8-bit camera read the
+  view's top as `(192 * 8) AND 255 = 0` and sat still, content, 1,536
+  lines below the map.
 * **A TOOL THAT SCANS A DIRECTORY MUST EXCLUDE WHAT ANOTHER TOOL WRITES
   THERE.** `tools/level_banks.py` takes a level's art to be the `.bin`
   files in its directory, and `tools/make_level_image.py` writes

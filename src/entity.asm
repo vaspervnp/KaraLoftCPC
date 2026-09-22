@@ -214,29 +214,46 @@ ENT_OVERLAP:    push hl
                 jr   nc,.miss               ; kara - entity >= width
 .x_hit:         pop  de
 
-                ; ---- Y, 8-bit and wrapping --------------------------
+                ; ---- Y, SIXTEEN BITS -------------------------------
+                ; It was eight, "low byte is enough: the map is 256 lines
+                ; tall", and that is the sentence a level taller than one
+                ; screen-and-a-half takes away. The record anchors Y at
+                ; the BASE of the sprite - what a designer drops on a
+                ; floor - so the hitbox top is y - height.
                 pop  hl
                 push hl
                 ld   bc,ENT_Y
                 add  hl,bc
-                ld   a,(hl)                 ; y in pixels, low byte is enough:
-                sub  d                      ; the map is 256 lines tall. The
-                ld   c,a                    ; editor anchors Y at the BASE of
-                                            ; the sprite, which is what a
-                                            ; designer drops on a floor, so
-                                            ; the hitbox top is y - height.
-                ld   a,(KARA_WY)
-                sub  c                      ; kara - entity
-                jr   nc,.k_below
-                ; she is ABOVE it: does her bottom reach?
-                add  a,c                    ; undo
-                add  a,KARA_BOX_H
-                sub  c
-                jr   c,.miss2
-                jr   z,.miss2
-                jr   .hit
-.k_below:       cp   d                      ; D = its height
+                ld   c,(hl)
+                inc  hl
+                ld   b,(hl)                 ; BC = y, world pixels
+                ld   a,c
+                sub  d
+                ld   c,a
+                jr   nc,.ent_top
+                dec  b                      ; BC = the entity's TOP line
+.ent_top:       ld   hl,(KARA_WY)
+                or   a
+                sbc  hl,bc                  ; her top - its top
+                jr   c,.k_above
+                ld   a,h
+                or   a
+                jr   nz,.miss2              ; 256 lines below it and more
+                ld   a,l
+                cp   d                      ; D = its height
                 jr   nc,.miss2
+                jr   .hit
+                ; she is ABOVE it: does her bottom reach? HL is negative
+                ; and small, so the CARRY out of + KARA_BOX_H is the
+                ; answer - and landing exactly on its top line is not a
+                ; hit, which is the zero test the byte version made with
+                ; JR Z.
+.k_above:       ld   de,KARA_BOX_H          ; D is spent: this path is done
+                add  hl,de                  ; with its height
+                jr   nc,.miss2
+                ld   a,h
+                or   l
+                jr   z,.miss2
 .hit:           pop  hl
                 scf
                 ret

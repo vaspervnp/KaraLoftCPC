@@ -224,7 +224,9 @@ UPDATE_BULLETS: ld   a,(BUL_LIVE)
                 ; WORLD ONES, so the round's byte column and its
                 ; scanline are lifted into the world before the probe:
                 ; + WORLD_X * 2 across and + WORLD_CR * 8 down. The row
-                ; wraps in a byte, which IS the map's own height.
+                ; is SIXTEEN BITS now, because WORLD_CR * 8 is 832 lines
+                ; on a 64-tile map and no byte holds it - and MAP_CELL
+                ; wants it in DE (collide.asm).
                 ;
                 ; TA_SOLID ONLY. A platform is a floor you jump up
                 ; through; a round crossing its edge should not stop
@@ -240,11 +242,18 @@ UPDATE_BULLETS: ld   a,(BUL_LIVE)
                 ld   d,0
                 add  hl,de
                 add  hl,de                  ; HL = world byte column
+                push hl
                 ld   a,(WORLD_CR)
-                add  a,a
-                add  a,a
-                add  a,a
-                add  a,c                    ; ... and world pixel row
+                ld   l,a
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl
+                ld   e,c
+                ld   d,0
+                add  hl,de
+                ex   de,hl                  ; DE = the world pixel row
+                pop  hl                     ; ... and HL the byte column
                 call MAP_ATTR
                 pop  hl
                 and  TA_SOLID

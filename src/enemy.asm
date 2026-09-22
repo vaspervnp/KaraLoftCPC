@@ -651,6 +651,13 @@ ENEMY_SEES:     ld   c,(ix + ES_X)
 
                 ld   a,(ix + ES_Y)          ; and roughly level with it
                 ld   c,a
+                ; KARA_WY IS A WORD AND THIS READS ITS LOW BYTE, which is
+                ; right for the same reason PLAYER_SCREEN_X's truncation
+                ; is (8.7): what is wanted is a small DIFFERENCE, and
+                ; modular arithmetic gives it as long as the two are
+                ; within 128 lines - which EN_H_SIGHT is what enforces.
+                ; ES_Y is a byte, so an enemy below world line 255 is a
+                ; thing this slot cannot hold; that is the next slice.
                 ld   a,(KARA_WY)
                 sub  c
                 jr   nc,.below
@@ -939,11 +946,18 @@ EBUL_UPDATE:    ld   a,(EBUL_LIVE)
                 ld   d,0
                 add  hl,de
                 add  hl,de                  ; HL = world byte column
-                ld   a,(WORLD_CR)
-                add  a,a
-                add  a,a
-                add  a,a
-                add  a,c                    ; ... and world pixel row
+                push hl                     ; ... and the row in DE, sixteen
+                ld   a,(WORLD_CR)           ; bits of it: WORLD_CR * 8 is 832
+                ld   l,a                    ; lines on a 64-tile map
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl
+                ld   e,c
+                ld   d,0
+                add  hl,de
+                ex   de,hl
+                pop  hl
                 call MAP_ATTR
                 pop  hl
                 and  TA_SOLID
