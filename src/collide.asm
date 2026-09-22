@@ -326,3 +326,40 @@ CLIMB_AT:       push de
 
 PROBE_ACC:      db 0
 PROBE_MASK:     db 0
+
+; Does THIS level have a TA_HAZARD tile in it at all? ORed out of the
+; whole of TILE_ATTR by HAZARD_SCAN, once, the instant the flags arrive
+; (MAP_INSTALL), and read by HAZARD_HURT (player.asm) on every frame.
+; It lives here because it is a property of the attribute table and not
+; of the player - the one that writes it and the one that reads it are
+; two other modules, and this is the one that owns what it is about.
+LEVEL_HAZARD:   db 0
+
+; ---------------------------------------------------------------------
+; HAZARD_SCAN - can this level's scenery hurt her?
+;
+; A HAZARD PROBE IS ~560 T AND THE TIGHTEST PATH HAS 800 (CLAUDE.md 9),
+; so a level with no spikes in it must not pay for one. The whole table
+; is ORed once, here, where it has just arrived: four of the six
+; environments have no TA_HAZARD tile anywhere and for those
+; HAZARD_HURT is three instructions and a RET. It is "a level with no
+; ladder carries no climb" (CLAUDE.md 6.2), one table along.
+;
+; It is a routine rather than eight lines inside MAP_INSTALL because
+; putting them there took that routine past 128 bytes of its own span
+; and two of its `jr .refuse` stopped reaching - a refusal is exactly
+; what must not be one insertion away from breaking.
+;                                destroys AF,BC,HL
+; ---------------------------------------------------------------------
+HAZARD_SCAN:    ld   hl,TILE_ATTR
+                ld   b,0                    ; 256 entries - which is what
+                ld   c,0                    ; DJNZ makes of a count of 0
+.next:          ld   a,(hl)
+                or   c
+                ld   c,a
+                inc  hl
+                djnz .next
+                ld   a,c
+                and  TA_HAZARD
+                ld   (LEVEL_HAZARD),a
+                ret

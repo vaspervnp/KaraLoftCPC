@@ -563,10 +563,37 @@ def main():
     # stub with a drone in view - and the worst of the ten, which is
     # what the floor below asserts, does not move at all. With the
     # drones off all three columns are 100.
+    # AND THE BOUND HERE IS FOUR AND WAS THREE, on a build whose floor
+    # did not move at all. The number this subtracts is sensitive to
+    # the encounter's PHASE - which the paragraph above says is not the
+    # loop - and something moved the phase.
+    #
+    # (Both arms are single points at the same pre-roll of 90 - the
+    # 95 asserted as the floor above is a number written down from a
+    # past sweep, not a worst-of-ten measured in this run.)
+    #
+    # WHAT MOVED IT WAS 10,292 T INSIDE MAP_INSTALL. HAZARD_SCAN ORs
+    # the whole of TILE_ATTR once a level (collide.asm); boot() polls
+    # LEVEL_OK every two frames, so a level that installs an eighth of
+    # a frame later can be found a frame later, and the whole sweep
+    # starts one frame further along the roof. Measured, the same ten
+    # pre-rolls, HUD_SERVICE silent:
+    #
+    #   before HAZARD_SCAN existed   99 99 99 97 97 99 99 99 99 97
+    #   after it                     99 99 97 97 99 99 99 99 97 97
+    #   ... with HAZARD_HURT = RET   99 99 97 97 99 99 99 99 97 97
+    #
+    # The last two rows are the SAME TEN NUMBERS, so the shift is the
+    # build's phase and not the routine's 24 T a frame - and the floor
+    # asserted above is 95 on all three.
+    #
+    # The two arms are at the SAME pre-roll and always were, so this is
+    # the strip's share and not a spread; what the phase moved is the
+    # share itself, and over the ten it now reads 1 1 2 2 4 4 2 2 2 2.
     label = "running right + firing"
     quiet = loop_count(JOY_RIGHT, True, True, quiet="HUD_SERVICE")
-    check("... and the strip is at most three frames of what it costs",
-          0 <= quiet - seen[label] <= 3,
+    check("... and the strip is at most four frames of what it costs",
+          0 <= quiet - seen[label] <= 4,
           f"{quiet} of 200 with the WHOLE of HUD_SERVICE returning at once, "
           f"against {seen[label]} with it")
 

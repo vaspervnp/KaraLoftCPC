@@ -52,9 +52,15 @@ def word(m, a):
     return m.peek(a) | m.peek(a + 1) << 8
 
 
+CITY_HAZARD = None      # what LEVEL_HAZARD says in level 1, read while the
+                        # machine is still standing in it - see the control
+
+
 def to_forest(sym):
     """Boot on the City and walk out of it into level 5."""
+    global CITY_HAZARD
     m = boot(sym, scroll=True)
+    CITY_HAZARD = m.peek(sym["LEVEL_HAZARD"])
     m.poke(sym["LEVEL_CUR"], LEVEL - 2)         # ... so the next one is ours
     m.poke(sym["GAME_STATE"], GS_CLEAR)
     for f in range(900):
@@ -66,9 +72,17 @@ def to_forest(sym):
     return m, None
 
 
-def drive(m, sym, tile, limit=4000):
-    """Right, and UP whenever she has not moved for eight frames."""
+def drive(m, sym, tile, limit=4000, hurts=None):
+    """Right, and UP whenever she has not moved for eight frames.
+
+    `hurts`, when a list is passed, collects (tile, points) for every
+    frame PLAYER_HP went DOWN - which is what says a pit bit her, and
+    where. It has to be sampled per frame rather than read at the end:
+    the level carries a medkit, USE_MEDKIT caps at HP_MAX, and a net
+    figure across the walk cannot tell four bites and a cap from three.
+    """
     stuck = was = 0
+    hp = m.peek(sym["PLAYER_HP"])
     for _ in range(limit):
         wx = word(m, sym["KARA_WX"])
         if (wx + 3) // 4 >= tile:
@@ -79,6 +93,10 @@ def drive(m, sym, tile, limit=4000):
         if stuck >= 8:
             stuck = 0
         m.run_frames(1)
+        now = m.peek(sym["PLAYER_HP"])
+        if hurts is not None and now < hp:
+            hurts.append(((wx + 3) // 4, hp - now))
+        hp = now
     m.joystick(0)
     m.run_frames(4)
     return (word(m, sym["KARA_WX"]) + 3) // 4
@@ -125,7 +143,7 @@ def main():
     check("the ground is a floor with pits cut in it",
           rows[ROW_GROUND][0] > MAP_W - 20 and rows[ROW_GROUND][2] > 0,
           f"{rows[ROW_GROUND][0]} solid and {rows[ROW_GROUND][2]} hazard "
-          f"of {MAP_W} - and TA_HAZARD has no reader, so a pit is a dip")
+          f"of {MAP_W} - and the hazard bit has a reader now, below")
     check("the branches are PLATFORM and nothing else is",
           all(rows[r][1] > 0 and rows[r][0] == 0 for r in ROW_BRANCH)
           and sum(rows[r][1] for r in range(MAP_H)
@@ -143,16 +161,34 @@ def main():
           f"WY {word(m, sym['KARA_WY'])}, at tile {start} - the record is a "
           f"row high on purpose and she falls the last 16 pixels")
     ammo0 = m.peek(sym["AMMO_RESERVE"])
-    got = drive(m, sym, MAP_W - 4)
+    hurts = []
+    got = drive(m, sym, MAP_W - 4, hurts=hurts)
     check("she reached the far end of the level", got >= MAP_W - 4,
           f"tile {start} -> {got} of {MAP_W}, "
           f"view ({m.peek(sym['WORLD_X'])},{m.peek(sym['WORLD_CR'])})")
     check("... and picked the clip up on the way",
           m.peek(sym["AMMO_RESERVE"]) > ammo0,
           f"AMMO_RESERVE {ammo0} -> {m.peek(sym['AMMO_RESERVE'])}")
-    check("... and nothing hurt her", m.peek(sym["PLAYER_HP"]) == 100,
-          f"HP {m.peek(sym['PLAYER_HP'])} - the pits are 16 pixels, free "
-          f"against FALL_FREE of 96, and the level carries no enemy")
+    # ---- AND THE PITS TOOK THEIR BITE, which they did not until
+    # TA_HAZARD got its first reader (CLAUDE.md 8.11). This check used
+    # to be "nothing hurt her, HP 100" and it was true for the wrong
+    # reason: the level carries no enemy and a 16-pixel pit is free
+    # against FALL_FREE of 96, so the ONLY thing that could hurt her
+    # here was the spikes, and nothing read them.
+    pits = sum(1 for r in range(MAP_H) for x in range(MAP_W)
+               if attr[g[r * MAP_W + x]] & TA_HAZARD
+               and (x == 0 or not attr[g[r * MAP_W + x - 1]] & TA_HAZARD))
+    bite = sym["TILE_HURT"]          # off the build, not written down here
+    check("... and the spikes bit her, once for each pit",
+          len(hurts) == pits and all(c == bite for _, c in hurts),
+          f"{len(hurts)} bites of {bite} at tiles "
+          f"{[t for t, _ in hurts]}, against {pits} pits - one an ENTRY, "
+          f"because twelve frames of contact at any damage worth the "
+          f"name is instant death")
+    check("... and she was still alive at the end of it",
+          0 < m.peek(sym["PLAYER_HP"]) < 100,
+          f"HP {m.peek(sym['PLAYER_HP'])} - the medkit at tile 62 is "
+          f"why this is not 100 - {pits} * {bite}")
 
     print("\n  the loop, in a level with no enemy in it:")
     sync(m, sym, half=0)
@@ -181,6 +217,33 @@ def main():
     check("... and the branches stop being a floor",
           all(rows3[r][1] == 0 for r in ROW_BRANCH),
           "so the key, which sits on one, is somewhere she cannot stand")
+
+    # ---- the control: the hazard's reader -------------------------
+    # THE BITE ABOVE PROVES NOTHING WITHOUT THIS. Every other thing in
+    # the level that could take a point off her is absent by design -
+    # no enemy, and a 16-pixel pit is free against FALL_FREE - so a
+    # check that merely watched HP fall would pass on a build where
+    # something else entirely was hurting her. HAZARD_HURT returning
+    # at once is the engine as it was before it had a reader.
+    print("\n  and with HAZARD_HURT taken back out:")
+    m4, _ = to_forest(sym)
+    m4.poke(sym["HAZARD_HURT"], 0xC9)                   # RET
+    hurts4 = []
+    got4 = drive(m4, sym, MAP_W - 4, hurts=hurts4)
+    check("she still walks the whole level", got4 >= MAP_W - 4,
+          f"tile -> {got4} of {MAP_W} - the pits are still a dip she "
+          f"falls into and jumps out of, which is what they always were")
+    check("... and the spikes cost her nothing at all",
+          not hurts4 and m4.peek(sym["PLAYER_HP"]) == 100,
+          f"{len(hurts4)} bites, HP {m4.peek(sym['PLAYER_HP'])}")
+
+    # ... and the City, which has no hazard tile in it, must not pay
+    # for the probe or notice it is there.
+    check("and the City claims no hazard at all",
+          CITY_HAZARD == 0 and m.peek(sym["LEVEL_HAZARD"]) == TA_HAZARD,
+          f"LEVEL_HAZARD: city {CITY_HAZARD}, forest "
+          f"{m.peek(sym['LEVEL_HAZARD'])} - so HAZARD_HURT is three "
+          f"instructions and a RET in four of the six environments")
 
     print()
     if fails:

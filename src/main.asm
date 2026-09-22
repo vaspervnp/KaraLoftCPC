@@ -324,6 +324,11 @@ SCROLL_DEMO:    di
                 call INPUT_SCAN             ; the AY address latch is shared
                 ei                          ; with the sound chip
                 call PLAYER_UPDATE
+                call HAZARD_HURT            ; what she is STANDING in, which
+                                            ; is a tile and not a record - and
+                                            ; before ACT_UPDATE, because a
+                                            ; bite that kills her has to be
+                                            ; the `die` this frame chooses
                 call ENT_UPDATE             ; what she has walked into
                 call ACT_UPDATE             ; ... which cel that makes her,
                 ; ... AND WHETHER THE LEVEL IS OVER. Here because both

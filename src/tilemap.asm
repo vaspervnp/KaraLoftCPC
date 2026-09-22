@@ -330,6 +330,9 @@ MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
                 ld   bc,LEVEL_TILEFLAGS_N
                 ldir
 
+                call HAZARD_SCAN            ; ... and whether any of them
+                                            ; can hurt her (collide.asm)
+
                 call ENT_BAKE               ; ... each pickup onto the tile
                 call ENEMY_SPAWN            ; it stands on, and the level's
                 or   a                      ; characters onto their feet

@@ -180,6 +180,19 @@ Measured: **36 answers against `banks.inc` and the artist's own `.inc`
 files, and 30 of the 36 are ones the old table got wrong** (§8.6). The
 enemy table grew its first non-City row with it (§8.7).
 
+**AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
+level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
+`collide.asm` and **read by nothing** — one use in the engine and it
+was the `equ`. So a pit was a dip she fell 16 pixels into and jumped
+out of. It has a reader now (§8.12), and the measurement that shaped it
+is that the probe already running sees the spikes only while she is
+FALLING past them: landed at the bottom her feet are on solid dirt and
+the spike is her box's bottom sixteen lines. **A level with no spike
+tile pays 24 T a frame for this and the forest pays 792** — against the
+800 the tightest path in the game has, which is the entry to re-measure
+the day a level wants spikes and an enemy at once. `TA_DEADLY` and
+`EK_HAZARD` are still where `TA_HAZARD` was.
+
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
 puts the editor's own four files into `build/`, relinks the disc and
@@ -405,10 +418,12 @@ src/mapshape.asm  the map's shape is the LEVEL's: the three shapes, and
                   immediates at MAP_INSTALL (8.3)
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
-src/collide.asm   tile attributes, box probes, and the ladder's one-column
-                  probe
+src/collide.asm   tile attributes, box probes, the ladder's one-column
+                  probe, and whether this level's scenery can hurt her
+                  at all (8.12)
 src/player.asm    walking, jumping, gravity, the ladder, both cameras,
-                  and where the view starts when a level does (8.1)
+                  where the view starts when a level does (8.1), and
+                  the spikes - TA_HAZARD's first reader (8.12)
 src/kara.asm      the heroine: bank, frame, clip, then SPAN_DRAW
 src/action.asm    her action state machine and the cel timer (8.4)
 src/entity.asm    the entity table, the AABB, the five interaction
@@ -4641,16 +4656,19 @@ across the level and the mountain is the end of it. And
 `trunk_base_l/r` and `root_l/r` ARE solid, because they are in the
 ground row: without them there is a hole at the foot of every tree.
 
-**AND THE SPIKE PIT CANNOT HURT HER, WHICH IS WORTH SAYING RATHER THAN
-HIDING.** `TA_HAZARD` is defined in `src/collide.asm` and **nothing
-reads it** — counted, 0 uses outside the definition, against
-`TA_SOLID`'s 10 and `TA_CLIMB`'s 5. So the pits are flagged the way the
-level means them and, until something reads the bit, what they actually
-are is **a dip she falls 16 pixels into and jumps out of**. The data is
-right in advance; the engine is what owes. It is also why the driver in
-`tools/test_forest.py` presses UP when she stops: holding RIGHT alone
-she stands in the first pit for ever, which is the level working and a
-driver measuring a level it cannot play.
+**AND THE SPIKE PITS DID NOTHING AT ALL, WHICH A PLAY-TEST IS WHAT
+FOUND.** `TA_HAZARD` was defined in `src/collide.asm` and **read by
+nothing** — counted, one use in the whole engine and it was the `equ`,
+against `TA_SOLID`'s 10 and `TA_CLIMB`'s 5. `TA_DEADLY` and `EK_HAZARD`
+are still in that state: **three ways for the scenery to hurt her in
+the data model and, until now, no way at all in the code.** So the pits
+were flagged exactly right and what they actually were is *a dip she
+fell 16 pixels into and jumped out of* — which is how it was reported,
+*"δεν πάθαινα ζημιά στις παγίδες στο έδαφος"*. See §8.12: the flag has
+a reader now. It is also why the driver in `tools/test_forest.py`
+presses UP when she stops: holding RIGHT alone she stands in the first
+pit for ever, which is the level working and a driver measuring a level
+it cannot play.
 
 **Measured on a 6128**, out of the City and into it:
 
@@ -4692,6 +4710,112 @@ was written (§11 step 7); a hand-made level needs it more.
 rather than an omission — a 12×64 sniper standing in it costs 20 game
 frames in 200. The forest's own wolf and boar would very likely fit and
 are melee, which the engine has no path for (§8.7).
+
+### 8.12 The spikes, and the first reader `TA_HAZARD` has ever had
+
+**A PLAY-TEST WALKED THE FOREST AND NOTHING IN THE GROUND HURT HER.**
+The pits were flagged `TA_HAZARD` and the flag had no reader — counted,
+one use in the engine and it was the `equ` (§8.11). So this is the
+smallest possible change with the largest possible reach: the data was
+already right in six environments' worth of levels nobody has painted.
+
+`HAZARD_HURT` in `src/player.asm`, called from the loop between
+`PLAYER_UPDATE` and `ENT_UPDATE` — **what she is STANDING in, next to
+what she has walked into** — and before `ACT_UPDATE`, because a bite
+that kills her has to be the `die` that frame chooses (§8.4).
+
+**IT PROBES HER LAST LINE AND NOT THE ONE UNDER HER FEET, AND THAT IS A
+MEASUREMENT.** A pit is cut in the ground row and is NOT solid, so she
+falls *through* it onto the dirt below. Measured, walking into the
+forest's first pit at tile 14:
+
+| | |
+|---|---|
+| standing on the grass | `KARA_WY` 80, box rows 5..8, feet probe row 9 |
+| falling through the spikes | 84 → 92, **the feet probe sees `TA_HAZARD`** |
+| landed at the bottom | **`KARA_WY` 96, box rows 6..9** — the spike is row 9, her box's bottom 16 lines, and the feet probe is on row 10's solid dirt |
+
+So the probe that already runs sees the spikes only while she is still
+falling past them. Her LAST line catches both.
+
+**AND `PROBE_ACC` WOULD HAVE BEEN FREE AND IS THE WRONG BYTE TO READ.**
+`BOX_SOLID_V` publishes the merged attributes there, so the hazard bit
+is already in memory on most frames — but it is whatever probe ran
+LAST, not the feet probe: over one fall into a pit it read **4, 4, 0,
+4** on consecutive frames with the attribute under her never changing.
+That is a routine's own working byte read from outside it, which is
+§8.1's own lesson about the six bytes the restart forgot.
+
+**IT IS AN EDGE AND NOT A LEVEL**, the same as `WAIT_VSYNC`'s pulse
+(§7.7): she is bitten on the frame she ENTERS the spikes. Crossing a
+pit is twelve frames of contact, so at any damage worth the name a
+level rule would be instant death. `HAZARD_IN` is the one byte of
+state and `LEVEL_ENTER` clears it, which is a byte §8.1's restart sweep
+is watching.
+
+**WHAT A BITE COSTS IS DERIVED.** The bar is six cells over 100 points,
+16.67 apiece, and §7.8 records that most hits move `PLAYER_HP` without
+changing which cells are LIT — `HUD_LEVEL` exists because of it. So
+`TILE_HURT` is `EBUL_DAMAGE * 2` = **16**: two of a drone's rounds, and
+also almost exactly one cell of bar, so the player SEES it.
+
+#### What it costs, and the one level that pays
+
+**A LEVEL WITH NO SPIKE TILE MUST NOT PAY FOR A PROBE**, so
+`HAZARD_SCAN` ORs the whole of `TILE_ATTR` once at `MAP_INSTALL` and
+`LEVEL_HAZARD` is the answer. It is "a level with no ladder carries no
+`climb`" (§6.2) one table along. Benched from a DI stub:
+
+| | |
+|---|---:|
+| `HAZARD_SCAN`, once a level | **10,292 T** |
+| `HAZARD_HURT` in the City — `LEVEL_HAZARD` 0 | **24 T** |
+| ... in the forest, on clean grass | 688 T |
+| ... standing IN a pit | **792 T** |
+| the tightest path's headroom (§9) | **800 T** |
+
+**So the City pays 24 T and the forest pays most of a tight frame's
+budget — and gets away with it because the forest's frame is not a
+tight one**: no enemy, no encounter, and `tools/test_forest.py`
+measures the lock at **100 game frames in 200 hardware** with the probe
+live. The day a level wants spikes AND an enemy AND a run on the same
+frame, 792 T is the whole of what §9 has left, and this is the entry to
+re-measure.
+
+Measured in play, walking the forest end to end: **four bites of 16 at
+tiles 14, 30, 72 and 102 — one for each of the four pits** — and with
+`HAZARD_HURT` poked to `RET`, zero bites and HP 100. The control
+matters more than usual here, because level 5 carries no enemy and a
+16-pixel drop is free against `FALL_FREE`: the spikes are the only
+thing in it that CAN hurt her, so a check that merely watched HP fall
+would pass on a build where something else was doing it.
+
+#### And it moved a suite's number without costing the loop a frame
+
+`tools/test_enemies.py` reported the strip's share of the
+running-and-firing path as **4 where it had been 3**. It is not the
+routine. Measured over the same ten pre-rolls with `HUD_SERVICE`
+silent:
+
+| | |
+|---|---|
+| before `HAZARD_SCAN` existed | `99 99 99 97 97 99 99 99 99 97` |
+| after it | `99 99 97 97 99 99 99 99 97 97` |
+| ... and with `HAZARD_HURT` poked to `RET` | **`99 99 97 97 99 99 99 99 97 97`** |
+
+**The last two rows are the same ten numbers**, so what moved is the
+build and not the 24 T a frame — `HAZARD_SCAN`'s 10,292 T makes
+`MAP_INSTALL` an eighth of a frame longer, `boot()` polls `LEVEL_OK`
+every two frames, and the whole sweep starts one frame further along
+the roof. §9 already says that count "is about WHERE IN THE LEVEL the
+two hundred frames fall, and the thing it falls on is the drone". The
+floor the suite actually asserts — 95, the worst of ten — **is 95 on
+all three builds**, and every path with the drones off is exactly 100.
+
+**What is still owed**: `TA_DEADLY` and `EK_HAZARD` have no reader
+either, and `EK_HAZARD` is the one with `p0` = damage and `p1` = period
+in §8.6's table — a hazard that is a RECORD rather than a tile, which
+is what a moving blade or a timed jet wants. Neither is written.
 
 ## 9. Performance budget — measured directly, and it closes
 
@@ -5841,6 +5965,27 @@ frame, so this only helps a standing player on a still screen.
   "is this register free here" but **"is it free at every instruction
   between where I set it and where I read it"** — `LDI`, `LDIR`, `CPIR`
   and `OUTI` all count.
+* **A ROUTINE'S WORKING BYTE IS NOT AN OUTPUT, EVEN WHEN IT HOLDS THE
+  RIGHT ANSWER MOST OF THE TIME.** `BOX_SOLID_V` publishes the merged
+  tile attributes in `PROBE_ACC`, so the hazard bit under her feet is
+  in memory every frame for nothing - and reading it from outside is
+  reading whatever probe ran LAST. Measured over one fall into a spike
+  pit it went **4, 4, 0, 4** on consecutive frames with the attribute
+  under her never changing, because the rising probe and `BOX_SOLID_H`
+  write the same byte. `HAZARD_HURT` asks its own question (8.12), at
+  688 T where the free answer would have been 0. The same rule is why
+  five of the six bytes 8.1's restart sweep found are named as a
+  routine's own.
+* **A ONE-OFF COST CAN MOVE A SUITE'S NUMBER WITHOUT MOVING THE LOOP.**
+  `HAZARD_SCAN` is 10,292 T once a level and nothing per frame, and it
+  changed `tools/test_enemies.py`'s strip measurement from 3 to 4 -
+  because `MAP_INSTALL` finishing an eighth of a frame later is found a
+  frame later by a poll that runs every two, and the sampler then
+  starts one frame further along the roof, against a drone whose phase
+  is what that count is about (9). **The way to tell is to leave the
+  code in and poke the per-frame half to `RET`**: same build, same
+  addresses, same install cost, and the ten numbers came back
+  identical - so the shift was the build and not the routine.
 * **A ROUTINE'S ARGUMENTS ARE NOT DEFAULTS, AND A CONVENTION THAT PUTS
   THEM BACK IS FREE AT FOUR CALL SITES AND NOT AT THE FIFTH.**
   `COL_FIRST` and `COL_N` are which rows of a column `DRAW_COLUMN`

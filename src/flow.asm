@@ -341,6 +341,9 @@ LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
                 ld   (KARA_CLIP_W),a
                 ld   (KARA_CLIP_H),a
                 ld   (HURT_FLASH),a
+                ld   (HAZARD_IN),a          ; a level that started with her
+                                            ; already IN the spikes is one
+                                            ; whose first pit is free
                 ld   a,KST_IDLE
                 ld   (KARA_STATE),a
                 ld   a,KSET_CORE

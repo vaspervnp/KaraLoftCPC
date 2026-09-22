@@ -428,6 +428,83 @@ FALL_DAMAGE:    ld   hl,(FALL_TOP)
                 ret
 
 ; ---------------------------------------------------------------------
+; HAZARD_HURT - the spikes, and the FIRST READER TA_HAZARD HAS EVER HAD.
+;
+; The flag was defined in collide.asm and read by nothing: counted, one
+; use in the whole engine and it was the `equ`. TA_DEADLY and EK_HAZARD
+; are the same - three ways for the scenery to hurt her in the data
+; model and no way at all in the code. So level 5's spike pits were
+; flagged exactly right and were a dip she fell 16 pixels into and
+; jumped out of, which is what a play-test reported.
+;
+; IT PROBES HER LAST LINE AND NOT THE ONE UNDER HER FEET, and that is
+; the measurement rather than a choice. A pit is cut in the GROUND row
+; and is not solid, so she falls THROUGH it onto the dirt below: landed,
+; her feet probe row 10 (solid dirt, attribute 1) and the spikes are the
+; bottom sixteen lines of her BOX. Measured on the forest, walking in at
+; tile 14 - KARA_WY 96, box rows 6..9, the spike in row 9. The feet
+; probe sees it only while she is still falling past it.
+;
+; AND `PROBE_ACC` WOULD HAVE BEEN FREE AND IS NOT THE THING TO READ.
+; BOX_SOLID_V publishes the merged attributes there, so the hazard bit
+; is already in memory on most frames - but it is whatever probe ran
+; LAST, not the feet probe: over one fall into a pit it read 4, 4, 0, 4
+; on consecutive frames with the attribute under her unchanged. That is
+; a routine's own working byte being read from outside it, which is
+; CLAUDE.md 8.1's own lesson about the six bytes the restart forgot.
+;
+; IT IS AN EDGE AND NOT A LEVEL, the same as WAIT_VSYNC's pulse (7.7):
+; she is bitten on the frame she ENTERS the spikes and not on every
+; frame she is in them. Without that a pit is instant death - twelve
+; frames of contact crossing one, at any damage worth calling damage.
+; HAZARD_IN is the one byte of state, and LEVEL_ENTER clears it.
+;
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+; WHAT A BITE COSTS IS DERIVED AND NOT PICKED. The health bar is six
+; cells over 100 points, 16.67 apiece, and 7.8 records that most hits
+; move PLAYER_HP without changing which cells are LIT - `HUD_LEVEL`
+; exists because of it. So a hazard worth two of a drone's rounds is
+; also almost exactly one cell of bar: the player SEES the spikes cost
+; them something, which a drone's 8 does not.
+TILE_HURT       equ EBUL_DAMAGE * 2
+
+HAZARD_HURT:    ld   a,(LEVEL_HAZARD)
+                or   a
+                ret  z                      ; no spike tile in this level at
+                                            ; all - tilemap.asm asked once
+                ld   hl,(KARA_WY)
+                ld   de,KARA_BOX_H - 1
+                add  hl,de
+                ex   de,hl                  ; DE = her LAST line
+                ld   hl,(KARA_WX)           ; HL = her box's left edge
+                ld   b,TA_HAZARD
+                call BOX_SOLID_V
+                jr   z,.clear               ; scenery, and nothing but
+
+                ld   a,(HAZARD_IN)
+                or   a
+                ret  nz                     ; already in them: one bite an
+                                            ; entry, see above
+                ld   a,1
+                ld   (HAZARD_IN),a
+                ld   a,(PLAYER_HP)
+                sub  TILE_HURT
+                jr   nc,.store
+                xor  a                      ; ... and no further than dead
+.store:         ld   (PLAYER_HP),a
+                ld   a,HURT_FRAMES          ; the border, the same way a fall
+                ld   (HURT_FLASH),a         ; and a drone's round do
+                ret
+
+.clear:         xor  a
+                ld   (HAZARD_IN),a
+                ret
+
+HAZARD_IN:      db 0   ; non-zero while her box is standing in a hazard
+                       ; tile - what makes the bite an edge
+
+; ---------------------------------------------------------------------
 ; PLAYER_Y - jump, gravity, and landing.
 ;
 ; Rising probes the box's TOP line against TA_SOLID; falling probes the
