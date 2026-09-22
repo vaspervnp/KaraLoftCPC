@@ -601,6 +601,13 @@ async function loadAssets() {
   };
   $('new-level').onchange = sheets;
   sheets();
+  // AND THE SHAPES COME OFF THE VOCABULARY, not out of this file. The
+  // engine took one shape at compile time and takes three at run time,
+  // patched out of the level's own header (CLAUDE.md 8.3); a canvas that
+  // spelled them out would be a second copy of EngineLimits.
+  $('new-shape').innerHTML = state.vocab.limits.mapShapes
+    .map((s) => `<option value="${s.width}">${s.width}x${s.height}</option>`)
+    .join('');
 }
 
 $('new-make').onclick = async () => {
@@ -609,6 +616,7 @@ $('new-make').onclick = async () => {
   try {
     await api('POST', '/api/projects', {
       id, name: id, assetLevel: $('new-level').value, sheet: $('new-sheet').value,
+      width: Number($('new-shape').value),
     });
   } catch (e) { return say(String(e.message)); }
   $('new-project').open = false;

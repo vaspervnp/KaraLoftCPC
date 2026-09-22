@@ -65,10 +65,14 @@ public sealed class Level
         if (Map.Length != Width * Height)
             yield return $"map is {Map.Length} bytes, not {Width}x{Height} = {Width * Height}";
 
-        if (Width != EngineLimits.MapWidth || Height != EngineLimits.MapHeight)
-            yield return $"the engine reads {EngineLimits.MapWidth}x{EngineLimits.MapHeight} "
-                       + $"and this is {Width}x{Height}: MAP_CELL scales the row out of the "
-                       + "base address at compile time, so MAP_INSTALL refuses any other shape";
+        if (!EngineLimits.IsMapShape(Width, Height))
+            yield return $"{Width}x{Height} is not a shape the engine installs: "
+                       + $"the map is {EngineLimits.MapBytes} bytes whatever its shape, so "
+                       + "W * H must be that and W a power of two - and "
+                       + $"{EngineLimits.MinMapWidth} is the narrowest, because "
+                       + $"{EngineLimits.MinMapWidth / 2} tiles is "
+                       + $"{EngineLimits.MinMapWidth * 8 / 2} Mode 0 pixels against a "
+                       + "160-pixel display";
 
         if (LevelId < 1 || LevelId > EngineLimits.MaxLevels)
             yield return $"level {LevelId} is outside 1..{EngineLimits.MaxLevels}: "

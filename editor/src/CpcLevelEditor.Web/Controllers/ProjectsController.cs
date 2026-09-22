@@ -60,6 +60,15 @@ public sealed class ProjectsController(
             return Problem($"there is already a project called \"{request.Id}\"",
                            statusCode: 409);
 
+        if (request.Width != 0
+            && !EngineLimits.IsMapShape(request.Width,
+                                        EngineLimits.MapBytes / Math.Max(1, request.Width)))
+            return Problem(
+                $"{request.Width} is not a width the engine installs: "
+                + string.Join(", ", EngineLimits.MapShapes
+                                                .Select(s => $"{s.Width}x{s.Height}")),
+                statusCode: 400);
+
         var project = request.Seed == "shipped"
             ? OpenShipped(request)
             : new EditorProject
@@ -79,7 +88,11 @@ public sealed class ProjectsController(
                 TilesetId = EditorProject.LevelIdFor(request.AssetLevel),
                 LevelId = (byte)EngineLimits.FirstLevelOf(
                     EditorProject.LevelIdFor(request.AssetLevel)),
-                Map = new byte[EngineLimits.MapWidth * EngineLimits.MapHeight],
+                // THE MAP IS 2,048 BYTES WHATEVER ITS SHAPE (CLAUDE.md
+                // 8.3), so the width is the only thing a new project has
+                // to be told and the height follows from it.
+                Width = request.Width == 0 ? EngineLimits.MapWidth : request.Width,
+                Map = new byte[EngineLimits.MapBytes],
                 TileFlags = new Dictionary<string, TileFlags>(
                     LevelFlagSeeds.For(request.AssetLevel)),
             };

@@ -22,6 +22,63 @@ public class ProjectEditorTests
         Map = new byte[EngineLimits.MapWidth * EngineLimits.MapHeight],
     };
 
+    /// <summary>
+    /// <b>The map's shape is the LEVEL's, and it is stored as the WIDTH
+    /// alone</b> — the height follows, because every shape is 2,048 bytes
+    /// (CLAUDE.md 8.3). So a shape cannot be half-changed and W * H = 2,048
+    /// is true by construction rather than by a rule somebody remembers.
+    /// </summary>
+    [Theory]
+    [InlineData(32, 64, true)]
+    [InlineData(64, 32, true)]
+    [InlineData(128, 16, true)]
+    [InlineData(96, 21, false)]     // not a power of two, and not 2,048
+    [InlineData(16, 128, false)]    // 2,048, and still too narrow to display
+    public void The_shape_is_the_widths_the_engine_installs(
+        int w, int h, bool taken)
+    {
+        var project = Empty();
+
+        var outcome = ProjectEditor.Apply(project, [new EditOp("shape", Index: w)]);
+
+        Assert.Equal(taken, outcome.Ok);
+        Assert.Equal(taken ? w : EngineLimits.MapWidth, project.Width);
+        Assert.Equal(taken ? h : EngineLimits.MapHeight, project.Height);
+        // AND THE CELLS ARE THE SAME 2,048 BYTES, RE-CUT. A 32-wide grid
+        // over them is a different picture and not a scaled one, which is
+        // the honest thing for the op to do and is worth a check of its
+        // own - nothing is lost and nothing is invented.
+        Assert.Equal(EngineLimits.MapBytes, project.Map.Length);
+    }
+
+    /// <summary>
+    /// <b>A record off the map is a record the engine reads, quietly does
+    /// nothing with, and carries on past</b> (CLAUDE.md 11 step 7) — so a
+    /// shape change that would leave one there is refused on the stroke and
+    /// the designer moves the record first.
+    /// </summary>
+    [Fact]
+    public void A_shape_that_would_strand_a_record_is_refused()
+    {
+        var project = Empty();
+        Assert.True(ProjectEditor.Apply(
+            project, [new EditOp("entity-add", Entity: Standing(100, 6))]).Ok);
+
+        var outcome = ProjectEditor.Apply(project, [new EditOp("shape", Index: 32)]);
+
+        Assert.False(outcome.Ok);
+        Assert.Contains("off the map", outcome.Rejected);
+        Assert.Equal(EngineLimits.MapWidth, project.Width);
+
+        // ... and with the record inside a 32-wide map it goes through,
+        // which is what says the refusal was the RECORD and not the shape.
+        project.Entities.Clear();
+        Assert.True(ProjectEditor.Apply(
+            project, [new EditOp("entity-add", Entity: Standing(20, 6))]).Ok);
+        Assert.True(ProjectEditor.Apply(project, [new EditOp("shape", Index: 32)]).Ok);
+        Assert.Equal(32, project.Width);
+    }
+
     private static Entity Standing(int tileX, int baseRow, EntityKind kind = EntityKind.Pickup) =>
         Entity.AtTile(kind, tileX, baseRow, Entity.DefaultFlagsFor(kind));
 

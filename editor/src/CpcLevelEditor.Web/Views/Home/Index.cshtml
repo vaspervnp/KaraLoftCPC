@@ -36,6 +36,10 @@
       <summary>new project</summary>
       <label>level <select id="new-level"></select></label>
       <label>sheet <select id="new-sheet"></select></label>
+      @* THE SHAPE, and the list is the ENGINE's - /api/vocabulary builds
+         it out of EngineLimits, the same way every other list on this
+         page comes off an enum rather than being spelled out here. *@
+      <label>shape <select id="new-shape"></select></label>
       <label>id <input id="new-id" placeholder="level2-draft"></label>
       <button id="new-make">Create</button>
     </details>

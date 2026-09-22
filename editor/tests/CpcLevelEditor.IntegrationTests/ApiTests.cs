@@ -54,6 +54,64 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/projects/..")).StatusCode);
     }
 
+    /// <summary>
+    /// <b>A vertical level is started as one</b> — the width is the only
+    /// thing a new project has to be told, because every shape the engine
+    /// installs is 2,048 bytes and the height follows (CLAUDE.md 8.3).
+    /// <c>tools/test_shape.py</c> is the half of this that runs on a 6128.
+    /// </summary>
+    [Theory]
+    [InlineData(32, 64, true)]
+    [InlineData(64, 32, true)]
+    [InlineData(0, 16, true)]           // ... and no width at all is the City
+    [InlineData(96, 0, false)]
+    [InlineData(16, 0, false)]          // 2,048 bytes, and still refused
+    public async Task A_project_is_started_in_a_shape_the_engine_installs(
+        int width, int height, bool taken)
+    {
+        var client = app.As(EditorApp.Admin);
+        var id = "shape-" + Guid.NewGuid().ToString("N")[..8];
+
+        var created = await client.PostAsJsonAsync("/api/projects",
+            new { id, name = "a shaft", assetLevel = "level3_cave",
+                  sheet = "cave_tiles", width }, Json);
+
+        if (!taken)
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+            return;
+        }
+        created.EnsureSuccessStatusCode();
+        var project = await created.Content.ReadFromJsonAsync<ProjectDto>(Json);
+        Assert.NotNull(project);
+        Assert.Equal(width == 0 ? EngineLimits.MapWidth : width, project.Width);
+        Assert.Equal(height, project.Height);
+        Assert.Equal(EngineLimits.MapBytes,
+                     Convert.FromBase64String(project.Map).Length);
+    }
+
+    /// <summary>
+    /// And the shapes are the ENGINE's list, served rather than spelled out
+    /// in the canvas — the same rule <c>/api/vocabulary</c> follows for every
+    /// other enum the inspector offers.
+    /// </summary>
+    [Fact]
+    public async Task The_vocabulary_serves_every_shape_the_engine_installs()
+    {
+        var client = app.As(EditorApp.Admin);
+        var vocab = await client.GetFromJsonAsync<VocabularyDto>(
+            "/api/vocabulary", Json);
+
+        Assert.NotNull(vocab);
+        Assert.Equal(EngineLimits.MapShapes.Count(),
+                     vocab.Limits.MapShapes.Count);
+        foreach (var s in vocab.Limits.MapShapes)
+        {
+            Assert.True(EngineLimits.IsMapShape(s.Width, s.Height));
+            Assert.Equal(EngineLimits.MapBytes, s.Width * s.Height);
+        }
+    }
+
     [Fact]
     public async Task The_shipped_city_opens_paintable_and_exports_to_the_same_picture()
     {
@@ -370,7 +428,11 @@ public sealed class ApiTests(EditorApp app) : IClassFixture<EditorApp>
         List<FileDto> Files, List<PairDto> Pairs, List<FindingDto> Findings,
         string? Directory);
     private sealed record EditResultDto(int Version, int Applied);
-    private sealed record LimitsDto(int MaxEntities, int MapWidth, int MapHeight);
+    private sealed record LimitsDto(
+        int MaxEntities, int MapWidth, int MapHeight,
+        IReadOnlyList<MapShapeDto> MapShapes);
+
+    private sealed record MapShapeDto(int Width, int Height);
     private sealed record ParamDto(string Label, string? Options);
     private sealed record VocabularyDto(
         Dictionary<string, List<string>> Lists, Dictionary<string, ParamDto[]> Params,

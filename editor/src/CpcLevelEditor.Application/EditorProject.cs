@@ -63,9 +63,18 @@ public sealed class EditorProject
     /// </summary>
     public int Version { get; set; }
 
-    public int Width => EngineLimits.MapWidth;
+    /// <summary>
+    /// <b>The map's shape is the LEVEL's now.</b> It is stored as the WIDTH
+    /// alone and the height is derived, which makes W * H = 2,048 true by
+    /// construction rather than by a rule somebody has to remember: the map
+    /// is 2,048 bytes of base RAM with the entity table behind it, and the
+    /// engine patches its own masks out of this number at install
+    /// (<c>src/mapshape.asm</c>, CLAUDE.md 8.3).
+    /// </summary>
+    public int Width { get; set; } = EngineLimits.MapWidth;
 
-    public int Height => EngineLimits.MapHeight;
+    /// <inheritdoc cref="Width"/>
+    public int Height => EngineLimits.MapBytes / Width;
 
     /// <summary>
     /// <b>The art package's directory name carries the level's number</b> —

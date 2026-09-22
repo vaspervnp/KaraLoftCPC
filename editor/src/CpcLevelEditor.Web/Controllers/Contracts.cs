@@ -8,9 +8,14 @@ public sealed record LevelAssets(string Level, IReadOnlyList<string> Sheets);
 public sealed record ProjectSummary(
     string Id, string Name, string AssetLevel, string Sheet, int Version);
 
+/// <param name="Width">
+/// The map's width in tiles; its height follows, because every shape is
+/// 2,048 bytes (CLAUDE.md 8.3). 0 means the City's, which is what a
+/// horizontal level wants and what the format's own default was.
+/// </param>
 public sealed record NewProject(
     string Id, string Name, string AssetLevel = "level1_city",
-    string Sheet = "city_tiles", string? Seed = null);
+    string Sheet = "city_tiles", string? Seed = null, int Width = 0);
 
 public sealed record EntityView(
     EntityKind Kind, ushort X, ushort Y, EntityFlags Flags, byte P0, byte P1);
@@ -94,7 +99,9 @@ public sealed record VocabularyView(
         Enum.GetValues<EntityKind>().ToDictionary(
             k => k.ToString(), k => Entity.DefaultFlagsFor(k).ToString()),
         new EngineLimitsView(EngineLimits.MaxEntities, EngineLimits.MapWidth,
-                             EngineLimits.MapHeight, Entity.TileWidth, Entity.TileHeight));
+                             EngineLimits.MapHeight, Entity.TileWidth, Entity.TileHeight,
+                             [.. EngineLimits.MapShapes
+                                             .Select(s => new MapShapeView(s.Width, s.Height))]));
 }
 
 /// <summary>
@@ -107,8 +114,19 @@ public sealed record VocabularyView(
 /// </param>
 public sealed record ParamView(string Label, string? Options = null);
 
+/// <param name="MapWidth">
+/// The DEFAULT shape, which is the City's. What a project is in is the
+/// project's own <c>Width</c> and <c>Height</c> — see <see cref="MapShapes"/>.
+/// </param>
+/// <param name="MapShapes">
+/// Every shape <c>MAP_SHAPE_SET</c> will install, widest first. The engine
+/// took one at compile time and takes these at run time (CLAUDE.md 8.3).
+/// </param>
 public sealed record EngineLimitsView(
-    int MaxEntities, int MapWidth, int MapHeight, int TilePixelsWide, int TilePixelsTall);
+    int MaxEntities, int MapWidth, int MapHeight, int TilePixelsWide,
+    int TilePixelsTall, IReadOnlyList<MapShapeView> MapShapes);
+
+public sealed record MapShapeView(int Width, int Height);
 
 public sealed record TileView(string Name, bool Overlay, byte Flags);
 

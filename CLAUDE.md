@@ -83,7 +83,7 @@ out of the C# enums themselves**, because a canvas that spelled out
 `EntityKind` would be a second copy of the engine's numbering.
 
 **AND IT KNOWS WHAT THE ENGINE WILL DO WITH WHAT IT WROTE.** The
-validator checked the SHAPE — 128x16, `ENT_MAX`, a tile index past the
+validator checked the SHAPE — the map's, `ENT_MAX`, a tile index past the
 sheet, a region off the map — which is what a WRITER gets wrong. What a
 DESIGNER gets wrong lived in `make_city_map.py`'s asserts and in the
 engine's own bounds tests, each of which reads a byte, quietly does
@@ -5872,7 +5872,8 @@ the next one starts.
    /home/vasilhs/.dotnet/dotnet run --project editor/src/CpcLevelEditor.Web
    ```
 
-   ASP.NET Core serving a JSON API and a canvas: the map at 128x16 tiles
+   ASP.NET Core serving a JSON API and a canvas: the map at whatever
+   shape the project is — 128x16, 64x32 or 32x64 —
    with brush, rectangle, flood fill and dropper, the overlay layer, the
    tile-flag editor, the collision overlay, entity markers and the
    screen box. Six integration tests drive it over real HTTP into a real
@@ -6077,7 +6078,7 @@ the next one starts.
    six levels, and only the City has ever had a map.
 
    **AND THE VALIDATOR KNOWS WHAT THE ENGINE DOES WITH A LEVEL, NOT ONLY
-   WHAT THE FORMAT WILL CARRY.** It checked the SHAPE — 128x16,
+   WHAT THE FORMAT WILL CARRY.** It checked the SHAPE — the map's,
    `ENT_MAX`, a tile index past the sheet, a region off the map, the
    scratch tiles the tileset must stop below — which is everything a
    WRITER can get wrong and almost nothing a DESIGNER can. The rest of
@@ -6148,6 +6149,33 @@ the next one starts.
    The integration suite drives both halves: a new forest project
    exports `level_5.lvl` and not `level_2.lvl`, and moving it to level
    7 works while moving it to level 3 — the City's — is a 400.
+
+   **AND A PROJECT HAS A SHAPE OF ITS OWN NOW, WHICH IS ONE NUMBER.**
+   `EngineLimits.MapWidth` was 128 and `EditorProject.Width` returned
+   it, so every project the editor had ever made was a rooftop. A map
+   is **2,048 bytes whatever its shape** (§8.3), so what a project
+   stores is the WIDTH and the height is derived — which makes
+   `W * H = 2,048` true by construction instead of by a rule somebody
+   has to remember, and means a shape cannot be half-changed.
+
+   * **The new-project form offers them and does not know them.**
+     `/api/vocabulary` serves `EngineLimits.MapShapes`, the same way
+     every other list on that page comes off an enum; a canvas that
+     spelled out 128×16, 64×32, 32×64 would be a second copy of the
+     engine's own table.
+   * **A `shape` op re-cuts the map and says so.** The same 2,048 cells
+     in a 32-wide grid are a different picture and not a scaled one.
+     What it will NOT do is leave an entity or a region off the map,
+     because a record off the map is one the engine reads, quietly does
+     nothing with and carries on past — refused on the stroke, and the
+     designer moves the record first.
+   * **The exporter's refusal changed shape with it.** It used to mean
+     "not the City"; it means "not 2,048 bytes", "not a power of two"
+     or "too narrow to fill the display", and the golden suite drives
+     all three with the three good shapes beside them.
+   * **A document written before this carries no width at all**, and 0
+     is what a missing field deserialises to — so it reads as the
+     City's, which is the shape every one of them was in.
 
    **What is left**: maps. Twenty-three of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than

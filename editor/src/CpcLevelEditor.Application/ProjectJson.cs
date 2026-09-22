@@ -50,6 +50,14 @@ public static class ProjectJson
         public ScrollAxis Scroll { get; init; }
         public bool Underwater { get; init; }
         public int Version { get; init; }
+
+        /// <summary>
+        /// The map's WIDTH; its height follows (CLAUDE.md 8.3). Documents
+        /// written before the shape was a level's property carry no width
+        /// at all, and 0 is what a missing field deserialises to - so it
+        /// reads as the City's, which is the shape they were all in.
+        /// </summary>
+        public int Width { get; init; }
         public required string Map { get; init; }
         public List<OverlayDto> Overlays { get; init; } = [];
         public List<EntityDto> Entities { get; init; } = [];
@@ -68,6 +76,7 @@ public static class ProjectJson
             Scroll = p.Scroll,
             Underwater = p.Underwater,
             Version = p.Version,
+            Width = p.Width,
             Map = Convert.ToBase64String(p.Map),
             Overlays = [.. p.Overlays.Select(o => new OverlayDto(o.X, o.Y, o.Overlay))],
             Entities = [.. p.Entities.Select(e =>
@@ -81,10 +90,14 @@ public static class ProjectJson
         public EditorProject ToProject()
         {
             var map = Convert.FromBase64String(Map);
-            if (map.Length != EngineLimits.MapWidth * EngineLimits.MapHeight)
+            if (map.Length != EngineLimits.MapBytes)
                 throw new InvalidDataException(
-                    $"{Id}: the map is {map.Length} bytes and the engine reads "
-                    + $"{EngineLimits.MapWidth}x{EngineLimits.MapHeight}");
+                    $"{Id}: the map is {map.Length} bytes and every shape the "
+                    + $"engine installs is {EngineLimits.MapBytes}");
+            var width = Width == 0 ? EngineLimits.MapWidth : Width;
+            if (!EngineLimits.IsMapShape(width, EngineLimits.MapBytes / width))
+                throw new InvalidDataException(
+                    $"{Id}: {width} is not a width the engine installs");
             return new EditorProject
             {
                 Id = Id,
@@ -96,6 +109,7 @@ public static class ProjectJson
                 Scroll = Scroll,
                 Underwater = Underwater,
                 Version = Version,
+                Width = width,
                 Map = map,
                 Overlays = [.. Overlays.Select(o => new OverlayPlacement(o.X, o.Y, o.Tile))],
                 Entities = [.. Entities.Select(e =>

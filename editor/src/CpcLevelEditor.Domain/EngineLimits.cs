@@ -3,26 +3,67 @@ namespace CpcLevelEditor.Domain;
 /// <summary>
 /// What the Z80 engine will actually accept, as against what the format can
 /// express. These are validation rules, not format rules: the header has a
-/// u16 for the width and the engine has one shape.
+/// u16 for the width and the engine has three shapes.
 /// </summary>
 public static class EngineLimits
 {
     /// <summary>
-    /// <b>The map is 128×16 tiles or <c>MAP_INSTALL</c> refuses it</b>, because
-    /// <c>MAP_CELL</c> scales the row out of the base address at compile time
-    /// (CLAUDE.md 8.3). <c>tools/test_format.py</c> carries this as a negative
-    /// control: poke the width to 64 and the loader leaves <c>MAP_ADDR</c>
-    /// zeroed.
-    /// <para>
-    /// docs/editor.md 5.2 models a level as 20×screens by 11×screens, which is
-    /// the play area tiled out; that is a different thing from what the engine
-    /// indexes, and CLAUDE.md wins.
-    /// </para>
+    /// <b>The map is 2,048 bytes whatever its shape</b>, and that is a memory
+    /// map fact rather than a choice: it sits at <c>MAP_ADDR</c> in base RAM
+    /// with the entity table immediately behind it (CLAUDE.md 8.6). So a
+    /// shape is ONE number — the width — and the height follows.
     /// </summary>
-    public const int MapWidth = 128;
+    public const int MapBytes = 2048;
+
+    /// <summary>
+    /// <b>The narrowest map the display can use.</b> 16 tiles is 128 Mode 0
+    /// pixels against a 160-pixel screen, so a 16×128 level is 2,048 bytes
+    /// and is still refused — by the engine (<c>MAP_SHAPE_SET</c>) and here.
+    /// </summary>
+    public const int MinMapWidth = 32;
+
+    /// <summary>
+    /// <b>The widest, which is the City's.</b> 128×16 is a rooftop: 6.4
+    /// screens across and one down.
+    /// </summary>
+    public const int MaxMapWidth = 128;
+
+    /// <summary>
+    /// The shape a new project starts in, and the one every immediate in
+    /// <c>src/</c> is written in before <c>MAP_INSTALL</c> patches it.
+    /// </summary>
+    public const int MapWidth = MaxMapWidth;
 
     /// <inheritdoc cref="MapWidth"/>
-    public const int MapHeight = 16;
+    public const int MapHeight = MapBytes / MapWidth;
+
+    /// <summary>
+    /// Every shape the engine takes, widest first: 128×16, 64×32, 32×64.
+    /// <para>
+    /// <b>THE ENGINE TAKES THESE AT RUN TIME NOW AND IT USED TO TAKE ONE AT
+    /// COMPILE TIME.</b> Every mask, shift run and bound that depends on the
+    /// width or the height is an immediate patched at <c>MAP_INSTALL</c> out
+    /// of the level's own header (<c>src/mapshape.asm</c>), because reading a
+    /// shape byte out of memory at each of thirty sites is 7 T against an
+    /// immediate's 0 on a frame with 800 T of slack (CLAUDE.md 9).
+    /// <c>tools/test_shape.py</c> drives all three on the machine, with the
+    /// patcher poked to <c>RET</c> as its control.
+    /// </para>
+    /// </summary>
+    public static IEnumerable<(int Width, int Height)> MapShapes
+    {
+        get
+        {
+            for (var w = MaxMapWidth; w >= MinMapWidth; w /= 2)
+                yield return (w, MapBytes / w);
+        }
+    }
+
+    /// <summary>Is this a shape the engine will install?</summary>
+    public static bool IsMapShape(int width, int height) =>
+        width >= MinMapWidth && width <= MaxMapWidth
+        && (width & (width - 1)) == 0
+        && (long)width * height == MapBytes;
 
     /// <summary>
     /// <b>A LEVEL AND AN ENVIRONMENT ARE DIFFERENT THINGS.</b> An environment

@@ -117,6 +117,43 @@ public static class ProjectEditor
                 project.LevelId = (byte)op.Index;
                 return null;
 
+            // AND WHAT SHAPE THE MAP IS. It is stored as the WIDTH alone
+            // and the height follows, because the map is 2,048 bytes of
+            // base RAM whatever its shape (CLAUDE.md 8.3) - so a shape
+            // cannot be half-changed.
+            //
+            // THE CELLS KEEP THEIR ORDER AND THE GRID IS RE-CUT, which is
+            // the honest thing for it to do and is worth saying out loud:
+            // the same 2,048 bytes in a 32-wide grid are a different
+            // picture, not a scaled one. What it will NOT do is leave a
+            // record off the map, because a record off the map is a thing
+            // the engine reads, quietly does nothing with, and carries on
+            // (CLAUDE.md 11 step 7) - so it is refused on the stroke and
+            // the designer moves the record first.
+            case "shape":
+                if (!EngineLimits.IsMapShape(op.Index,
+                                             EngineLimits.MapBytes / Math.Max(1, op.Index)))
+                    return $"{op.Index} is not a width the engine installs: "
+                         + string.Join(", ", EngineLimits.MapShapes
+                                                         .Select(s => $"{s.Width}x{s.Height}"));
+                var was = project.Width;
+                project.Width = op.Index;
+                if (project.Entities.Select(e => OutsideWorld(project, e))
+                                    .FirstOrDefault(w => w is not null) is { } lost)
+                {
+                    project.Width = was;
+                    return $"{op.Index}x{EngineLimits.MapBytes / op.Index} would "
+                         + $"leave a record off the map: {lost}";
+                }
+                if (project.Regions.Select(r => OutsideMap(project, r))
+                                   .FirstOrDefault(w => w is not null) is { } gone)
+                {
+                    project.Width = was;
+                    return $"{op.Index}x{EngineLimits.MapBytes / op.Index} would "
+                         + $"leave a region off the map: {gone}";
+                }
+                return null;
+
             case "entity-add":
                 if (op.Entity is not { } added)
                     return "an entity-add op needs an entity";

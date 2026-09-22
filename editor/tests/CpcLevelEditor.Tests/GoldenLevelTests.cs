@@ -183,24 +183,47 @@ public class GoldenLevelTests
         Assert.Throws<InvalidDataException>(() => Reader.Read(blob));
     }
 
-    [Fact]
-    public void A_map_of_another_shape_will_not_be_written()
+    // THE ENGINE TAKES THREE SHAPES AND THIS IS BOTH HALVES OF THAT.
+    // MAP_W was 128 and MAP_H 16 at compile time; they are patched out of
+    // the level's own header now (CLAUDE.md 8.3), so what the exporter has
+    // to refuse is no longer "not the City" - it is "not 2,048 bytes", or
+    // "not a power of two", or "too narrow to fill the display".
+    // tools/test_shape.py drives all of it on the machine; this is the
+    // same rule one step earlier, where it costs nothing to catch.
+    [Theory]
+    [InlineData(128, 16)]
+    [InlineData(64, 32)]
+    [InlineData(32, 64)]
+    public void The_shapes_the_engine_installs_are_written(int w, int h)
     {
-        // MAP_CELL scales the row out of the base address at compile time,
-        // so 128x16 is not a preference. tools/test_format.py pokes the
-        // width to 64 and watches the loader leave MAP_ADDR zeroed; this is
-        // the same rule one step earlier, where it costs nothing to catch.
+        Assert.NotNull(Exporter.Write(Shaped(w, h)));
+    }
+
+    [Theory]
+    [InlineData(64, 16, "1,024 bytes, not 2,048")]
+    [InlineData(96, 32, "not a power of two, and 96 x 32 is 3,072")]
+    [InlineData(16, 128, "2,048 bytes, and still 128 pixels of map "
+                         + "against a 160-pixel display")]
+    public void A_map_of_another_shape_will_not_be_written(
+        int w, int h, string why)
+    {
+        var thrown = Assert.Throws<ArgumentException>(
+            () => Exporter.Write(Shaped(w, h)));
+        Assert.Contains("not a shape the engine installs", thrown.Message);
+        Assert.NotEmpty(why);
+    }
+
+    private static Level Shaped(int w, int h)
+    {
         var level = Reader.Read(Golden.Level1);
-        var narrow = new Level
+        return new Level
         {
             LevelId = level.LevelId,
             TilesetId = level.TilesetId,
-            Width = 64,
-            Height = 16,
-            Map = new byte[64 * 16],
-            Entities = level.Entities,
+            Width = w,
+            Height = h,
+            Map = new byte[w * h],
+            Entities = [],
         };
-        var thrown = Assert.Throws<ArgumentException>(() => Exporter.Write(narrow));
-        Assert.Contains("MAP_INSTALL refuses", thrown.Message);
     }
 }
