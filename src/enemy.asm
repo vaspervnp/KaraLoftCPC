@@ -84,7 +84,14 @@ EN_T_STRIDE     equ 32          ; a power of two, because ENEMY_TYPE_AT
 ; wrapped: every type but the first read the first one's padding, so a
 ; drone was 135 lines tall with 23 hit points. The assert in main.asm is
 ; what keeps it from happening again as the table grows.
-                align 64
+;
+; AND `align 64` WAS NOT ENOUGH EITHER, which the third row is what
+; showed: 3 * 32 is 96 bytes, and an align of 64 can put those at
+; offset 192 of a page, where they end at 288. The rule in CLAUDE.md 10
+; says align to the WHOLE table and this is the table's own size
+; rounded up - 128 holds four rows exactly, and the assert is what will
+; say so on the fifth.
+                align 128
 ENEMY_TYPES:
                 db L1_CITYAGENT_BANK
                 dw L1_CITYAGENT_ADDR

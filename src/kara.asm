@@ -69,16 +69,97 @@ KARA_SETS:      db KSET_TWO_FACED
                 ; `kact` IS NOT PINNED, and this is the one set addressed
                 ; by its LEVEL. tools/level_banks.py pins kcore, kextra
                 ; and kswim because every level needs them in the same
-                ; place; the action blob is allocated per level, and
-                ; level 1 is the only one this demo loads. Module 6's
-                ; level reader turns these two rows into a table the
-                ; transition fills in - see CLAUDE.md 11.
-                db KACT_TWO_FACED           ; ... and from here she has one
-                db L1_KACT_BANK
+                ; place; the action blob is allocated per level, so
+                ; these six bytes are FILLED IN at MAP_INSTALL out of
+                ; KACT_ENVS below. They used to be L1_KACT_* literals
+                ; with a comment saying "level 1 is the only one this
+                ; demo loads", which stopped being true the day level 5
+                ; shipped - see the note on KACT_FOR_ENV.
+KARA_SET_ACT:   db KACT_TWO_FACED           ; ... and from here she has one
+KACT_ROW:       db L1_KACT_BANK
                 dw L1_KACT_ADDR
                 db L1_KACT_L_BANK
                 dw L1_KACT_L_ADDR
                 db 0
+
+; ---------------------------------------------------------------------
+; KACT_FOR_ENV - point her ACTION set at THIS environment's copy of it.
+;
+; THE ACTION BLOB IS THE THIRD THING IN THIS ENGINE TO BE ADDRESSED BY
+; LEVEL 1'S SYMBOLS IN EVERY LEVEL, after the pickups' art and the
+; enemy types (CLAUDE.md 8.6, 8.7). kcore, kextra and kswim are PINNED
+; by tools/level_banks.py - every level needs them at one address, so
+; src/kara.asm can name a constant - and kact is not, because a level
+; with no ladder carries a blob 2,722 bytes shorter (6.2) and the
+; allocator puts what is left wherever it fits.
+;
+; Measured off the shipped banks.inc, what the engine read against what
+; each environment HAS: SIX OF THE TWELVE ADDRESSES WERE WRONG. Only
+; the City's were right, because the City is level 1.
+;
+;   city      right &C4:4CC0  left &C0:4000   both right
+;   forest          &C0:4000       &C4:4A80   NEITHER
+;   cave            &C4:4E80       &C0:4000   the left one only
+;   undersea/desert/station                   the left one only
+;
+; WHAT THAT COST IS NOT THEORETICAL. `drop` lives in kact and she plays
+; it falling into every one of the forest's spike pits; it drew out of
+; whatever sat at the City's address inside the forest's banks and
+; nothing crashed, because the bytes happened to parse as a frame that
+; terminated. In the CAVE it does not: `climb` is a back view stored
+; ONCE at the end of the RIGHT-facing blob (7.1), so a ladder always
+; reads the row this got wrong - the span blitter wrote a nonsense
+; erase script and the PC ended up at TILE_ATTR + 516.
+;
+; Called once, from MAP_INSTALL. Nothing per frame.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+KACT_ENV_STRIDE equ 6
+
+KACT_ENVS:      db L1_KACT_BANK
+                dw L1_KACT_ADDR
+                db L1_KACT_L_BANK
+                dw L1_KACT_L_ADDR
+                db L2_KACT_BANK
+                dw L2_KACT_ADDR
+                db L2_KACT_L_BANK
+                dw L2_KACT_L_ADDR
+                db L3_KACT_BANK
+                dw L3_KACT_ADDR
+                db L3_KACT_L_BANK
+                dw L3_KACT_L_ADDR
+                db L4_KACT_BANK
+                dw L4_KACT_ADDR
+                db L4_KACT_L_BANK
+                dw L4_KACT_L_ADDR
+                db L5_KACT_BANK
+                dw L5_KACT_ADDR
+                db L5_KACT_L_BANK
+                dw L5_KACT_L_ADDR
+                db L6_KACT_BANK
+                dw L6_KACT_ADDR
+                db L6_KACT_L_BANK
+                dw L6_KACT_L_ADDR
+
+KACT_FOR_ENV:   ld   a,(LEVEL_ENV)
+                cp   KACT_ENVS_N
+                jr   c,.ok
+                xor  a                      ; an environment nobody has
+.ok:            ld   l,a                    ; ... is the City's, which is
+                ld   h,0                    ; what &FF means before the
+                add  hl,hl                  ; first level has loaded
+                ld   d,h
+                ld   e,l                    ; * 2
+                add  hl,hl                  ; * 4
+                add  hl,de                  ; * 6
+                ld   de,KACT_ENVS
+                add  hl,de
+                ld   de,KACT_ROW
+                ld   bc,KACT_ENV_STRIDE
+                ldir
+                ret
+
+KACT_ENVS_N     equ 6
 
 ; ---------------------------------------------------------------------
 ; KARA_SPAN_DRAW - composite her, clipped to the display.

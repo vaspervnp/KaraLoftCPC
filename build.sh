@@ -75,6 +75,14 @@ gen python3 "$ROOT/tools/make_level.py"
 # generators, so --relink carries whatever build/ already holds.
 gen python3 "$ROOT/tools/make_forest_map.py"
 
+# ... and the cave's, which is the first level that is TALL (32x64) and
+# the first since the City with OVERLAYS in it - its ladder is one. So
+# like make_city_map.py above it must run AFTER build_levels.py, which
+# exports cavetiles.bin, and BEFORE level_banks.py, which lays that
+# blob into a bank: it appends the baked pairs to it and re-packs the
+# .zx0 itself.
+gen python3 "$ROOT/tools/make_cave_map.py"
+
 python3 "$ROOT/tools/level_banks.py"
 
 # A level's OWN bytes - its map, its entity table and its tile flags -

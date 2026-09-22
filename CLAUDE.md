@@ -190,6 +190,37 @@ spikes as a mechanic rather than as scenery. Walked end to end in
 sequence, 100 → 68 → **55** (§8.11). One tool writes both and
 `level_5.lvl` comes out byte for byte the file that shipped.
 
+**AND THERE IS A CAVE, WHICH IS THE FIRST SHIPPED MAP THAT IS TALL.**
+Every other level in this game is 128×16; level 9 is **32×64 — 1.6
+screens across and 5.3 DOWN**, so `MAP_SHAPE_SET` patches the engine's
+thirty-six shape immediates for a level the player can reach rather
+than for a suite's own hand-built map. Eight floors eight rows apart
+with the ladder's column moving every floor, so each one has to be
+WALKED before it can be left; she climbs from the bottom to the gate,
+`WORLD_CR` **104 → 0**, which is the whole map, taking the clip and the
+key on the way (§8.13). And it is the first map with a ladder in it
+since the City, which is not a coincidence: only levels 1 and 3 carry
+the `climb` cels at all (§6.2).
+
+**AND IT HUNG THE MACHINE ON THE FIRST RUNG — THE THIRD INSTANCE OF
+THE ADDRESS BUG ABOVE, AND THE ONE THAT WAS WRITTEN IN THE CODE'S OWN
+COMMENT.** `src/kara.asm` said *"`kact` IS NOT PINNED … level 1 is the
+only one this demo loads"*, and that sentence stopped being true the
+day level 5 shipped. `KARA_SETS` named `L1_KACT_*` for all six
+environments; measured against `banks.inc`, **6 of the 12 addresses
+were ones the engine got wrong** — only the City's were right, because
+the City is level 1. The forest got NEITHER facing. What made the cave
+the one that died rather than the one that looked odd is that `climb`
+is a back view stored ONCE at the end of the RIGHT-facing blob (§7.1),
+so a ladder always reads the row this got wrong: a garbage frame, a
+nonsense erase script, and the PC at `TILE_ATTR + 516`. **And the
+forest has been shipping her `drop`, `die` and `hang` cels out of the
+wrong bank all along** — nothing crashed there only because the bytes
+happened to parse. `KACT_FOR_ENV` fills the row from `LEVEL_ENV` at
+`MAP_INSTALL`, the shape `ENT_ART_FOR` already had; all 12 agree now,
+and the control — the routine poked to `RET` — gives **one answer to
+all six questions** (§8.13).
+
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
 `collide.asm` and **read by nothing** — one use in the engine and it
@@ -351,7 +382,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-five pass**, the editor's own among them. Eighteen checks in
+twenty-six pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -495,6 +526,11 @@ tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
                            overlays to bake, so no city_map.bin step to
                            mirror. One LAYOUT an entry, one set of
                            machinery (8.11)
+tools/make_cave_map.py     level 9: the cave, 32x64 - the first SHIPPED
+                           map that is TALL, and the first with a ladder
+                           in it since the City (8.13)
+tools/tilebake.py          the overlay bake, once: the City's own baker,
+                           lifted so the cave could use it (7.3)
 tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
@@ -527,7 +563,11 @@ tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
                            it to the bottom (11 step 7)
-tools/test_*.py            acceptance suites, twenty-five of them
+tools/test_cave.py         level 9 on the machine: the first tall map
+                           SHIPPED, climbed floor by floor from the
+                           bottom to the gate, and her action cels
+                           measured per environment (8.13)
+tools/test_*.py            acceptance suites, twenty-six of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -1056,6 +1096,18 @@ nothing about the pixels says so. **It is stored once**, and
   the right-facing blob whichever way she is facing**, at 18 T against a
   second frame table, a second duration table and 2,722 duplicated
   bytes (§8.10).
+
+**AND THAT IS ALSO WHY THE BLOB'S ADDRESS HAD TO BECOME THE
+ENVIRONMENT'S.** `kact` is not pinned — a level with no ladder carries
+one 2,722 bytes shorter, so the allocator puts what is left wherever it
+fits — and `KARA_SETS` named `L1_KACT_*` for all six. Every other cel
+in the blob has a left-facing twin at the same index, so a wrong
+address draws SOMETHING; `climb` is the one cel with no twin, so a
+ladder in any level but the City read the row that was wrong every
+time. The cave died on its first rung. `KACT_FOR_ENV` fills those six
+bytes from `LEVEL_ENV` at `MAP_INSTALL` now — §8.13 has the six
+environments measured against `banks.inc`, and 6 of the 12 addresses
+were ones the old table got wrong.
 
 `tools/test_climb.py` checks it on the screen rather than in the table
 — the same cel must come out pixel for pixel with `KARA_FACING` either
@@ -2442,8 +2494,8 @@ not what fills this disc; the art is. Counted on the shipped image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the three maps that exist | **268** |
-| **spare** | **29** |
+| the art, the title and the four maps that exist | **272** |
+| **spare** | **25** |
 | ... staying inside a standard 40-track disc | **13** |
 
 Twenty-four maps is twenty-four of those, so four levels an environment
@@ -4883,6 +4935,154 @@ either, and `EK_HAZARD` is the one with `p0` = damage and `p1` = period
 in §8.6's table — a hazard that is a RECORD rather than a tile, which
 is what a moving blade or a timed jet wants. Neither is written.
 
+### 8.13 Level 9: the cave, and the first shipped map that is TALL
+
+`tools/make_cave_map.py` writes it and `tools/test_cave.py` drives it.
+Every other map in this game is 128×16; the cave is **32×64 — 1.6
+screens across and 5.3 DOWN**, which is the City stood on its end. So
+it is the first SHIPPED level to make `MAP_SHAPE_SET` patch the
+engine's thirty-six shape immediates for real, rather than in a
+suite's own hand-built map (§8.3).
+
+**AND IT IS THE FIRST MAP SINCE THE CITY WITH A LADDER IN IT**, which
+is not a coincidence. Only levels 1 and 3 have a `ladder` tile in their
+tilesets, `tools/level_banks.py` reads that off `tile_table.json` to
+decide which levels carry the `climb` cels at all, and the other four
+take an action blob 2,722 bytes shorter (§6.2). A cave without ladders
+would waste the one thing its bank set was given.
+
+Eight floors eight rows apart — 128 world lines, the City's own
+roof-to-street drop — with **the ladder's column moving every floor**,
+so each one has to be WALKED before it can be left. That is the
+editor's generator's own rule (§11 step 7) and it is the only thing
+that makes eight floors a level rather than one floor eight times. She
+starts on the bottom one and climbs.
+
+**CLIMBING UP READS THE ROW ABOVE HER FEET AND CLIMBING DOWN READS THE
+ONE UNDER THEM**, which is not symmetry and is the first thing a driver
+for either has to know. The ladder's top rung is in the UPPER floor's
+own row, carrying `TA_CLIMB + TA_PLATFORM`, because a rung she could
+only fall onto is not a way up (§8.8) — so from a floor, DOWN finds the
+ladder in that floor's row and UP finds it in the row above.
+`PLAYER_CLIMB`'s `.up` probes her FEET at `KARA_WY + KARA_BOX_H -
+P_CLIMB`, which is the row above the one she is standing on. Asked the
+DOWN question on the way up, a driver reports "no ladder here" on every
+floor in the level and reads like a map with no ladders in it.
+
+**The ladder is an OVERLAY here and an opaque tile in the City**, which
+is §8.3's own example of the two tables being independent: what a tile
+DOES and how it is DRAWN are different questions. The engine has no
+masked tile path (§7.3), so the eleven pairs this level places are
+composited at build time by `tools/tilebake.py` — the City's own baker,
+lifted out of `make_city_map.py` verbatim, with the City's four output
+files byte-identical as the control.
+
+**And the gate's own tiles carry no attributes at all**, which is the
+lesson the City's garage already paid for (§8.8): a shut door is an
+`EK_DOOR` record with `EF_SOLID`, not five solid tiles across a floor
+she is three tiles wide on. The first version flagged them solid and
+the tool's own flood fill refused the door.
+
+Measured on a 6128, out of the City and into it:
+
+| | |
+|---|---|
+| the transition | **152 hardware frames** — an environment change, so 1.6 s of art came with it (§7.5) |
+| the level | `LEVEL_OK` 1, 32×64, tileset 3, `ENT_COUNT` 5 |
+| the floors | rows 6, 14, 22, 30, 38, 46, 54, 62 — **eight, as the engine reads them** |
+| the ladders | one on each of the seven upper floors, at columns 25, 10, 22, 6, 20, 8, 24 — **seven different columns** |
+| the climb | **every floor, 62 → 6**, `WORLD_CR` **104 → 0**, which is the whole map |
+| on the way | the clip (`AMMO_RESERVE` 28 → 42) and the key |
+| the gate | UP at tile 13 of the top floor: `GAME_STATE` 0 → `GS_CLEAR` |
+
+**Its control is `TA_CLIMB`**: taken off every ladder tile in
+`TILE_ATTR`, the map does not move by a byte and the picture does not
+change — and **she cannot leave the bottom floor.**
+
+**THE BOTTOM FLOOR IS 16 PIXELS BELOW THE CAMERA'S BAND AND THAT IS
+NOT A FAULT.** `CAMERA_V` keeps her middle between `CAM_TOP` 64 and
+`CAM_BOT` 112 and clamps `WORLD_CR` at `V_CR_MAX` = (H·16 − 192)/8 =
+**104** for a 64-row map. Standing on row 62 her middle is at world
+line 960 against a view top of 832, so it sits at screen 128 with the
+camera already as low as it goes. Her box then occupies screen lines
+96..160 of 192 — on the display, fully drawn, just lower in the frame
+than the camera would like. It is the same arrangement
+`tools/test_generated.py` already climbs on the machine, and the
+alternative is a level one floor shorter.
+
+#### AND THE CLIMB IS WHAT FOUND THE `kact` BUG, WHICH IS THIS FILE'S OWN SPECIES FOR THE THIRD TIME
+
+It hung the machine on the first rung: a garbage frame, a nonsense
+erase script, `SPAN_ERASE_AT.RUN + 14`, and the PC off at
+`TILE_ATTR + 516`. The cause was written in `src/kara.asm`'s own
+comment, and the sentence had stopped being true:
+
+> `kact` **IS NOT PINNED**, and this is the one set addressed by its
+> LEVEL … **level 1 is the only one this demo loads.**
+
+That stopped being true the day level 5 shipped. `tools/level_banks.py`
+PINS `kcore`, `kextra` and `kswim` at one address in every level —
+every level needs them, so `src/kara.asm` can name a constant — and it
+cannot pin `kact`, because a level with no ladder carries a blob 2,722
+bytes shorter and the allocator puts what is left wherever it fits.
+`KARA_SETS` named `L1_KACT_*` for all six.
+
+**This is the pickups' fault (§8.6) and the enemy table's (§8.7) a
+third time**, and the measurement is the same measurement: the six
+environments' answers against the shipped `banks.inc`, taken apart by
+different code. `KACT_FOR_ENV` reads `LEVEL_ENV` and copies one row of
+`KACT_ENVS` into `KARA_SETS`' action row, once, from `MAP_INSTALL` —
+nothing per frame, exactly as `ENT_ART_FOR` is done.
+
+| environment | right | left | the old engine |
+|---|---|---|---|
+| city | `&C4:4CC0` | `&C0:4000` | **both right** — the City IS level 1 |
+| forest | `&C0:4000` | `&C4:4A80` | **NEITHER** |
+| cave | `&C4:4E80` | `&C0:4000` | the left one only |
+| undersea | `&C4:4A80` | `&C0:4000` | the left one only |
+| desert | `&C4:4A40` | `&C0:4000` | the left one only |
+| station | `&C4:49C0` | `&C0:4000` | the left one only |
+
+**All 12 agree with `banks.inc` now, and 6 of the 12 are ones the old
+engine got wrong.** Its control is the fault itself: `KACT_FOR_ENV`
+poked to `RET` gives **one distinct answer to all six questions**,
+which is precisely what a table of `L1_*` literals claims.
+
+**WHAT THAT COST IS NOT THEORETICAL AND IT WAS NOT ONLY THE CAVE.**
+`drop` lives in `kact` and she plays it falling into every one of the
+forest's spike pits (§8.12) — for as long as level 5 has shipped, those
+cels have been drawn out of whatever sat at the City's address inside
+the forest's banks. Nothing crashed there because the bytes happened to
+parse as a frame that terminated; `die` and `hang` are in the same blob
+and the same position. The cave is where it stops being invisible,
+because **`climb` is a back view stored ONCE at the end of the
+RIGHT-facing blob** (§7.1), so a ladder always reads the row this got
+wrong — and the forest's right-hand address was the worst of the six.
+
+**Two things had to move out of the way for the three bytes of that
+`call`**, and both are rules this file already carries:
+
+* **`MAP_INSTALL` is a run of refusals that all reach one `.refuse`
+  with a `JR`**, and the fourth call pushed it past 128 bytes —
+  `relative offset 130 too far`, the same failure `HAZARD_SCAN` caused
+  and was extracted for (§8.12). The four things an install DERIVES
+  from the bytes it has just copied are `MAP_DERIVE` now. Widening the
+  jumps one at a time is what breaks a different one next time.
+* **`ENEMY_TYPES` crossed a page**, because `align 64` is not `align`
+  to the whole table: three rows of 32 is 96 bytes, and an align of 64
+  can put those at offset 192 of a page where they end at 288. §10's
+  rule says align to the WHOLE table and the assert in `main.asm` is
+  what said so. It is `align 128` now, which holds four rows exactly.
+
+**What is NOT here is the puzzle.** The artist drew a four-slot gate
+and two panels hinting the order sun-moon / eye-star, and §8.1 calls
+the cave's signature a "3-symbol book/lever puzzle";
+`READ_BOOK_PUZZLE` and `CURRENT_BOOK_ID` exist in the engine and
+nothing has ever driven them. The gate here is an `EK_DOOR` a key
+opens and the slots are drawn unfilled. Wiring the books to the slots
+is a mechanic and not a map, and inventing its contract quietly would
+be the worse of the two ways to be wrong.
+
 ## 9. Performance budget — measured directly, and it closes
 
 A hardware frame is **79,872 T-states**. **A GAME FRAME IS TWO OF THEM:
@@ -6071,6 +6271,22 @@ frame, so this only helps a standing player on a still screen.
   RESTART forgot** (§8.1), not a picture: the view stopped panning at a
   level start, the pan had been rewriting those bytes on the way, and
   the sweep with no model in it saw them stop agreeing.
+* **A CONSTANT NAMED FOR LEVEL 1 IS A CONSTANT THAT IS WRONG IN FIVE
+  LEVELS OUT OF SIX, AND IT HAS HAPPENED THREE TIMES.** `ENT_ART` named
+  `L1_*` for every pickup in the game (§8.6), `ENEMY_TYPES` named them
+  for both its characters (§8.7), and `KARA_SETS` named `L1_KACT_*` for
+  her whole action set (§8.13). Each was written while one level
+  existed, each carried a comment saying a later module would make it
+  per level, and none of them failed on the City — **because the City
+  IS level 1**, and every suite here measures the City. What they did
+  instead is what this section is mostly about: the level loads, the
+  map is right, and one thing is drawn out of somebody else's bank.
+  `tools/level_banks.py` PINS exactly three blobs (`kcore`, `kextra`,
+  `kswim`) and those three are the only ones an engine constant may
+  name; everything else is an address that moved. The test is not "does
+  this build" but **"what does this symbol resolve to in the other five
+  environments"**, and it is a `grep` — measured against `banks.inc`,
+  the three faults were 30 of 36, 1 of 2 and 6 of 12 wrong answers.
 * **`B` IS A LOOP COUNTER SOMEWHERE ABOVE YOU.** `EBUL_HITS_HER` was
   given a second register for the crouch's shorter hitbox and took `B`;
   its caller holds the pool's slot count there and finishes with `DJNZ`,
@@ -6923,7 +7139,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Twenty-one of the twenty-four levels have
+   **What is left**: maps. Twenty of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -6965,7 +7181,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other twenty-one levels**, which is a designer's work and
+   for the other twenty levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

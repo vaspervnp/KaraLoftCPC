@@ -178,84 +178,16 @@ def tile_flags(names):
     return bytes(TILE_FLAGS.get(n, 0) for n in names)
 
 
-def name_of(names, extra, index):
-    """A tile's name, baked or not, for the report and the flags."""
-    return names[index] if index < len(names) else extra[index - len(names)]
+# THE BAKE MOVED TO tools/tilebake.py, because the City stopped being
+# the only level with overlays in it. It is the same code and the same
+# bytes - citytiles.bin, city_baked.json and the tile flags all come
+# out byte for byte what they were, which is what says the lift was a
+# lift. `name_of` goes with it, since the report below reads a baked
+# tile's name out of the same two lists the baker builds.
+from tilebake import bake_overlays, name_of          # noqa: E402
 
-
-def bake_overlays(names):
-    """Composite every (overlay, background) pair into a new tile.
-
-    Returns (extra tile bytes, extra names). The pixels come from the
-    artist's own sheet, quantised against src/palette.asm exactly as
-    tools/aseprite2spans.py does it, and go out in the same
-    COLUMN-MAJOR order the tile blitters read (see encode_tiles there).
-    An overlay's pen 0 is the transparent one (CLAUDE.md 7.3); every
-    other pen wins over what is underneath.
-    """
-    import cpclib
-    from aseprite2spans import game_palette
-    art = os.path.join(ROOT, "assets", "sprites", "level1_city")
-    sheet = Image.open(os.path.join(
-        art, "city_tiles_cpc_mode0_sheet.png")).convert("RGBA")
-    js = json.load(open(os.path.join(art, "city_tiles_cpc_mode0_sheet.json")))
-    frames = js["frames"]
-    if isinstance(frames, dict):
-        frames = [frames[k] for k in frames]
-    palette = game_palette(os.path.join(ROOT, "src", "palette.asm"))
-
-    w, h = frames[0]["frame"]["w"], frames[0]["frame"]["h"]
-    cache = {}
-
-    def pens_of(i):
-        """An original tile's pens, or a baked one's - AND A BAKED ONE
-        CAN BE UNDER ANOTHER. The lamp's pole hangs under its head and
-        the tank's cells sit on top of the roof props, so a pair can
-        name a tile that is itself a pair. Every baked index is higher
-        than the two it was made from, so resolving in index order
-        terminates."""
-        if i in cache:
-            return cache[i]
-        if i < len(names):
-            b = frames[i]["frame"]
-            crop = sheet.crop((b["x"], b["y"],
-                               b["x"] + b["w"], b["y"] + b["h"]))
-            cache[i] = cpclib.quantise(crop, palette)
-        else:
-            over, under = next(k for k, v in BAKED.items() if v == i)
-            top, bottom = pens_of(over), pens_of(under)
-            cache[i] = [[top[y][x] or bottom[y][x] for x in range(w)]
-                        for y in range(h)]
-        return cache[i]
-
-    def encode(pens):
-        out = bytearray()
-        for col in range(w // 4):               # 4 pixels a character
-            for y in range(h):
-                for x in (col * 4, col * 4 + 2):
-                    out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
-        return bytes(out)
-
-    # AND A PAIR THAT COMPOSITES TO THE OVERLAY ITSELF IS NOT BAKED.
-    # Where the background is black in every pixel the overlay's
-    # transparent pen 0 already comes out black, so the composite is
-    # byte for byte the tile the artist drew and a copy of it would be
-    # 64 bytes of bank for nothing. This is the one place that question
-    # is ANSWERED rather than assumed, and the answer was a surprise:
-    # `far_fill` is not all black (4 lit pixels of 128), so the three
-    # roof props on it are baked like everything else and only
-    # `tank_10` is dropped.
-    blob, extra, remap, same = bytearray(), [], {}, {}
-    for (over, under), index in sorted(BAKED.items(), key=lambda kv: kv[1]):
-        bytes_ = encode(pens_of(index))
-        if bytes_ == encode(pens_of(over)):
-            remap[index] = over
-            same[index] = name_of(names, extra, under)
-            continue
-        remap[index] = len(names) + len(extra)
-        extra.append(f"{names[over]}_on_{name_of(names, extra, under)}")
-        blob += bytes_
-    return bytes(blob), extra, remap, same
+CITY_ART = os.path.join(ROOT, "assets", "sprites", "level1_city")
+CITY_SHEET = "city_tiles_cpc_mode0_sheet"
 
 
 def tile_names():
@@ -538,7 +470,8 @@ def main():
     # ---- the overlays, composited onto what they cover --------------
     # The map holds the BAKED tile, so every blitter stays a plain copy
     # and the frame pays nothing. See the note by put_overlay().
-    extra_bytes, extra_names, remap, flat = bake_overlays(names)
+    extra_bytes, extra_names, remap, flat = bake_overlays(
+        CITY_ART, CITY_SHEET, names, BAKED)
     for row in g:                       # the provisional ids become the
         for x in range(MAP_W):          # real ones, or the overlay again
             if row[x] in remap:

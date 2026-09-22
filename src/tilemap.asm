@@ -330,16 +330,30 @@ MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
                 ld   bc,LEVEL_TILEFLAGS_N
                 ldir
 
-                call HAZARD_SCAN            ; ... and whether any of them
-                                            ; can hurt her (collide.asm)
-
-                call ENT_BAKE               ; ... each pickup onto the tile
-                call ENEMY_SPAWN            ; it stands on, and the level's
-                or   a                      ; characters onto their feet
-                ret
+                call MAP_DERIVE             ; ... and everything that
+                or   a                      ; follows from the bytes
+                ret                         ; just copied
 
 .refuse:        scf                         ; the caller draws no level
                 ret
+
+; ---------------------------------------------------------------------
+; MAP_DERIVE - the four things an install works out for itself.
+;
+; It is a routine and not four CALLs in MAP_INSTALL because MAP_INSTALL
+; is a run of refusals that all reach one `.refuse` with a JR, and the
+; fourth one pushed that over 128 bytes. Extracting is what this file
+; did the last time it happened (HAZARD_SCAN, to collide.asm) - the
+; alternative is widening the jumps one at a time until the next line
+; added breaks a different one.
+;                                destroys AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+MAP_DERIVE:     call HAZARD_SCAN            ; can any tile hurt her
+                call KACT_FOR_ENV           ; where THIS environment keeps
+                                            ; her action cels (kara.asm)
+                call ENT_BAKE               ; each pickup onto the tile it
+                jp   ENEMY_SPAWN            ; stands on, and the level's
+                                            ; characters onto their feet
 
 ; ---------------------------------------------------------------------
 ; SCROLL_APPLY - push SCROLL into R12/R13.
