@@ -85,7 +85,7 @@ ENT_P0          equ 6
 ENT_P1          equ 7
 ENT_STRIDE      equ 8
 ENT_MAX         equ 24
-ENT_TABLE       equ MAP_ADDR + MAP_W * MAP_H    ; &A800, straight after the
+ENT_TABLE       equ MAP_ADDR + MAP_BYTES        ; &A800, straight after the
                                                 ; map - both are the level's
                                                 ; own data and both are base
                                                 ; RAM because bank C4 is full
@@ -962,6 +962,7 @@ ENT_CELL_OF:    inc  hl
                 rr   c                      ; x >> 3 = the map column
                 ld   a,c
                 and  MAP_COL_MASK
+PM_EC_COLM      equ  $ - 1
                 ld   c,a
                 ld   a,e
                 sub  PICKUP_H               ; the record anchors the BASE
@@ -970,16 +971,22 @@ ENT_CELL_OF:    inc  hl
                 rrca
                 rrca
                 and  MAP_ROW_MASK           ; (y - 16) >> 4 = the map row
+PM_EC_ROWM      equ  $ - 1
+PM_EC_ROT       equ  $
                 rrca                        ; -> (row&1)<<7 | row>>1
+                nop
+                nop
+                nop
                 ld   h,a
-                and  &80
+                and  MAP_COL_COMP
+PM_EC_COMP      equ  $ - 1
                 ld   l,a
                 ld   a,h
-                and  7
+                and  MAP_PAGES - 1
                 add  a,MAP_ADDR >> 8
                 ld   h,a
                 ld   a,l
-                add  a,c                    ; l is 0 or 128 and c < 128
+                add  a,c                    ; l is a multiple of W, c < W
                 ld   l,a
                 ret
 
@@ -1297,15 +1304,25 @@ ENT_REPAINT_DUE:
 ENT_CELL_REPAINT:
                 ld   a,l
                 and  MAP_COL_MASK
+PM_RP_COLM      equ  $ - 1
                 add  a,a
                 ld   (ENT_RP_WC),a          ; world character column
                 ld   a,h
                 sub  MAP_ADDR >> 8
+PM_RP_ADD       equ  $
                 add  a,a                    ; (h - &A0) * 2 = row AND NOT 1
+                nop                         ; ... one doubling per row in a
+                nop                         ; page, the rest NOPs
+                nop
                 ld   c,a
                 ld   a,l
-                rlca                        ; bit 7 of l is the row's bit 0
-                and  1
+PM_RP_ROT       equ  $
+                rlca                        ; the top of l is the row's own
+                nop                         ; low bits
+                nop
+                nop
+                and  MAP_PAGE_MASK
+PM_RP_PAGE      equ  $ - 1
                 or   c
                 add  a,a
                 ld   (ENT_RP_WR),a          ; world character row

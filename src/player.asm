@@ -236,6 +236,7 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 jr   nc,.step_r             ; free, or panning: walk normally
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
+PM_PX_VIEW      equ  $ - 1
                 jr   nc,.step_r             ; camera at the map's end: walk on
                 call PUSH_PHASE
                 ret  nz                     ; the camera's off frame
@@ -244,6 +245,7 @@ PLAYER_X:       ld   a,(INPUT_NOW)
                 ld   hl,(KARA_WX)
                 add  hl,de                  ; the proposed position
                 ld   de,WORLD_W - KARA_W_BYTES + KARA_ART_X
+PM_KARA_XMAX    equ  $ - 2
                 or   a
                 sbc  hl,de                  ; past the world's right edge?
                 add  hl,de
@@ -1035,6 +1037,7 @@ CAMERA_DECIDE:  ld   a,(V_PHASE)            ; never both axes at once - see
                 ret  c                      ; behind the mark: let her walk up
                 ld   a,(WORLD_X)
                 cp   WORLD_W / 2 - SCR_CHARS
+PM_CD_VIEW      equ  $ - 1
                 ret  nc                     ; at the right edge of the map
                 jp   H_REQUEST_RIGHT
 
@@ -1112,6 +1115,7 @@ CAMERA_V:       ld   a,(V_REQUEST)
 
 .down:          ld   a,(WORLD_CR)
                 cp   V_CR_MAX
+PM_CV_VCR       equ  $ - 1
                 jr   nc,.none               ; the world's bottom is on screen
                 ld   a,1                    ; 1 = down the map
                 ld   (V_REQUEST),a
@@ -1176,8 +1180,11 @@ VIEW_TO_PLAYER: ld   hl,(KARA_WX)
                 jr   nz,.right              ; over 255, so over the limit too
                 ld   a,l
                 cp   WORLD_W / 2 - SCR_CHARS + 1
+PM_VT_VIEW1     equ  $ - 1
                 jr   c,.across
-.right:         ld   a,WORLD_W / 2 - SCR_CHARS
+.right:
+                ld   a,WORLD_W / 2 - SCR_CHARS
+PM_VT_VIEW      equ  $ - 1
                 jr   .across
 .left:          xor  a
 .across:        ld   (WORLD_X),a
@@ -1203,8 +1210,11 @@ VIEW_TO_PLAYER: ld   hl,(KARA_WX)
                 jr   nz,.bottom             ; past 255 rows down
                 ld   a,l
                 cp   V_CR_MAX + 1
+PM_VT_VCR1      equ  $ - 1
                 jr   c,.down
-.bottom:        ld   a,V_CR_MAX
+.bottom:
+                ld   a,V_CR_MAX
+PM_VT_VCR       equ  $ - 1
                 jr   .down
 .top:           xor  a
 .down:          ld   (WORLD_CR),a

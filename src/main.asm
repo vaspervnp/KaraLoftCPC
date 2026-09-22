@@ -919,6 +919,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "tilemap.asm"
                 include "hud.asm"
                 include "flow.asm"
+                include "mapshape.asm"
 
 ; ---------------------------------------------------------------------
 ; Cross-module invariants. They live here, after every include, because

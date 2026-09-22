@@ -128,6 +128,20 @@ data the editor owns. Its level NUMBER comes from the package's own
 directory name: `level2_forest` is level 2, and a project that took the
 default would export itself as `level_1.lvl`, over the City.
 
+**AND A LEVEL CAN BE A SHAFT NOW, NOT ONLY A ROOFTOP.** `MAP_W` was
+128 and `MAP_H` 16 in the source and `MAP_INSTALL` refused anything
+else, which is one level's shape written into thirty-six immediates
+across four files. The shape comes out of the level's own header now
+and is PATCHED into those immediates at install (§8.3): 128×16, 64×32
+and **32×64, which is 1.6 screens across and 5.3 down** — the shape
+levels 3 and 4 are. It costs the frame nothing, because a patched
+immediate is an immediate and the two variable-length shift runs are
+padded with `NOP`s that cost exactly what the shifts they replace did.
+What says so is a 32×64 level built by `tools/test_shape.py`, installed
+on a 6128 and scrolled on all three axes — **15,360 bytes of playfield
+with none wrong** — against 13,083 wrong with the patcher poked to
+`RET`.
+
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
 puts the editor's own four files into `build/`, relinks the disc and
@@ -276,7 +290,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-two pass**, the editor's own among them. Eighteen checks in
+twenty-three pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -348,6 +362,9 @@ src/flow.asm      the level's own state machine: she dies and the level
 src/disc.asm      the uPD765 driver - raw sectors, no firmware.
                   READ docs/AmstradDskReadHowTo.md BEFORE TOUCHING IT
 src/vendor/       dzx0_fast, by spke - the ZX0 depacker, vendored
+src/mapshape.asm  the map's shape is the LEVEL's: the three shapes, and
+                  the patcher that writes one into the engine's own
+                  immediates at MAP_INSTALL (8.3)
 src/tilemap.asm   CRTC hardware scrolling, tile rendering out of bank C4
 src/input.asm     keyboard and joystick scan, edge detection
 src/collide.asm   tile attributes, box probes, and the ladder's one-column
@@ -421,6 +438,9 @@ tools/test_format.py       the level file, the engine's reading of it,
                            and the overlay bake
 tools/test_painter.py      the EDITOR's own level, on the emulator: the
                            same picture out of different bytes
+tools/test_shape.py        the map's three shapes: the patched bytes, the
+                           refusals, MAP_CELL swept, and a 32x64 level
+                           drawn and scrolled on the machine
 tools/test_flow.py         where she starts, the fade, and a restart
                            compared with a fresh boot byte for byte
 tools/test_xclip.py        the X clip: the clipped lane against the same
@@ -428,7 +448,7 @@ tools/test_xclip.py        the X clip: the clipped lane against the same
 tools/test_transition.py   the level after this one: a map read inside an
                            environment, an art read across one, and what
                            she carries through the door
-tools/test_*.py            acceptance suites, twenty-two of them
+tools/test_*.py            acceptance suites, twenty-three of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -2733,8 +2753,10 @@ Two traps the emulator sets while testing this:
 
 Tiles are 8×16 pixels = 4 bytes × 16 lines, so a tile spans 2 character
 columns and 2 character rows (§8.3 — this paragraph said 16×16 until the
-drawn art arrived). Map dimensions are powers of two (128×16) so the
-map wraps with an `AND` instead of a divide. Tiles and map are staged into bank
+drawn art arrived). Map dimensions are powers of two and their product
+is always 2,048, so the map wraps with an `AND` instead of a divide —
+and **which** powers of two is the LEVEL's, patched into the engine's
+own immediates at install (§8.3). Tiles and map are staged into bank
 C4 by `TILES_INSTALL`; they ride inside the core image, so the boot relocation
 has already put them in base RAM, which is the only reason a plain `LDIR` into
 the `&4000` window works.
@@ -2891,11 +2913,11 @@ needs no second table in the image.
 #### The engine reads `level_1.lvl`, and that is where Module 6 starts
 
 `tools/make_level.py` writes the bytes of §9.2 — header, map, entities,
-links, regions — and `MAP_INSTALL` reads them: the magic, the shape
-(128×16 or it is refused, because `MAP_CELL` scales the row out of the
-base address at compile time), the header's entity count straight into
-`ENT_COUNT`, the map and the records by `LDIR` because **the record on
-disc IS the record in RAM**, and the tileset's flags into `TILE_ATTR`.
+links, regions — and `MAP_INSTALL` reads them: the magic, **the shape,
+which it now takes rather than merely checks** (below), the header's
+entity count straight into `ENT_COUNT`, the map and the records by
+`LDIR` because **the record on disc IS the record in RAM**, and the
+tileset's flags into `TILE_ATTR`.
 
 The City is 2,149 bytes of it: 21 of header, 2,048 of map, 80 of
 entities, no links and no regions. `tools/test_format.py` is the golden
@@ -2907,6 +2929,84 @@ refuses**, **give it a map of another shape and it refuses**, and
 it too**. The five cells where RAM and file disagree are the pickups
 `ENT_BAKE` stamps into scratch tiles (§8.6), and the test says so by
 name.
+
+#### THE MAP'S SHAPE IS THE LEVEL'S NOW, AND IT USED TO BE THE BUILD'S
+
+`MAP_W` was 128 and `MAP_H` 16 because the City is a rooftop: 6.4
+screens across and one down. Level 3 is a cave and level 4 is the sea,
+and both of those are the same map stood on its end — so the shape has
+to come out of the header, and `MAP_INSTALL` refusing anything else was
+the last thing between the engine and a vertical level.
+
+**W × H IS ALWAYS 2,048, which is a memory-map fact and not a choice**:
+the map is 2,048 bytes of base RAM at `MAP_ADDR` with the entity table
+immediately behind it (§8.6). So a shape is ONE number — the width —
+and `ENT_TABLE equ MAP_ADDR + MAP_BYTES` and the 2,048-byte `LDIR` are
+constants whatever it is:
+
+| | | |
+|---|---|---|
+| **128×16** | 6.4 screens across, 1 down | the City |
+| **64×32** | 2.1 across, 2.7 down | |
+| **32×64** | 1.6 across, **5.3 down** | the vertical one |
+| ~~16×128~~ | refused | 128 Mode 0 pixels of map against a 160-pixel display |
+
+**HOW IT IS DONE IS SELF-MODIFYING CODE, AND THE REASON IS THE FRAME.**
+Thirty-six immediates in `tilemap.asm`, `collide.asm`, `entity.asm` and
+`player.asm` depend on the width or the height — every column mask,
+every row mask, the map's row step, the camera's two bounds and the
+world's right edge — and every one of them is in an inner loop.
+`MAP_CELL` alone is called ten to fifteen times a frame by the box
+probes. Reading a shape byte out of memory at each site is 7 T against
+an immediate's 0, on a path with about 800 T of slack (§9). Patched
+once at `MAP_INSTALL` out of the header, by `MAP_SHAPE_SET` in
+`src/mapshape.asm`, they cost **nothing at all** — which is what lets
+the shape be a level's property without the City paying for it.
+
+**AND THE TWO RUNS COST NOTHING EITHER, WHICH IS THE PART WORTH HAVING
+WRITTEN DOWN.** Two places scale a row by the map's width with a run of
+shifts whose LENGTH is the shape — `MAP_CELL`'s `sla e : rl d` and the
+tilemap's `rrca` that splits a map row across the pointer's two bytes.
+A run shorter than its slot is padded with `NOP`s, and **a `NOP` is one
+byte and 4 T exactly like the `rrca` it replaces, and two `NOP`s are
+two bytes and 8 T exactly like the `sla e : rl d` pair**. So the slot
+is a fixed length and a fixed cost for every shape, with no branch and
+nothing to schedule. The core image paid 633 bytes for the whole of it
+and has 861 left.
+
+**AND THE LABELS ARE `equ`s AND NOT LABELS, WHICH IS RASM'S DOING.** A
+`.dotted` local belongs to the last GLOBAL label above it, so a global
+dropped into the middle of a routine takes every local after it into a
+scope of its own and the routine's own `jr .step_r` stops resolving —
+eleven errors, all of them in code nobody touched. `PM_MC_COLM equ $ - 1`
+after the instruction names the immediate and breaks nothing.
+
+**WHAT SAYS IT WORKS IS A 32×64 LEVEL ON THE MACHINE**, because the
+question this raises is CLAUDE.md §10's own about a raster gate: not
+"is the number right" but **"does changing it change anything"** — and
+the City would draw perfectly with the patcher deleted, since the
+source's immediates already hold the City's shape.
+`tools/test_shape.py` is four checks of increasing strength, each with
+the one below as the thing it could be fooled by:
+
+| | |
+|---|---|
+| the bytes | all 36 sites against an independent computation from W and H, for all three shapes |
+| the refusals | three different ones: 64×16 (1,024 bytes), 96×32 (not a power of two, and 3,072), and **16×128, which IS 2,048 and is still refused** |
+| `MAP_CELL` | **2,594 world placements** across the three shapes, against `MAP_ADDR + row * W + col` — the format, with no engine in it |
+| **the picture** | a 32×64 level built by the suite's own writer, installed through `SCROLL_INIT`, and **15,360 bytes of playfield with 0 wrong** — standing, walking to the map's right edge, scrolling down and back up |
+
+and its control is the whole of it with `MAP_SHAPE_SET` poked to `RET`:
+the same vertical level then draws **13,083 wrong bytes of 15,360**,
+because a 32-wide map read with a 128-wide map's masks is a picture of
+the wrong cells. The walk is also the camera's own bound measured
+rather than read back: on a 32-wide map the view stops at
+`W * 2 − SCR_CHARS` = **24**, and it reached exactly 24.
+
+**What is NOT in this slice**: the enemy slot's `ES_Y` is still a byte,
+so a drone above world line 256 of a tall level is a separate piece of
+work; and the editor's half — a project's own width, and a canvas that
+draws it — is §11 step 7.
 
 #### Byte 3 and byte 9 are DIFFERENT NUMBERS, and they were the same one
 

@@ -137,22 +137,25 @@ TILE_ATTR_N     equ 256
 ; ---------------------------------------------------------------------
 MAP_CELL:       ld   a,d
                 and  MAP_ROW_MASK >> 4      ; the row's own high bits
+PM_MC_ROWHI     equ  $ - 1
                 ld   d,a
                 ld   a,e
                 and  &F0                    ; ... and the pixel inside the
                 ld   e,a                    ; tile goes, leaving row * 16
+PM_SCALE        equ  $
                 sla  e                      ; * MAP_W / 16: three doublings
-                rl   d                      ; at 128 wide, one at 32
-                sla  e
-                rl   d
-                sla  e
-                rl   d
+                rl   d                      ; at 128 wide, one at 32 - and
+                sla  e                      ; the pairs this shape does not
+                rl   d                      ; want are NOPs, which are 8 T a
+                sla  e                      ; pair exactly like the shifts
+                rl   d                      ; they stand in for
                 ld   a,l
                 srl  h
                 rra
                 srl  h
                 rra                         ; A = BX >> 2
                 and  MAP_COL_MASK           ; map column 0-127
+PM_MC_COLM      equ  $ - 1
                 ld   l,a
                 ld   h,MAP_ADDR >> 8
                 add  hl,de
@@ -179,11 +182,12 @@ MAP_ATTR:       call MAP_CELL
 ;      destroys AF.  HL stepped.
 MAP_ROW_DOWN:   ld   a,l
                 add  a,MAP_W
+PM_MD_STEP      equ  $ - 1
                 ld   l,a
                 ret  nc
                 inc  h
                 ld   a,h
-                and  7                      ; 2 KB of map = eight pages
+                and  MAP_PAGES - 1          ; 2 KB of map = eight pages
                 or   MAP_ADDR >> 8
                 ld   h,a
                 ret
@@ -198,6 +202,7 @@ MAP_COL_RIGHT:  ld   a,l
                 inc  a
                 xor  l                      ; the bits that changed ...
                 and  MAP_COL_MASK           ; ... of which only the column's
+PM_CR_COLM      equ  $ - 1
                 xor  l                      ; may, so put the row bit back
                 ld   l,a
                 ret

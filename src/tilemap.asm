@@ -77,10 +77,21 @@ MAP_ADDR        equ &A000                   ; base RAM, 128 * 16 bytes
 TILE_BLOB_SIZE  equ 2048                    ; the map alone travels in the
                                             ; core image now
 
+; AND THESE TWO ARE THE SHAPE THE SOURCE IS WRITTEN IN, NOT THE SHAPE
+; THE ENGINE IS IN. Every immediate below that depends on the map's
+; width or height is patched at MAP_INSTALL out of the level's own
+; header (src/mapshape.asm), so what these say is what the bytes hold
+; before a level has been installed - the City's, because the City is
+; the level the frame was measured on. W * H is 2,048 whatever they are.
 MAP_W           equ 128
 MAP_H           equ 16
+MAP_BYTES       equ 2048                    ; the map, whatever its shape
+MAP_PAGES       equ MAP_BYTES / 256         ; ... eight of them, always
 MAP_COL_MASK    equ MAP_W - 1               ; both dimensions are powers of
 MAP_ROW_MASK    equ MAP_H - 1               ; two, so the map wraps with AND
+MAP_COL_COMP    equ (256 - MAP_W) AND 255   ; ... and what is left of the low
+                                            ; byte belongs to the ROW
+MAP_PAGE_MASK   equ 256 / MAP_W - 1         ; map rows in one page, less one
 
 TILE_BYTES      equ 64                      ; 4 bytes * 16 lines
 ; ---------------------------------------------------------------------
@@ -213,25 +224,58 @@ LVL_OFF_REGION  equ 19
 
 MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
                 ; The addressing in this file and the probes in
-                ; collide.asm are built around 128x16 at compile time -
-                ; MAP_CELL scales the row out of the base address - so a
-                ; level of another shape is refused rather than drawn
-                ; wrong. Carry set on the way out says so.
+                ; collide.asm were built around 128x16 at compile time
+                ; and are built around the LEVEL's shape now: every
+                ; immediate that depends on the width or the height is
+                ; patched here, out of the header, by MAP_SHAPE_SET
+                ; (src/mapshape.asm). Carry set on the way out still
+                ; says the level was refused.
                 ld   hl,(LEVEL_LVL)
                 ld   de,&564C               ; "LV", low byte first
                 or   a
                 sbc  hl,de
-                jr   nz,.refuse
+                jp   nz,.refuse             ; the shape check below is more
+                                            ; than a JR can reach over
+
+                ; ---- what shape is it, and is it one? ---------------
+                ; W * H IS 2,048 FOR EVERY SHAPE, because the map is
+                ; 2,048 bytes of base RAM with the entity table behind
+                ; it - so a shape is one number and the other follows.
+                ; 2,048 is 2^11 and every divisor of it is a power of
+                ; two, but that is only true of DIVISORS: 96 x 32 is
+                ; 3,072 and would take the log of 96 as 6 and pass a
+                ; check that only compared the height. So the width is
+                ; tested for a single bit first, and the height against
+                ; the quotient after.
                 ld   hl,(LEVEL_LVL + LVL_W)
-                ld   de,MAP_W
+                ld   a,h
+                or   a
+                jr   nz,.refuse
+                ld   a,l
+                cp   2
+                jr   c,.refuse
+                ld   b,a
+                dec  b
+                and  b
+                jr   nz,.refuse             ; W AND (W - 1): two bits set
+                ld   a,l
+                ld   b,-1
+.log:           inc  b
+                srl  a
+                jr   nz,.log                ; B = log2 W
+                ld   c,b
+                ld   hl,MAP_BYTES
+.wide:          srl  h
+                rr   l
+                djnz .wide                  ; HL = MAP_BYTES / W
+                ld   de,(LEVEL_LVL + LVL_H)
                 or   a
                 sbc  hl,de
-                jr   nz,.refuse
-                ld   hl,(LEVEL_LVL + LVL_H)
-                ld   de,MAP_H
-                or   a
-                sbc  hl,de
-                jr   nz,.refuse
+                jr   nz,.refuse             ; ... which is not its height
+                ld   a,c
+                call MAP_SHAPE_SET
+                jr   c,.refuse              ; a shape, but not one of ours
+
                 ld   a,(LEVEL_LVL + LVL_ENTS)
                 cp   ENT_MAX + 1
                 jr   nc,.refuse             ; more than the table holds
@@ -242,7 +286,7 @@ MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
                 ld   de,LEVEL_LVL
                 add  hl,de
                 ld   de,MAP_ADDR
-                ld   bc,MAP_W * MAP_H
+                ld   bc,MAP_BYTES
                 ldir
 
                 ; ---- the entities ----------------------------------
@@ -356,17 +400,24 @@ SCROLL_APPLY:   ld   hl,(SCROLL)
 TILE_SRC:       ld   a,b
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
+PM_TS_ROWM      equ  $ - 1
+PM_TS_ROT       equ  $
                 rrca                        ; -> (row&1)<<7 | row>>1
+                nop                         ; ... one rrca per halving of
+                nop                         ; the width; the rest are NOPs
+                nop                         ; and cost what they replace
                 ld   d,a
-                and  &80
+                and  MAP_COL_COMP
+PM_TS_COMP      equ  $ - 1
                 ld   e,a
                 ld   a,c
                 rrca
-                and  &7F                    ; map column 0-127
+                and  MAP_COL_MASK           ; map column 0-127
+PM_TS_COLM      equ  $ - 1
                 or   e
                 ld   l,a                    ; low  = (row&1)*128 + col
                 ld   a,d
-                and  7
+                and  MAP_PAGES - 1
                 add  a,MAP_ADDR >> 8
                 ld   h,a                    ; high = &A0 + row/2
                 ld   a,(hl)                 ; the tile index
@@ -503,7 +554,8 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 ld   (COL_BOFF + 1),a       ; ... into the fetch below
                 ld   a,l
                 rrca
-                and  &7F                    ; map column 0-127
+                and  MAP_COL_MASK           ; map column 0-127
+PM_DC_COLM      equ  $ - 1
                 ld   c,a
 
                 ld   a,(WORLD_CR)
@@ -515,13 +567,19 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 ld   a,l
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
+PM_DC_ROWM      equ  $ - 1
+PM_DC_ROT       equ  $
                 rrca                        ; -> (row AND 1)<<7 | row>>1
+                nop
+                nop
+                nop
                 ld   b,a
-                and  &80
+                and  MAP_COL_COMP
+PM_DC_COMP      equ  $ - 1
                 or   c
                 ld   c,a
                 ld   a,b
-                and  7
+                and  MAP_PAGES - 1
                 add  a,MAP_ADDR >> 8
                 ld   b,a                    ; BC = map pointer
 
@@ -612,6 +670,7 @@ DRAW_COLUMN:    ld   (COL_SCOL),a           ; screen character column
                 ; &A000 - the 16-row wrap, free.
                 ld   a,c                    ; 4
                 add  a,MAP_W                ; 8
+PM_DC_STEP      equ  $ - 1
                 ld   c,a                    ; 4
                 jr   nc,.same_page          ; 12/8
                 inc  b                      ; 4
@@ -691,18 +750,25 @@ DRAW_ROW:       ld   e,a
                 ; map pointer = MAP_ADDR + (map_row << 7) + map_col
                 ld   a,c
                 rrca
-                and  &7F                    ; map column 0-127
+                and  MAP_COL_MASK           ; map column 0-127
+PM_DR_COLM      equ  $ - 1
                 ld   e,a
                 ld   a,(ROW_WR)
                 srl  a
                 and  MAP_ROW_MASK           ; map row 0-15
+PM_DR_ROWM      equ  $ - 1
+PM_DR_ROT       equ  $
                 rrca                        ; -> (row AND 1)<<7 | row>>1
+                nop
+                nop
+                nop
                 ld   d,a
-                and  &80
+                and  MAP_COL_COMP
+PM_DR_COMP      equ  $ - 1
                 or   e
                 ld   l,a
                 ld   a,d
-                and  7
+                and  MAP_PAGES - 1
                 add  a,MAP_ADDR >> 8
                 ld   h,a
                 ld   (ROW_MAPPTR),hl
@@ -783,10 +849,12 @@ ROW_FETCH:      ld   hl,(ROW_MAPPTR)
 ROW_NEXT_TILE:  ld   hl,(ROW_MAPPTR)
                 ld   a,l
                 inc  a
-                and  &7F
+                and  MAP_COL_MASK
+PM_RN_COLM      equ  $ - 1
                 ld   e,a
                 ld   a,l
-                and  &80
+                and  MAP_COL_COMP
+PM_RN_COMP      equ  $ - 1
                 or   e
                 ld   l,a
                 ld   (ROW_MAPPTR),hl
