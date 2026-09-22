@@ -15,16 +15,25 @@ So the order here is the order of how much each step could be fooled by:
                          computation from W and H, for all three shapes
   2. the refusals      - the shapes that are not shapes, and the one that
                          IS 2,048 bytes and is still refused
-  3. THE ADDRESSING    - MAP_CELL and ENT_CELL_OF called from a DI stub
-                         over a swept world, against MAP_ADDR + row*W +
-                         col, which is the format and not the engine
-  4. THE PICTURE       - a 32x64 level built here, installed on the
+  3. THE ADDRESSING    - MAP_CELL called from a DI stub over a swept
+                         world, against MAP_ADDR + row*W + col, which is
+                         the format and not the engine
+  4. the bake's cell   - ENT_CELL_OF and ENT_CELL_REPAINT, the same
+                         packing forwards and backwards, so they are
+                         each other's control as well as the format's
+  5. THE PICTURE       - a 32x64 level built here, installed on the
                          machine, and 15,360 bytes of video RAM against
-                         a model that knows only W, H and the tiles
+                         a model that knows only W, H and the tiles -
+                         standing, walked to the map's own right-hand
+                         bound, and scrolled down and back up
 
-and the negative control is the whole of it with MAP_SHAPE_SET poked to
-RET: the engine then keeps the City's shape, every check above 1 still
-passes on the City, and the vertical level draws the wrong cells.
+and there are two negative controls, because there are two things that
+could be doing nothing. MAP_SHAPE_SET poked to RET leaves the engine in
+the City's shape: every check above still passes on the City and the
+vertical level draws 13,000 wrong bytes. And ENT_CELL_YHI put back to
+`ld d,0` - the record's y read as one byte, in the same two bytes of
+code - moves 110 of 143 pickups on a 32x64 map and NONE AT ALL on the
+City, which is why nothing had ever seen it.
 """
 import os
 import sys
@@ -315,6 +324,99 @@ def main():
                                     f"{first[1]}: &{first[2]:04X} want "
                                     f"&{first[3]:04X}"))
     # -----------------------------------------------------------------
+    # AND THE PICKUP BAKE'S OWN ARITHMETIC, BOTH WAYS ROUND. ENT_CELL_OF
+    # turns a record into the map byte it stands on and ENT_CELL_REPAINT
+    # turns that byte back into the character cell it is - the same
+    # packing read forwards and backwards, so they are each other's
+    # control as well as the format's.
+    #
+    # AND IT IS WHERE THE Y WIDENING WAS STILL OWED. ENT_CELL_OF read
+    # the record's y as ONE BYTE, which is every level that is 16 tiles
+    # tall and no level that is 64: a pickup at row 20 of a 32x64 map
+    # baked itself into row 4 - drawn somewhere else on the map, and
+    # still takeable where the record says. Nothing on the hardware says
+    # so, which is the whole class of fault CLAUDE.md 11 step 7 is about.
+    print("\n  ENT_CELL_OF and ENT_CELL_REPAINT, forwards and back:")
+    REC = 0x9300
+    for w, h in ((128, 16), (64, 32), (32, 64)):
+        install(m, sym, w, h)
+        bad, back, n, first = 0, 0, 0, None
+        for col in range(0, w, 3):
+            for row in range(1, h, 5):
+                x, y = col * 8, row * 16 + 16      # y is the BASE of the box
+                m.write_ram(REC, bytes([1, x & 255, x >> 8,
+                                        y & 255, y >> 8, 9, 0, 0]))
+                code = (b"\xf3"
+                        + bytes([0x21, REC & 255, REC >> 8])
+                        + bytes([0xCD, sym["ENT_CELL_OF"] & 255,
+                                 sym["ENT_CELL_OF"] >> 8,
+                                 0x22, 0x80, 0x93,             # ld (&9380),hl
+                                 0xCD, sym["ENT_CELL_REPAINT"] & 255,
+                                 sym["ENT_CELL_REPAINT"] >> 8,
+                                 0x18, 0xFE]))
+                m.write_ram(STUB, code)
+                m.set_pc(STUB)
+                end = STUB + len(code) - 2
+                for _ in range(400000):
+                    m.run_us(1)
+                    if m.pc == end:
+                        break
+                got = m.peek(0x9380) | (m.peek(0x9381) << 8)
+                exp = MAP_ADDR + row * w + col
+                n += 1
+                if got != exp:
+                    bad += 1
+                    if first is None:
+                        first = (col, row, got, exp)
+                if (m.peek(sym["ENT_RP_WC"]), m.peek(sym["ENT_RP_WR"])) \
+                        != ((col * 2) & 255, (row * 2) & 255):
+                    back += 1
+        check(f"{w}x{h}: a record bakes into the cell it stands on", bad == 0,
+              f"{n} placements, {bad} wrong"
+              + ("" if not bad else f"; first at tile ({first[0]},{first[1]}): "
+                                    f"&{first[2]:04X} want &{first[3]:04X}"))
+        check(f"{w}x{h}: ... and the cell says which one it was", back == 0,
+              f"{n} cells, {back} decoded to another character cell")
+
+    # AND THE CONTROL IS THE OLD READING PUT BACK, in the same two
+    # bytes: `ld d,0` is &16 &00 against `inc hl : ld d,(hl)`'s &23 &56,
+    # so the engine is byte for byte itself except that the record's y
+    # is one byte again. On the CITY that changes nothing - a 16-tile
+    # map is 256 lines and the high byte is always zero - and on a
+    # 32x64 one it puts every pickup below row 15 somewhere else.
+    for w, h, want in ((128, 16, 0), (32, 64, 1)):
+        install(m, sym, w, h)
+        m.write_ram(sym["ENT_CELL_YHI"], b"\x16\x00")     # ld d,0
+        bad = 0
+        for col in range(0, w, 3):
+            for row in range(1, h, 5):
+                x, y = col * 8, row * 16 + 16
+                m.write_ram(REC, bytes([1, x & 255, x >> 8,
+                                        y & 255, y >> 8, 9, 0, 0]))
+                code = (b"\xf3" + bytes([0x21, REC & 255, REC >> 8])
+                        + bytes([0xCD, sym["ENT_CELL_OF"] & 255,
+                                 sym["ENT_CELL_OF"] >> 8,
+                                 0x22, 0x80, 0x93, 0x18, 0xFE]))
+                m.write_ram(STUB, code)
+                m.set_pc(STUB)
+                end = STUB + len(code) - 2
+                for _ in range(200000):
+                    m.run_us(1)
+                    if m.pc == end:
+                        break
+                if (m.peek(0x9380) | (m.peek(0x9381) << 8)) \
+                        != MAP_ADDR + row * w + col:
+                    bad += 1
+        m.write_ram(sym["ENT_CELL_YHI"], b"\x23\x56")     # inc hl : ld d,(hl)
+        check(f"{w}x{h}: ... and with the record's y read as ONE byte, "
+              + ("nothing moves" if not want else "most of them move"),
+              (bad == 0) == (want == 0),
+              f"{bad} wrong - a {h}-tile map is {h * 16} lines, and "
+              + ("one byte reaches all of them" if not want
+                 else "one byte reaches 256 of them"))
+    install(m, sym, 128, 16)
+
+    # -----------------------------------------------------------------
     # AND THEN THE PICTURE, WHICH IS THE ONE THAT CANNOT BE FOOLED BY
     # ARITHMETIC. A 32x64 level is built here - the format's own bytes,
     # written by hand, which makes this a second writer as well as a
@@ -342,6 +444,41 @@ def main():
               bad == 0,
               f"{bad} of {len(want)} bytes wrong, view scroll={st[0]} "
               f"world=({st[1]},{st[2]})")
+
+        # AND ONE CELL REPAINTED, which is the only way TILE_SRC is
+        # ever reached: DRAW_PLAYFIELD and the scroll go through
+        # DRAW_COLUMN and DRAW_ROW, and TILE_SRC is DRAW_CELL's, which
+        # is a taken pickup putting its cell back (CLAUDE.md 8.6).
+        #
+        # IT IS "PUT IT BACK" AND NOT "CHANGE NOTHING", and the
+        # difference is the whole check. ENT_CELL_REPAINT returns
+        # without drawing when the cell is off the display, so a check
+        # that only asked for the picture to be unchanged would pass
+        # for a routine that did nothing at all. The four character
+        # cells are scribbled over FIRST, which is asserted to have
+        # broken the picture by exactly their 64 bytes - and then the
+        # repaint has to find them again through the map.
+        row, col = st[2] // 2 + 2, st[1] // 2 + 4
+        cell = MAP_ADDR + row * w + col
+        for dy in range(2):
+            for dx in range(2):
+                cr, cx = row * 2 + dy - st[2], col * 2 + dx - st[1]
+                word = (st[0] + cr * SCR_CHARS + cx) & 0x3FF
+                for raster in range(8):
+                    a = 0xC000 + (raster << 11) + word * 2
+                    m.poke(a, 0xFF)
+                    m.poke(a + 1, 0xFF)
+        vram = m.read_ram(0xC000, 0x4000)
+        broke = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
+        call(m, sym, sym["ENT_CELL_REPAINT"],
+             bytes([0x21, cell & 255, cell >> 8]))
+        vram = m.read_ram(0xC000, 0x4000)
+        bad = sum(1 for a, v in want.items() if vram[a - 0xC000] != v)
+        check(f"{w}x{h}: ... and a scribbled cell comes back through "
+              f"TILE_SRC", broke == 64 and bad == 0,
+              f"{broke} bytes of the picture broken at tile ({col},{row}) "
+              f"- four character cells of eight rasters - and {bad} left "
+              f"wrong after the repaint")
         M4.MAP_W, M4.MAP_H = 128, 16
 
     # -----------------------------------------------------------------

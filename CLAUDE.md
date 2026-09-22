@@ -2994,19 +2994,44 @@ the one below as the thing it could be fooled by:
 | the bytes | all 36 sites against an independent computation from W and H, for all three shapes |
 | the refusals | three different ones: 64×16 (1,024 bytes), 96×32 (not a power of two, and 3,072), and **16×128, which IS 2,048 and is still refused** |
 | `MAP_CELL` | **2,594 world placements** across the three shapes, against `MAP_ADDR + row * W + col` — the format, with no engine in it |
+| the bake's cell | `ENT_CELL_OF` and `ENT_CELL_REPAINT` over a swept map, the same packing forwards and backwards, so they are each other's control as well as the format's — **426 placements** |
 | **the picture** | a 32×64 level built by the suite's own writer, installed through `SCROLL_INIT`, and **15,360 bytes of playfield with 0 wrong** — standing, walking to the map's right edge, scrolling down and back up |
 
-and its control is the whole of it with `MAP_SHAPE_SET` poked to `RET`:
-the same vertical level then draws **13,083 wrong bytes of 15,360**,
-because a 32-wide map read with a 128-wide map's masks is a picture of
-the wrong cells. The walk is also the camera's own bound measured
-rather than read back: on a 32-wide map the view stops at
-`W * 2 − SCR_CHARS` = **24**, and it reached exactly 24.
+and it carries **two** controls, because there are two things that could
+be doing nothing:
+
+* `MAP_SHAPE_SET` poked to `RET` leaves the engine in the City's shape:
+  every check still passes on the City and the same vertical level then
+  draws **13,083 wrong bytes of 15,360**, because a 32-wide map read
+  with a 128-wide map's masks is a picture of the wrong cells;
+* and `ENT_CELL_YHI` put back to `ld d,0` — §8.6's own eight-bit Y, in
+  the same two bytes of code.
+
+**And one check inside it is "put it back" rather than "change
+nothing", which is the difference between a check and a shrug.**
+`TILE_SRC` is only ever reached through `DRAW_CELL`, which is a taken
+pickup's repaint, and `ENT_CELL_REPAINT` returns without drawing when
+the cell is off the display — so the four character cells are
+scribbled over FIRST, the break asserted at exactly their **64 bytes**,
+and the repaint then has to find them again through the map.
+
+The walk is the camera's own bound measured rather than read back: on a
+32-wide map the view stops at `W * 2 − SCR_CHARS` = **24**, and it
+reached exactly 24.
+
+**AND IT FOUND ONE MORE BYTE THAT SHOULD HAVE BEEN A WORD**, which is
+what a suite that drives a shape nobody has ever built is for:
+`ENT_CELL_OF` read the pickup record's y as a single byte, so a pickup
+below row 15 of a tall map baked itself somewhere else and stayed
+takeable where the record said. §8.6 has it and the control that
+measures it — 110 of 143 placements move on a 32×64 map and **none at
+all on the City**, which is why nothing had ever seen it.
 
 **What is NOT in this slice**: the enemy slot's `ES_Y` is still a byte,
-so a drone above world line 256 of a tall level is a separate piece of
-work; and the editor's half — a project's own width, and a canvas that
-draws it — is §11 step 7.
+so a drone below world line 256 of a tall level is a separate piece of
+work; and a 32×64 level painted in the EDITOR and put on a disc — the
+suite builds its own by hand, which is a second writer and not a
+designer.
 
 #### Byte 3 and byte 9 are DIFFERENT NUMBERS, and they were the same one
 
@@ -3499,9 +3524,11 @@ automatic when both magazines hit 0; during reload the player is slowed or froze
 **A round dies on a solid tile, and the probe is a coordinate
 conversion.** The pool holds SCREEN coordinates and the map is in WORLD
 ones, so the round's byte column and its scanline are lifted into the
-world — `+ WORLD_X * 2` across and `+ WORLD_CR * 8` down, the row
-wrapping in a byte because that IS the map's height — and handed to
-`MAP_ATTR`. `TA_SOLID` only: a platform is a floor you jump up through
+world — `+ WORLD_X * 2` across and `+ WORLD_CR * 8` down — and handed
+to `MAP_ATTR`. **Both are sixteen bits.** The row used to wrap in a
+byte "because that IS the map's height", which was true of every level
+while every level was 16 tiles tall and is the sentence a 64-tall map
+takes away (§8.1, §8.3). `TA_SOLID` only: a platform is a floor you jump up through
 and a round crossing its edge should not stop dead in mid-air. Their
 rounds use the same code.
 
@@ -3611,8 +3638,9 @@ speed, the box, the art and the hit points come from the type instead
 
 `ENTITY_COLLISION_CHECK` takes the `EF_` bits an entity must have in
 `A` and publishes the first record whose box meets hers in `ENT_HIT`.
-The AABB is a separating-axis test — X 16-bit in bytes, Y 8-bit
-because the map is 256 lines tall. `ENT_UPDATE` runs it twice: once for
+The AABB is a separating-axis test, **sixteen bits on both axes** — X
+in bytes and Y in lines. Y was eight, "the map is 256 lines tall",
+which was every level while every level was 16 tiles tall (§8.1). `ENT_UPDATE` runs it twice: once for
 `EF_TOUCH` (a pickup, taken on contact — a key you have to ask for is a
 key the player walks past) and once, on an `IN_INTERACT` **press**, for
 the things that spend something. The five handlers are
@@ -3753,6 +3781,32 @@ written. **129,742 µs for a key before, 36,769 after.**
 `tools/test_entities.py` bakes **all six kinds** now and composites each
 against an independent reading of the span format, with the old routine
 as the control: three of its five new checks fail on it, naming `PU_5`.
+
+#### And the bake's own Y was a byte, which is every level 16 tiles tall
+
+`ENT_CELL_OF` turns a record into the map byte it stands on, and it
+read the record's **y as one byte** — which is right for as long as
+every level is 256 lines tall and wrong the moment one is 1,024
+(§8.3). A pickup at row 20 of a 32×64 map baked itself into **row 4**:
+drawn somewhere else on the map, and still takeable where the record
+says. That is the shape of every fault §11 step 7 is about — the level
+loads, the picture is right, and one thing is not in it — and it is
+one the editor's validator cannot see, because the record is perfectly
+legal.
+
+The AABB's Y was widened with the rest of world Y (§8.1); this was the
+site that read a record rather than a position, and it was missed
+because **nothing that measures the City can see it**. The control says
+so exactly: `ENT_CELL_YHI` names the two bytes, so a test can put the
+old reading back in the same two — `ld d,0` is `&16 &00` against
+`inc hl : ld d,(hl)`'s `&23 &56` — and the engine is then byte for byte
+itself except in its Y. Measured over a swept map, in
+`tools/test_shape.py`:
+
+| | placements | wrong with the old reading |
+|---|---:|---:|
+| 128×16, the City | 129 | **0** — 256 lines, and one byte reaches all of them |
+| 32×64 | 143 | **110** |
 
 `ENT_STAMP` is the one place the column-major tile layout of §9 is
 *written* rather than read, so it is the one place the formula appears
@@ -4846,6 +4900,10 @@ has left: the sum adds worsts that do not co-occur, and this does not
 add anything at all.
 
 #### And what 16-bit world Y would cost, which is what the measurement was for
+
+(**World Y is sixteen bits now** — the section below this one is what
+it cost. What follows is the measurement that decided it, kept because
+it is the estimate the result has to be read against.)
 
 **World X is 16 bits and world Y is a byte** (§8.10), which caps a
 level at 256 pixels tall — sixteen tiles, the shape every level has.

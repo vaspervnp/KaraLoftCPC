@@ -943,9 +943,19 @@ ENT_BAKE_ONE:   ld   a,(hl)
 ; ---------------------------------------------------------------------
 ; ENT_CELL_OF - HL = a record -> HL = the map byte it stands on.
 ;
-; The map byte for (col, row) is MAP_ADDR + row * 128 + col, which is
-; the same address TILE_SRC builds from a character cell - MAP_W is
-; 128, so the row is the top of the low byte and the column is the rest.
+; The map byte for (col, row) is MAP_ADDR + row * W + col, which is the
+; same address TILE_SRC builds from a character cell: the row's low bits
+; are the top of the low byte and the column is the rest of it, and how
+; many of each is the shape (src/mapshape.asm).
+;
+; AND THE RECORD'S Y IS SIXTEEN BITS, WHICH IT HAD TO BECOME HERE TOO.
+; This read the LOW BYTE alone and worked for as long as every level was
+; 16 tiles tall - 256 lines, one byte. A 64-tall map is 1,024 lines, so
+; a pickup at row 20 baked itself into row 4: DRAWN somewhere else on
+; the map and still takeable where the record says. That is the shape of
+; every fault CLAUDE.md 11 step 7 exists to catch - the level loads, the
+; picture is right, and one thing is not in it - and it is exactly what
+; the editor's own validator cannot see.
 ;                                destroys AF,BC,DE
 ; ---------------------------------------------------------------------
 ENT_CELL_OF:    inc  hl
@@ -953,7 +963,15 @@ ENT_CELL_OF:    inc  hl
                 inc  hl
                 ld   b,(hl)
                 inc  hl
-                ld   e,(hl)                 ; y, the BASE of the box
+                ld   e,(hl)                 ; y, the BASE of the box ...
+                ; ... AND THE HIGH BYTE OF IT, WHICH IS TWO BYTES AND IS
+                ; WHERE THE 16-TILE ASSUMPTION LIVED. They are named so a
+                ; test can put the old reading back in the same two bytes
+                ; - `ld d,0` is &16 &00 against `inc hl : ld d,(hl)`'s
+                ; &23 &56 - which is what tools/test_shape.py pokes to
+                ; show this is the check and not a coincidence.
+ENT_CELL_YHI:   inc  hl
+                ld   d,(hl)                 ; ... and it is a word
                 srl  b
                 rr   c
                 srl  b
@@ -966,11 +984,24 @@ PM_EC_COLM      equ  $ - 1
                 ld   c,a
                 ld   a,e
                 sub  PICKUP_H               ; the record anchors the BASE
+                ld   e,a
+                jr   nc,.row
+                dec  d
+.row:           ld   a,d                    ; DE >> 4, in a byte, which is
+                rrca                        ; as much row as any shape has
+                rrca
+                rrca
+                rrca
+                and  &F0
+                ld   d,a
+                ld   a,e
                 rrca
                 rrca
                 rrca
                 rrca
-                and  MAP_ROW_MASK           ; (y - 16) >> 4 = the map row
+                and  &0F
+                or   d
+                and  MAP_ROW_MASK           ; ... the row this cell is in
 PM_EC_ROWM      equ  $ - 1
 PM_EC_ROT       equ  $
                 rrca                        ; -> (row&1)<<7 | row>>1

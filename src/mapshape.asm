@@ -21,7 +21,7 @@
 ; fifteen times a frame by the box probes and TILE_SRC once per cell of
 ; a repaint - and the run-and-fire path has about 800 T of slack (9).
 ; Reading a shape byte out of memory at each of them is 7 T against an
-; immediate's 0, on thirty sites. Patched once at MAP_INSTALL they cost
+; immediate's 0, on thirty-six sites. Patched once at MAP_INSTALL they cost
 ; nothing at all, which is what lets the shape be a level's property
 ; without the City paying for it.
 ;
@@ -74,6 +74,14 @@ SHAPE_CITY:     db  127, &80, 15, 0, 128, 1, 3, 1
                 db  (16 * 16 - SCR_CHAR_ROWS * 8) / 8
 
 SHAPE_NOW:      ds  SHAPE_STRIDE            ; the shape in force
+
+                ; ... AND THE TABLE HAS EXACTLY THE ROWS MAP_SHAPE_SET
+                ; INDEXES. It does `A - SHAPE_MIN_LOG` times SHAPE_STRIDE
+                ; and reads twelve bytes; a row added without a
+                ; SHAPE_MAX_LOG to go with it, or a field added to one
+                ; row and not the others, is a shape read out of the
+                ; next one's bytes. RASM counts it here instead.
+                assert SHAPE_NOW - SHAPE_TABLE == SHAPE_N * SHAPE_STRIDE
 
 ; ---------------------------------------------------------------------
 ; MAP_SHAPE_SET - A = log2 of the map's width. Carry set = refused.
