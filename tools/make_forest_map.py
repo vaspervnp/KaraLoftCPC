@@ -125,23 +125,102 @@ def tile_names():
 # THE LEVEL, left to right. Every number here is a TILE column, and the
 # sections are written in the order she meets them.
 # ---------------------------------------------------------------------
-TREES = (9, 24, 47, 66, 96, 110)        # the two-tile trunk's LEFT column
-PITS = ((14, 2), (30, 3), (72, 3), (102, 3))    # (left column, width)
-# HER JUMP IS 36 PIXELS AND A ROW IS 16, so a branch two rows above
-# whatever she is standing on is the most she can reach: row 7 from the
-# ground, row 5 from row 7. A row-5 branch with no row-7 branch under
-# it is scenery, and the key on it is a level that cannot be finished -
-# which is what `reachable` below is for, and what it caught here.
-BRANCHES = ((18, 4, 7), (34, 4, 7), (36, 5, 5),
-            (78, 4, 7), (84, 4, 7), (86, 5, 5), (114, 4, 7))
-MOUNTAIN = (52, 62)                     # left and right columns, inclusive
-CAVE = 120                              # the mouth's left column, 4 wide
-DECO = {6: "bush_l", 7: "bush_r", 21: "rock", 28: "flowers",
-        34: "mushrooms", 44: "bush_l", 45: "bush_r", 69: "rock",
-        75: "flowers", 84: "mushrooms", 93: "rock", 107: "flowers"}
+# ---------------------------------------------------------------------
+# THE COMPOSITION, ONE ENTRY A LEVEL. Everything above this line is the
+# artist's - the bands, the names, the flags - and everything in a
+# LAYOUT is a designer's: where the trees stand, where the ground is cut
+# and where the branches are. Two levels share the machinery below
+# because they share an environment; what makes them different levels
+# is entirely in here.
+#
+# Level 5 is unchanged to the byte, which is the control on this being a
+# refactor rather than a rewrite: tools/test_forest.py plays it.
+# ---------------------------------------------------------------------
+LEVEL_5 = dict(
+    level_id=5,
+    start_x=3,
+    trees=(9, 24, 47, 66, 96, 110),     # the two-tile trunk's LEFT column
+    pits=((14, 2), (30, 3), (72, 3), (102, 3)),     # (left column, width)
+    # (left column, length, row). THE ROWS ARE 5 AND 7 AND THAT IS HER
+    # JUMP: 36 pixels against a 16-pixel row is two rows, so a row-5
+    # branch with no row-7 branch under it is scenery - see reachable().
+    branches=((18, 4, 7), (34, 4, 7), (36, 5, 5),
+              (78, 4, 7), (84, 4, 7), (86, 5, 5), (114, 4, 7)),
+    mountain=(52, 62),                  # left and right columns, inclusive
+    caves=(120,),                       # each mouth's left column, 4 wide;
+                                        # the DOOR goes in the last one
+    deco={6: "bush_l", 7: "bush_r", 21: "rock", 28: "flowers",
+          34: "mushrooms", 44: "bush_l", 45: "bush_r", 69: "rock",
+          75: "flowers", 84: "mushrooms", 93: "rock", 107: "flowers"},
+    snipers=(),
+    entities=[
+        # kind, tile x, the row it STANDS on, flags, p0, p1
+        ("start", 3, None, 0, 0),
+        # THE KEY IS ON A BRANCH, which is what makes the platforms the
+        # level rather than scenery: the way out is behind a jump.
+        ("key", 38, 5, 0, 0),
+        ("ammo", 20, None, 14, 0),
+        ("medkit", 64, None, 0, 0),
+        # ... and the IDOL is the one pickup drawn out of the forest's
+        # OWN sheet - forestpickups carries nothing else (CLAUDE.md 8.6).
+        ("idol", 100, None, 0, 0),
+        # The altar takes it: level 2's signature, and PLACE_STATUE is
+        # the handler that has been waiting for a level with one in it.
+        ("altar", 117, None, 0, 0),
+        ("door", None, None, 0, 0),     # in the last cave mouth
+    ],
+)
+
+# ---------------------------------------------------------------------
+# LEVEL 6 - through the cave mouth level 5 ends at, and out the other
+# side of it. Level 5's door is an EK_DOOR in its cave at tile 120 and
+# LEVEL_GOTO goes to LEVEL_CUR + 1 (CLAUDE.md 8.1), so this is the map
+# that door has been leading to since the day it was placed. Same
+# environment - levels 5-8 are the forest - so the transition is one
+# sector and no art at all.
+#
+# IT OPENS ON A CAVE MOUTH INSTEAD OF ENDING ON ONE, which is the whole
+# of what says the two are consecutive: she walks out of the dark at
+# the left edge and the forest is in front of her again.
+#
+# AND IT IS THE FIRST MAP DESIGNED WITH THE SPIKES AS A MECHANIC. When
+# level 5 was drawn, TA_HAZARD had no reader and its pits were a dip
+# (8.12); they bite for 16 now. So level 6 has THREE pits and not four,
+# every one of them at most 3 tiles - which a RUN clears in its 15-frame
+# arc and a walk does not (8.8) - and a medkit between the second and
+# the third. What that comes to end to end is measured rather than
+# hoped: see tools/test_forest.py.
+#
+# THE KEY IS TWO BRANCHES UP, which is level 5's idea taken one step:
+# there the key sat on a row-5 branch with a row-7 branch under it, and
+# here the climb is the point - ground to row 7, row 7 to row 5, each
+# inside the two rows her jump reaches.
+LEVEL_6 = dict(
+    level_id=6,
+    start_x=3,                          # on the cave floor she came out of
+    trees=(12, 30, 58, 76, 104),
+    pits=((18, 2), (52, 3), (88, 3)),
+    branches=((22, 4, 7), (62, 5, 7), (65, 5, 5), (94, 4, 7), (110, 5, 7)),
+    mountain=(36, 46),
+    caves=(1, 120),                     # ... in at the left, out at the right
+    deco={8: "bush_l", 9: "bush_r", 25: "rock", 48: "flowers",
+          68: "mushrooms", 96: "rock", 112: "flowers"},
+    snipers=(),
+    entities=[
+        ("start", 3, None, 0, 0),
+        ("ammo", 26, None, 14, 0),
+        ("key", 67, 5, 0, 0),           # the top of the climb
+        ("medkit", 72, None, 0, 0),
+        ("idol", 98, None, 0, 0),
+        ("altar", 116, None, 0, 0),
+        ("door", None, None, 0, 0),
+    ],
+)
+
+LAYOUTS = (LEVEL_5, LEVEL_6)
 
 
-def build_map(t):
+def build_map(t, L):
     """The 128x16 grid, as the artist's bands with the level cut into it."""
     g = [[t["far_trunks_a"]] * MAP_W for _ in range(MAP_H)]
     for x in range(MAP_W):
@@ -159,7 +238,7 @@ def build_map(t):
     # "mtn_slope (45-degree left edge) over far_trunks rows,
     #  mtn_slope_base in the far_base row" - so the slope walks in one
     # column a row as it comes down, and the rock fills behind it.
-    left, right = MOUNTAIN
+    left, right = L["mountain"]
     for i, r in enumerate(ROW_TRUNKS):
         g[r][left + i] = t["mtn_slope"]
         for x in range(left + i + 1, right + 1):
@@ -168,7 +247,7 @@ def build_map(t):
         g[ROW_BASE][x] = t["mtn_slope_base"]
 
     # ---- the big trees, two tiles wide ----------------------------
-    for x in TREES:
+    for x in L["trees"]:
         for r in ROW_TRUNKS:
             g[r][x], g[r][x + 1] = t["trunk_l"], t["trunk_r"]
         g[ROW_BASE][x], g[ROW_BASE][x + 1] = t["trunk_l"], t["trunk_r"]
@@ -182,11 +261,11 @@ def build_map(t):
     # ---- the branch platforms -------------------------------------
     # A branch that leaves a trunk gets the knot cel, which is what the
     # artist drew it for; one in mid-air simply starts with branch_l.
-    for x, n, row in BRANCHES:
+    for x, n, row in L["branches"]:
         for i in range(n):
             g[row][x + i] = t["branch_l" if i == 0 else
                               "branch_r" if i == n - 1 else "branch_m"]
-        for tx in TREES:
+        for tx in L["trees"]:
             if tx == x + n:                     # it meets a trunk's left side
                 g[row][tx] = t["trunk_knot_l"]
             if tx + 1 == x - 1:                 # ... or its right
@@ -196,30 +275,34 @@ def build_map(t):
     # "grass_edge_r, spike_pit x N, grass_edge_l" - the edges face IN,
     # which is the artist's naming and not a mistake here: the tile on
     # the pit's left is the RIGHT-hand edge of the grass before it.
-    for x, n in PITS:
+    for x, n in L["pits"]:
         g[ROW_GROUND][x - 1] = t["grass_edge_r"]
         for i in range(n):
             g[ROW_GROUND][x + i] = t["spike_pit"]
         g[ROW_GROUND][x + n] = t["grass_edge_l"]
 
     # ---- the deco on the undergrowth row --------------------------
-    for x, name in DECO.items():
+    for x, name in L["deco"].items():
         g[ROW_BASE][x] = t[name]
 
-    # ---- and the cave mouth, which is the way out -----------------
+    # ---- and the cave mouths --------------------------------------
     # 4 wide x 6 high, ending IN the ground row: arch, four rows of
-    # sides, floor.
+    # sides, floor. Level 5 has one and it is the way OUT; level 6 has
+    # two and the first is the way IN - the same six rows of tiles read
+    # as an entrance or an exit depending only on which end of the map
+    # they are at, which is why there is no second set of art for it.
     arch = ROW_GROUND - 5
-    for i in range(4):
-        g[arch][CAVE + i] = t[f"cave_arch_{i}"]
-    for r in range(arch + 1, ROW_GROUND):
-        g[r][CAVE] = t["cave_side_l"]
-        g[r][CAVE + 1] = t["cave_dark"]
-        g[r][CAVE + 2] = t["cave_dark"]
-        g[r][CAVE + 3] = t["cave_side_r"]
-    for i, name in enumerate(("cave_floor_l", "cave_floor",
-                              "cave_floor", "cave_floor_r")):
-        g[ROW_GROUND][CAVE + i] = t[name]
+    for cave in L["caves"]:
+        for i in range(4):
+            g[arch][cave + i] = t[f"cave_arch_{i}"]
+        for r in range(arch + 1, ROW_GROUND):
+            g[r][cave] = t["cave_side_l"]
+            g[r][cave + 1] = t["cave_dark"]
+            g[r][cave + 2] = t["cave_dark"]
+            g[r][cave + 3] = t["cave_side_r"]
+        for i, name in enumerate(("cave_floor_l", "cave_floor",
+                                  "cave_floor", "cave_floor_r")):
+            g[ROW_GROUND][cave + i] = t[name]
     return bytes(b for row in g for b in row)
 
 
@@ -235,13 +318,12 @@ def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
 # falls the last 16 pixels onto it - free against FALL_FREE of 96. A
 # 64-line box placed level with the tiles starts INSIDE them and the
 # landing snaps her a whole row low.
-START_X = 3
-
-# AND IT SHIPS WITH NO ENEMIES, WHICH IS A MEASUREMENT AND NOT AN
-# OVERSIGHT. The forest's only ranged character is the sniper, and it is
-# 12x64 - agent class, which CLAUDE.md 8.7 measured as unaffordable at
-# 50 Hz and 9 called affordable at 25 Hz ON PAPER, with nothing having
-# measured it. Two of them went in this map and the measurement is
+#
+# AND BOTH LEVELS SHIP WITH NO ENEMIES, WHICH IS A MEASUREMENT AND NOT
+# AN OVERSIGHT. The forest's only ranged character is the sniper, and it
+# is 12x64 - agent class, which CLAUDE.md 8.7 measured as unaffordable
+# at 50 Hz and 9 called affordable at 25 Hz ON PAPER, with nothing
+# having measured it. Two of them went in level 5 and the measurement is
 # what took them out: standing beside one, the loop is
 #
 #     80 game frames in 200 hardware, against 100 with ENEMY_LIVE at 0
@@ -255,32 +337,49 @@ START_X = 3
 # would shoot invisible bullets. That is the work level 2's enemies are
 # waiting on, and EN_SNIPER stays in the type table the way EN_AGENT
 # has - correct data that the frame cannot spend yet.
-SNIPERS = ()
+
+# What each name in a LAYOUT's `entities` means, in the engine's terms:
+# the kind, the flag bits, and which of p0/p1 the two numbers are. `p0
+# is always "which thing this is"' (CLAUDE.md 8.6).
+ENTITY_KINDS = {
+    "start":  (EK_PLAYER_START, EF_ACTIVE, 0),
+    "key":    (EK_PICKUP, EF_ACTIVE | EF_TOUCH, PU_KEY),
+    "ammo":   (EK_PICKUP, EF_ACTIVE | EF_TOUCH, PU_AMMO),
+    "medkit": (EK_PICKUP, EF_ACTIVE | EF_TOUCH, PU_MEDKIT),
+    "idol":   (EK_PICKUP, EF_ACTIVE | EF_TOUCH, PU_IDOL),
+    "altar":  (EK_RECEPTACLE, EF_ACTIVE, PU_IDOL),
+    "door":   (EK_DOOR, EF_ACTIVE | EF_SOLID, 0),
+}
 
 
-def build_entities(t):
-    recs = [
-        entity(EK_PLAYER_START, START_X, ROW_GROUND - 1, EF_ACTIVE),
-        # THE KEY IS ON A BRANCH, which is what makes the platforms the
-        # level rather than scenery: the way out is behind a jump.
-        entity(EK_PICKUP, 38, 5, EF_ACTIVE | EF_TOUCH, PU_KEY),
-        entity(EK_PICKUP, 20, ROW_GROUND, EF_ACTIVE | EF_TOUCH, PU_AMMO, 14),
-        entity(EK_PICKUP, 64, ROW_GROUND, EF_ACTIVE | EF_TOUCH, PU_MEDKIT),
-        # ... and the IDOL is the one pickup drawn out of the forest's
-        # OWN sheet - forestpickups carries nothing else (CLAUDE.md 8.6).
-        entity(EK_PICKUP, 100, ROW_GROUND, EF_ACTIVE | EF_TOUCH, PU_IDOL),
-        # The altar takes it: level 2's signature, and PLACE_STATUE is
-        # the handler that has been waiting for a level with one in it.
-        entity(EK_RECEPTACLE, 117, ROW_GROUND, EF_ACTIVE, PU_IDOL, 1),
-        entity(EK_DOOR, CAVE + 1, ROW_GROUND, EF_ACTIVE | EF_SOLID, 0, PU_KEY),
-    ]
-    for x in SNIPERS:
+def build_entities(t, L):
+    """A LAYOUT's records, in the order it lists them.
+
+    The order is the FILE's order and it matters: the engine clears its
+    24 slots and LDIRs count * 8 bytes over the front, so the records
+    have to be contiguous from zero (CLAUDE.md 8.3).
+    """
+    recs = []
+    for name, x, row, p1, _ in L["entities"]:
+        kind, flags, p0 = ENTITY_KINDS[name]
+        if name == "door":
+            # THE DOOR IS IN THE LAST CAVE MOUTH, whichever that is -
+            # level 5 has one and level 6 has two, and the way OUT is
+            # the one furthest along. Its p1 is the PU_* that opens it.
+            x, p0, p1 = L["caves"][-1] + 1, 0, PU_KEY
+        if name == "altar":
+            p1 = 1                       # how many it still wants
+        if name == "start":
+            row = ROW_GROUND - 1         # a row high, so she falls onto it
+        recs.append(entity(kind, x, ROW_GROUND if row is None else row,
+                           flags, p0, p1))
+    for x in L["snipers"]:
         recs.append(entity(EK_ENEMY, x, ROW_GROUND, EF_ACTIVE,
                            EN_SNIPER, PATROL))
     return b"".join(recs)
 
 
-def reachable(m, t):
+def reachable(m, t, L):
     """Every place she can stand, from the start, and how she gets there.
 
     THE EDITOR'S GENERATOR HAS THIS AND A HAND-MADE LEVEL NEEDS IT MORE:
@@ -307,8 +406,9 @@ def reachable(m, t):
                 return r
         return None
 
-    start = under(START_X, ROW_GROUND - 1)
-    seen, queue = set(), [(START_X, start)]
+    sx = L["start_x"]
+    start = under(sx, ROW_GROUND - 1)
+    seen, queue = set(), [(sx, start)]
     while queue:
         x, row = queue.pop()
         if (x, row) in seen or row is None:
@@ -326,7 +426,7 @@ def reachable(m, t):
     return seen
 
 
-def checks(m, t, ents):
+def checks(m, t, ents, L):
     """What the engine would read a byte of, do nothing about, and carry
     on past - so it is refused here instead (CLAUDE.md 11 step 7)."""
     assert len(ents) // 8 <= ENT_MAX, f"{len(ents) // 8} records"
@@ -351,7 +451,7 @@ def checks(m, t, ents):
     # ... AND EVERY THING SHE HAS TO TOUCH MUST BE SOMEWHERE SHE CAN
     # STAND. A record's row is the floor it stands on and not the cell
     # it is in: y is the BASE of the hitbox (CLAUDE.md 8.6).
-    where = reachable(m, t)
+    where = reachable(m, t, L)
     for i in range(0, len(ents), 8):
         if ents[i] not in (EK_PICKUP, EK_DOOR, EK_RECEPTACLE):
             continue
@@ -373,10 +473,11 @@ def checks(m, t, ents):
 
 def main():
     t = tile_names()
-    m = build_map(t)
-    ents = build_entities(t)
-    pickups, enemies, pit_tiles = checks(m, t, ents)
 
+    # ONE FLAG TABLE FOR THE ENVIRONMENT, NOT ONE PER LEVEL. What a tile
+    # DOES is a property of the tileset and the tileset is the forest's;
+    # MAP_INSTALL LDIRs it over all 256 entries of TILE_ATTR whichever
+    # of the environment's levels is loading (CLAUDE.md 8.3).
     flags = bytes(TILE_FLAGS.get(n, 0)
                   for n, _ in sorted(t.items(), key=lambda kv: kv[1]))
     out = os.path.join(BUILD, "tileflags_level2_forest.bin")
@@ -384,18 +485,26 @@ def main():
     print(f"-> tileflags_level2_forest.bin  {len(flags)} tiles, "
           f"{sum(1 for f in flags if f)} with anything on")
 
-    blob = pack(level_id=LEVEL_ID, tileset_id=TILESET_ID,
-                width=MAP_W, height=MAP_H, map_bytes=m, entities=ents)
-    out = os.path.join(BUILD, f"level_{LEVEL_ID}.lvl")
-    open(out, "wb").write(blob)
-    back = read(blob)
-    assert back["map"] == m and back["entities"] == len(ents) // 8
-    print(f"-> level_{LEVEL_ID}.lvl     {len(blob)} bytes: {back['width']}x"
-          f"{back['height']}, {back['entities']} entities "
-          f"({pickups} pickups, {enemies} snipers), tileset {TILESET_ID}")
-    print(f"   {len(TREES)} trees, {len(BRANCHES)} branch platforms, "
-          f"{len(PITS)} pits ({pit_tiles} tiles of spike), a mountain and "
-          f"a cave mouth at tile {CAVE}")
+    for L in LAYOUTS:
+        n = L["level_id"]
+        m = build_map(t, L)
+        ents = build_entities(t, L)
+        pickups, enemies, pit_tiles = checks(m, t, ents, L)
+
+        blob = pack(level_id=n, tileset_id=TILESET_ID,
+                    width=MAP_W, height=MAP_H, map_bytes=m, entities=ents)
+        out = os.path.join(BUILD, f"level_{n}.lvl")
+        open(out, "wb").write(blob)
+        back = read(blob)
+        assert back["map"] == m and back["entities"] == len(ents) // 8
+        print(f"-> level_{n}.lvl     {len(blob)} bytes: {back['width']}x"
+              f"{back['height']}, {back['entities']} entities "
+              f"({pickups} pickups, {enemies} snipers), tileset {TILESET_ID}")
+        print(f"   {len(L['trees'])} trees, {len(L['branches'])} branch "
+              f"platforms, {len(L['pits'])} pits ({pit_tiles} tiles of "
+              f"spike), a mountain and {len(L['caves'])} cave "
+              f"mouth{'s' if len(L['caves']) > 1 else ''} at "
+              f"{', '.join(str(c) for c in L['caves'])}")
     return 0
 
 

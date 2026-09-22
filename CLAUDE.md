@@ -180,6 +180,16 @@ Measured: **36 answers against `banks.inc` and the artist's own `.inc`
 files, and 30 of the 36 are ones the old table got wrong** (§8.6). The
 enemy table grew its first non-City row with it (§8.7).
 
+**AND THE FOREST HAS TWO MAPS.** Level 5's door is an `EK_DOOR` in its
+cave mouth and `LEVEL_GOTO` goes to `LEVEL_CUR + 1`, so **level 6 is
+where that door has been pointing since the day it was placed** — same
+environment, so the transition is one sector and no art: 153 hardware
+frames. It opens on a cave mouth instead of ending on one, its key is
+two branches up rather than one, and it is the first map drawn with the
+spikes as a mechanic rather than as scenery. Walked end to end in
+sequence, 100 → 68 → **55** (§8.11). One tool writes both and
+`level_5.lvl` comes out byte for byte the file that shipped.
+
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
 `collide.asm` and **read by nothing** — one use in the engine and it
@@ -480,9 +490,11 @@ tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
                            and the build-time bake of its overlay tiles
 tools/make_level.py        that map + the entity table -> level_1.lvl,
                            the reference implementation of editor.md 9.2
-tools/make_forest_map.py   level 5: the forest, 128x16, straight into the
-                           format - there are no overlays to bake, so
-                           there is no city_map.bin step to mirror (8.11)
+tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
+                           straight into the format: there are no
+                           overlays to bake, so no city_map.bin step to
+                           mirror. One LAYOUT an entry, one set of
+                           machinery (8.11)
 tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
 tools/test_climb.py        the ladder, the street and the vertical camera
@@ -505,9 +517,12 @@ tools/test_xclip.py        the X clip: the clipped lane against the same
 tools/test_transition.py   the level after this one: a map read inside an
                            environment, an art read across one, and what
                            she carries through the door
-tools/test_forest.py       level 5 on the machine: out of the City into
-                           the forest, the bands as the engine reads
-                           them, and she walks it end to end (8.11)
+tools/test_forest.py       levels 5 and 6 on the machine: out of the
+                           City into the forest, the bands as the
+                           engine reads them, she walks each end to
+                           end, climbs two branches for level 6's key,
+                           and carries her health through the door
+                           between them (8.11)
 tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
@@ -2427,8 +2442,8 @@ not what fills this disc; the art is. Counted on the shipped image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and level 1's map | 266 |
-| **spare** | **31** |
+| the art, the title and the three maps that exist | **268** |
+| **spare** | **29** |
 | ... staying inside a standard 40-track disc | **13** |
 
 Twenty-four maps is twenty-four of those, so four levels an environment
@@ -4711,6 +4726,57 @@ rather than an omission — a 12×64 sniper standing in it costs 20 game
 frames in 200. The forest's own wolf and boar would very likely fit and
 are melee, which the engine has no path for (§8.7).
 
+#### And level 6, which is where level 5's door has always led
+
+`LEVEL_GOTO` goes to `LEVEL_CUR + 1` (§8.1) and level 5 ends at an
+`EK_DOOR` in its cave mouth — so level 6 is not a second map that
+happens to exist, it is **the one that door has been pointing at since
+the day it was placed**. Same environment, because levels 5-8 are the
+forest: the transition is one sector and no art at all, measured at
+**153 hardware frames** with `LEVEL_ENV` not moving.
+
+**IT OPENS ON A CAVE MOUTH INSTEAD OF ENDING ON ONE**, and that is the
+whole of what says the two are consecutive. The same six rows of tiles
+— arch, sides, dark, floor — read as an entrance or an exit depending
+only on which end of the map they are at, so there is no second set of
+art for it and `build_map` simply takes a tuple of columns with the
+door in the last.
+
+**AND IT IS THE FIRST MAP DESIGNED WITH THE SPIKES AS A MECHANIC.**
+When level 5 was drawn `TA_HAZARD` had no reader and its four pits were
+a dip (§8.12). Level 6 has **three**, every one at most 3 tiles — which
+a run's 15-frame arc clears and a walk does not (§8.8) — so the pits
+are what the run is for, the way the City's roof gap is.
+
+**THE KEY IS TWO BRANCHES UP**, which is level 5's idea taken one step:
+there it sat on a row-5 branch with a row-7 branch under it, and here
+the climb IS the level. Each step is inside the two rows her 36-pixel
+jump reaches, and the flood fill in `make_forest_map.py` refuses the
+level otherwise — but a fill is a conservative model of a walk, so
+`tools/test_forest.py` drives the climb on the machine: she stood at
+`KARA_WY` **80, 48 and 16** — the ground, the row-7 branch, the row-5
+one — and `KEYS_COUNT` went to 1.
+
+**AND THE TWO IN SEQUENCE ARE A QUESTION NEITHER ANSWERS ALONE.** Her
+health crosses a door and this level's key does not (§8.1), so two
+levels of spikes back to back only became a question the day the flag
+got a reader. Measured, walking both end to end:
+
+| | |
+|---|---|
+| level 5 | 100 → **68** — four bites of 16, against a medkit at tile 62 |
+| through the door | 68 → **68**, because a door is not a medkit |
+| level 6 | 68 → **55** — three bites, against a medkit at tile 72 |
+
+**ONE TOOL, TWO COMPOSITIONS, AND LEVEL 5 IS BYTE FOR BYTE WHAT IT
+WAS.** Everything above the `LAYOUT`s is the artist's — the bands, the
+names read out of the manifest, the flags — and everything in one is a
+designer's. That the refactor was a refactor is not an opinion: the
+regenerated `level_5.lvl` is **identical to the shipped file**, which
+is the check that caught the one mistake in it. Eleven bytes of row 8
+differed, all of them the deco row, because the `DECO` dict had been
+copied from a grep that showed only its first line.
+
 ### 8.12 The spikes, and the first reader `TA_HAZARD` has ever had
 
 **A PLAY-TEST WALKED THE FOREST AND NOTHING IN THE GROUND HURT HER.**
@@ -6857,7 +6923,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Twenty-three of the twenty-four levels have
+   **What is left**: maps. Twenty-one of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -6899,7 +6965,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other twenty-two levels**, which is a designer's work and
+   for the other twenty-one levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 
