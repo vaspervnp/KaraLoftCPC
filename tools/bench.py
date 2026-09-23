@@ -26,7 +26,19 @@ def boot(sym, scroll=False, disc=None):
     # THE TITLE SCREEN IS IN THE WAY NOW, and it waits for a key rather
     # than a timer (CLAUDE.md 7.7). past_intro presses it; without this
     # every suite below measures a machine sitting on a still picture.
-    past_intro(m, sym)
+    #
+    # AND IT IS AN ERROR AND NOT A RETURN VALUE, because the caller
+    # never looked at it. When cpc.py's `mode` changed from a property
+    # to a method for an afternoon, `m.mode == 0` compared a bound
+    # method with 0, past_intro never pressed anything, and two suites
+    # reported NINETEEN wrong checks about maps and pictures - every
+    # one of them measured on a machine still showing the title. One
+    # true sentence is worth more than nineteen false ones.
+    if not past_intro(m, sym):
+        raise SystemExit(
+            "the title screen never handed over: past_intro pressed fire "
+            "and FRAME_COUNT never moved. Nothing measured after this "
+            "point would be the game.")
     if scroll:
         # WAIT FOR THE LEVEL, DO NOT COUNT FRAMES. LEVEL_LOAD is 1.4 s
         # with interrupts off (CLAUDE.md 7.5); a fixed 40-frame wait put

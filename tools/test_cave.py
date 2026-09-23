@@ -30,6 +30,7 @@ read out of the City's address inside the cave's banks. The machine
 died on the first rung. Six of the twelve addresses were wrong and
 only the City's were right, because the City is level 1.
 """
+import json
 import os
 import sys
 
@@ -39,10 +40,12 @@ from bench import boot, symbols                                # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 BUILD = os.path.join(ROOT, "build")
+ART = os.path.join(ROOT, "assets", "sprites", "level3_cave")
 TA_SOLID, TA_PLATFORM, TA_CLIMB = 1, 2, 8
 JOY = {"right": 0x08, "left": 0x04, "up": 0x01, "down": 0x02}
 GS_CLEAR = 2
 LEVEL, ENV = 9, 3                       # level 9 of 24, environment 3
+NEXT = 10                               # ... and where its gate points
 MAP_W, MAP_H = 32, 64
 V_CR_MAX = (MAP_H * 16 - 192) // 8      # 104 - the deepest the view goes
 ENVS = ("city", "forest", "cave", "undersea", "desert", "station")
@@ -60,10 +63,10 @@ def check(name, ok, detail=""):
 class Play:
     """The running game, in the units the level is written in."""
 
-    def __init__(self, sym, climbable=True):
-        self.sym = sym
+    def __init__(self, sym, climbable=True, level=LEVEL):
+        self.sym, self.level = sym, level
         self.m = m = boot(sym, scroll=True)
-        m.poke(sym["LEVEL_CUR"], LEVEL - 2)     # ... so the next one is ours
+        m.poke(sym["LEVEL_CUR"], level - 2)     # ... so the next one is ours
         m.poke(sym["GAME_STATE"], GS_CLEAR)
         self.frames = None
         for f in range(900):
@@ -73,17 +76,23 @@ class Play:
             # level being left (8.1), so a driver that waits on either
             # is reading the LAST level's map.
             if (m.peek(sym["GAME_STATE"]) == 0
-                    and m.peek(sym["LEVEL_CUR"]) == LEVEL - 1):
+                    and m.peek(sym["LEVEL_CUR"]) == level - 1):
                 self.frames = f
                 m.run_frames(10)
                 break
+        self.reread()
+        if not climbable:
+            self.unclimb()
+        self.attr = bytes(m.read_ram(sym["TILE_ATTR"], sym["TILE_ATTR_N"]))
+
+    def reread(self):
+        """The level in RAM, after a transition has replaced it."""
+        sym, m = self.sym, self.m
         hdr = m.read_ram(sym["LEVEL_LVL"], 21)
         self.w = hdr[5] | hdr[6] << 8
         self.h = hdr[7] | hdr[8] << 8
         self.tileset = hdr[9]
         self.map = bytes(m.read_ram(sym["LEVEL_LVL"] + 21, self.w * self.h))
-        if not climbable:
-            self.unclimb()
         self.attr = bytes(m.read_ram(sym["TILE_ATTR"], sym["TILE_ATTR_N"]))
 
     def unclimb(self):
@@ -139,6 +148,70 @@ class Play:
         self.m.joystick(0)
         self.m.run_frames(2)
         return self.column() == column
+
+    def holes(self, row):
+        """The runs of three or more cells a floor is MISSING - what she
+        can fall through.
+
+        It names no wall column, because it does not have to: on a floor
+        row every cell is either the rock she stands on, the wall, or a
+        hole, and only the hole has NO attribute at all. Three is
+        BOX_SOLID_V's number (8.8) and the reason a two-cell gap is not
+        one she can fall through."""
+        out, run = [], []
+        for x in range(self.w):
+            if self.attr[self.map[row * self.w + x]]:
+                if len(run) >= 3:
+                    out.append(run[0])
+                run = []
+            else:
+                run.append(x)
+        if len(run) >= 3:
+            out.append(run[0])
+        return out
+
+    def settle(self, frames=300, still_for=20):
+        was, still = self.word("KARA_WY"), 0
+        for _ in range(frames):
+            self.m.run_frames(1)
+            now = self.word("KARA_WY")
+            still = still + 1 if now == was else 0
+            was = now
+            if still >= still_for:
+                break
+        return self.row()
+
+    def climb_down(self, frames=900):
+        """DOWN until the floor below catches her - which is when she
+        STOPS MOVING, and not when her row changes. A ladder is eight
+        rows and her row ticks over on every one of them, so a driver
+        that watched the row descended one tile and called it a floor."""
+        was, still, start = self.word("KARA_WY"), 0, self.row()
+        self.m.joystick(JOY["down"])
+        for _ in range(frames):
+            self.m.run_frames(1)
+            now = self.word("KARA_WY")
+            still = still + 1 if now == was else 0
+            was = now
+            if still >= 25 and self.row() > start:
+                break
+        self.m.joystick(0)
+        self.m.run_frames(6)
+        return self.row()
+
+    def walk_off(self, column, frames=700):
+        """Walk toward `column` until the floor stops being under her -
+        which is what a HOLE is, and the only thing in this environment
+        that costs her anything."""
+        start = self.row()
+        for _ in range(frames):
+            if self.row() > start:
+                break
+            self.m.joystick(JOY["right"] if self.column() < column
+                            else JOY["left"])
+            self.m.run_frames(1)
+        self.m.joystick(0)
+        return self.settle()
 
     def climb_up(self, frames=900):
         """UP until the floor above catches her, or she is not moving."""
@@ -223,6 +296,33 @@ def kact_want(b, n):
             b[f"L{n}_KACT_L_ADDR"] >> 8)
 
 
+def descend(p, report=True):
+    """Down every ladder the level has, and what it cost her."""
+    landings, alive = [p.row()], True
+    for _ in range(p.h // 4):
+        r0 = p.row()
+        s = p.shafts(r0)                # descending: the rungs in HER row
+        if not s:
+            break                       # the bottom floor: no way down
+        if not p.walk_to(s[0]):
+            if report:
+                print(f"      could not reach the ladder at tile {s[0]} on "
+                      f"row {r0}, stopped at {p.column()}")
+            break
+        was = p.byte("FRAME_COUNT")
+        r1 = p.climb_down()
+        alive = p.byte("FRAME_COUNT") != was
+        if report:
+            print(f"      floor {r0:2d} -> {r1:2d}   WY {p.word('KARA_WY'):4d}  "
+                  f"view ({p.byte('WORLD_X')},{p.byte('WORLD_CR')})  "
+                  f"HP {p.byte('PLAYER_HP')}  keys {p.byte('KEYS_COUNT')}  "
+                  f"ammo {p.byte('AMMO_RESERVE')}")
+        if not alive or r1 == r0:
+            break
+        landings.append(r1)
+    return landings, alive
+
+
 def main():
     sym = symbols()
     print("Level 9: the cave\n")
@@ -289,6 +389,126 @@ def main():
           f"ENT_RESULT {p.byte('ENT_RESULT')}")
 
     # -----------------------------------------------------------------
+    # AND THROUGH IT IS LEVEL 10, which is where that gate has pointed
+    # since the day it was placed: LEVEL_GOTO goes to LEVEL_CUR + 1 and
+    # levels 9-12 are one environment, so it is a map read of one
+    # sector and no art at all.
+    # -----------------------------------------------------------------
+    print("\n  ... and through the gate:")
+    env_before = p.byte("LEVEL_ENV")
+    moved = None
+    for f in range(900):
+        p.m.run_frames(1)
+        if (p.byte("GAME_STATE") == 0 and p.byte("LEVEL_CUR") == NEXT - 1):
+            moved = f
+            p.m.run_frames(10)
+            break
+    check("level 9's gate leads to level 10", moved is not None,
+          f"{moved} hardware frames")
+    check("... and no art came with it",
+          p.byte("LEVEL_ENV") == env_before,
+          f"LEVEL_ENV {env_before} either side - one sector, not 1.6 s")
+
+    p.reread()
+    p.level = NEXT
+    floors10 = p.floors()
+    ladders10 = {r: p.shafts(r) for r in floors10 if p.shafts(r)}
+    holes10 = {r: p.holes(r) for r in floors10 if p.holes(r)}
+    check("it is the same shape and the same tileset",
+          (p.w, p.h, p.tileset) == (MAP_W, MAP_H, ENV),
+          f"{p.w}x{p.h}, tileset {p.tileset}")
+    check("she is on the TOP floor this time",
+          p.row() == floors10[0] and p.byte("WORLD_CR") == 0,
+          f"row {p.row()}, WORLD_CR {p.byte('WORLD_CR')} - level 9 started "
+          f"at row {MAP_H - 2} with the view at {V_CR_MAX}")
+    check("a ladder off every floor but the bottom",
+          len(ladders10) == 7 and all(len(c) == 1 for c in ladders10.values())
+          and len({c[0] for c in ladders10.values()}) == 7,
+          f"{ {r: c[0] for r, c in ladders10.items()} }")
+    check("... and a HOLE in every one of them too",
+          len(holes10) == 7 and set(holes10) == set(ladders10),
+          f"{ {r: c[0] for r, c in holes10.items()} } - three tiles, "
+          f"which is BOX_SOLID_V's number (8.8)")
+
+    # THE DOORWAY SHE CAME THROUGH IS OPEN AND THE ONE SHE IS GOING TO
+    # IS SHUT, and that is in the bytes: the open one's two door cells
+    # are COMPOSITES - gate_open_l/gate_open_r baked over the cave
+    # behind them - and the shut one's are the artist's own plain
+    # tiles. Neither carries an attribute, because a door is a record.
+    sheet_tiles = len(json.load(open(os.path.join(
+        ART, "tile_table.json")))["sheets"][0]["tiles"])
+    door10 = None
+    ents10 = p.m.read_ram(sym["ENT_TABLE"], p.byte("ENT_COUNT") * 8)
+    for i in range(p.byte("ENT_COUNT")):
+        r = ents10[i * 8:i * 8 + 8]
+        if r[0] == 6:
+            door10 = (r[1] | r[2] << 8) // 8
+    gate_col = door10 - 1
+    shut = [p.map[(floors10[-1] - 1) * p.w + gate_col + i] for i in (1, 2)]
+    openx = [p.map[(floors10[0] - 1) * p.w + gate_col + i] for i in (1, 2)]
+    check("the gate she came through is drawn OPEN",
+          all(x >= sheet_tiles for x in openx)
+          and all(x < sheet_tiles for x in shut) and openx != shut,
+          f"the doorway at the top is {openx} - composited, past the "
+          f"sheet's {sheet_tiles} - against {shut} at the bottom")
+    check("... and neither is something the physics stops her at",
+          all(p.attr[x] == 0 for x in openx + shut),
+          "a shut door is an EK_DOOR with EF_SOLID, not a wall (8.8)")
+
+    print("    the descent, by ladder:")
+    hp0 = p.byte("PLAYER_HP")
+    landings10, alive10 = descend(p)
+    check("the machine survives the descent", alive10)
+    check("she goes down every floor to the bottom",
+          landings10 == floors10, f"{landings10}")
+    check("... and the ladders cost her nothing",
+          p.byte("PLAYER_HP") == hp0,
+          f"HP {hp0} -> {p.byte('PLAYER_HP')} - the free way down")
+    check("... picking up the clip and the key on the way",
+          p.byte("KEYS_COUNT") == 1 and p.byte("AMMO_RESERVE") == 56,
+          f"keys {p.byte('KEYS_COUNT')}, reserve {p.byte('AMMO_RESERVE')} - "
+          f"42 crossed the door from level 9 and this level's clip is the "
+          f"third; the KEY did not cross, which is why there is one here")
+
+    p.walk_to(door10)
+    before = p.byte("GAME_STATE")
+    p.m.joystick(JOY["up"])
+    p.m.run_frames(4)
+    p.m.joystick(0)
+    p.m.run_frames(20)
+    check("the key opens the gate at the bottom",
+          before == 0 and p.byte("GAME_STATE") == GS_CLEAR,
+          f"GAME_STATE {before} -> {p.byte('GAME_STATE')}")
+
+    # -----------------------------------------------------------------
+    # AND THE HOLE IS THE OTHER WAY DOWN, WHICH COSTS. 128 world lines
+    # against FALL_FREE of 96 is 32 of her 100 points, at a point a
+    # pixel (8.4) - the same arithmetic as the City's roof gap, and
+    # the first CHOICE this environment has ever offered.
+    # -----------------------------------------------------------------
+    print("\n  the other way down - the holes:")
+    h = Play(sym, level=NEXT)
+    floors_h = h.floors()
+    drops, hp = [], h.byte("PLAYER_HP")
+    for r in floors_h[:3]:
+        col = h.holes(r)[0] + 1
+        before = h.byte("PLAYER_HP")
+        landed = h.walk_off(col)
+        drops.append((r, landed, before - h.byte("PLAYER_HP")))
+        print(f"      floor {r:2d} -> {landed:2d}  through the hole at tile "
+              f"{col - 1}   HP {before} -> {h.byte('PLAYER_HP')}")
+    check("a hole drops her exactly one floor",
+          all(b - a == 8 for a, b, _ in drops), f"{[(a, b) for a, b, _ in drops]}")
+    check("... and each one costs her 32 points",
+          all(c == 32 for _, _, c in drops),
+          f"{[c for _, _, c in drops]} - 128 world lines less FALL_FREE's "
+          f"96, at a point a pixel, which is the City's roof gap exactly")
+    check("... so three of them is what a medkit is for",
+          h.byte("PLAYER_HP") == hp - 96 and h.byte("PLAYER_HP") > 0,
+          f"HP {hp} -> {h.byte('PLAYER_HP')} - a fourth would kill her, "
+          f"and the ladders are free")
+
+    # -----------------------------------------------------------------
     # The control: the same level with TA_CLIMB taken out of the table
     # the engine reads. The map does not move and the picture does not
     # change - the ladders simply stop being ladders.
@@ -304,10 +524,18 @@ def main():
     # -----------------------------------------------------------------
     # And her action set, which is what the climb was drawn out of.
     # -----------------------------------------------------------------
+    # A PLAIN BOOT AND NOT A TRANSITION, which is the difference
+    # between measuring the old engine and measuring a leftover.
+    # KACT_ROW is written by MAP_INSTALL, so a machine that has been
+    # into the cave holds the CAVE's row - and the control below, which
+    # pokes the routine out, would then be reading that rather than the
+    # L1_KACT_* literals the source shipped. It read 6 of 12 either way
+    # until level 10 moved the cave's allocation and the two answers
+    # parted company.
     print("\n  her action cels, per environment:")
     b = banks_inc()
-    live = Play(sym)
-    got = [kact_row(live.m, sym, i) for i in range(6)]
+    live = boot(sym, scroll=True)
+    got = [kact_row(live, sym, i) for i in range(6)]
     want = [kact_want(b, i + 1) for i in range(6)]
     for i, name in enumerate(ENVS):
         g = got[i]
@@ -319,16 +547,24 @@ def main():
 
     # ... and the control is the engine as it shipped: one answer to six
     # questions, because KARA_SETS held L1_KACT_* literals.
-    old = Play(sym)
-    old.m.poke(sym["KACT_FOR_ENV"], 0xC9)               # RET
-    was = [kact_row(old.m, sym, i) for i in range(6)]
+    old = boot(sym, scroll=True)                        # level 1, and only it
+    old.poke(sym["KACT_FOR_ENV"], 0xC9)                 # RET
+    was = [kact_row(old, sym, i) for i in range(6)]
     wrong = sum(1 for i, r in enumerate(was)
                 for k in (0, 3) if r[k:k + 3] != want[i][k:k + 3])
+    # HOW MANY IT GOT WRONG IS DERIVED AND NOT WRITTEN DOWN, because the
+    # number MOVES: kact is allocated per level, so anything that
+    # changes the size of anything in an environment's bank set moves
+    # it. Adding level 10's baked tiles to cavetiles.bin - 768 bytes -
+    # took this from 6 of 12 to 9. A suite with the old number in it
+    # would have reported the engine breaking when nothing had.
+    expect = sum(1 for i in range(6)
+                 for k in (0, 3) if want[i][k:k + 3] != want[0][k:k + 3])
     check("... and the old engine had ONE answer to the six",
-          len(set(was)) == 1 and wrong == 6,
-          f"{len(set(was))} distinct answer(s), {wrong} of 12 addresses "
-          f"wrong - the forest got NEITHER facing right and the cave, "
-          f"undersea, desert and station only their left one")
+          len(set(was)) == 1 and set(was) == {want[0]} and wrong == expect,
+          f"{len(set(was))} distinct answer(s) - level 1's - and it is "
+          f"wrong for {wrong} of the 12 addresses, which is what "
+          f"banks.inc says it must be")
 
     print()
     if fails:

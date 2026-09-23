@@ -207,7 +207,7 @@ THE ADDRESS BUG ABOVE, AND THE ONE THAT WAS WRITTEN IN THE CODE'S OWN
 COMMENT.** `src/kara.asm` said *"`kact` IS NOT PINNED … level 1 is the
 only one this demo loads"*, and that sentence stopped being true the
 day level 5 shipped. `KARA_SETS` named `L1_KACT_*` for all six
-environments; measured against `banks.inc`, **6 of the 12 addresses
+environments; measured against `banks.inc`, **7 of the 12 addresses
 were ones the engine got wrong** — only the City's were right, because
 the City is level 1. The forest got NEITHER facing. What made the cave
 the one that died rather than the one that looked odd is that `climb`
@@ -220,6 +220,18 @@ happened to parse. `KACT_FOR_ENV` fills the row from `LEVEL_ENV` at
 `MAP_INSTALL`, the shape `ENT_ART_FOR` already had; all 12 agree now,
 and the control — the routine poked to `RET` — gives **one answer to
 all six questions** (§8.13).
+
+**AND THE CAVE HAS TWO MAPS, THE SECOND OF WHICH GOES DOWN.** Level 9's
+gate leads to level 10 — same environment, so 33 hardware frames and no
+art — and level 10 **opens on that gate drawn OPEN**, with the two door
+leaves the artist folded back and nothing had ever placed. The way out
+is at the bottom, and **every floor she leaves has a three-tile hole in
+it**: the ladder is free and the hole is 128 world lines, which is 32
+of her 100 points, so going down is the first thing this environment
+has offered that is a CHOICE. Measured, three holes took her 100 → 68 →
+36 → 4. One tool writes both maps and they SHARE a bake, because a
+tileset belongs to the environment; `level_9.lvl` comes out byte for
+byte the file that shipped (§8.13).
 
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
@@ -526,9 +538,11 @@ tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
                            overlays to bake, so no city_map.bin step to
                            mirror. One LAYOUT an entry, one set of
                            machinery (8.11)
-tools/make_cave_map.py     level 9: the cave, 32x64 - the first SHIPPED
-                           map that is TALL, and the first with a ladder
-                           in it since the City (8.13)
+tools/make_cave_map.py     the cave's maps - levels 9 AND 10, 32x64,
+                           the first SHIPPED maps that are TALL and the
+                           first with ladders since the City. One tool,
+                           two compositions, and they SHARE a bake
+                           because a tileset is the environment's (8.13)
 tools/tilebake.py          the overlay bake, once: the City's own baker,
                            lifted so the cave could use it (7.3)
 tools/blender_title.py     the title scene and its CPC render settings
@@ -563,9 +577,10 @@ tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
                            it to the bottom (11 step 7)
-tools/test_cave.py         level 9 on the machine: the first tall map
-                           SHIPPED, climbed floor by floor from the
-                           bottom to the gate, and her action cels
+tools/test_cave.py         levels 9 and 10 on the machine: the first
+                           tall maps SHIPPED, climbed floor by floor to
+                           the gate and then back DOWN the next one,
+                           what a hole costs her, and her action cels
                            measured per environment (8.13)
 tools/test_*.py            acceptance suites, twenty-six of them
 tools/run_tests.sh         all of them, in order
@@ -1106,8 +1121,9 @@ address draws SOMETHING; `climb` is the one cel with no twin, so a
 ladder in any level but the City read the row that was wrong every
 time. The cave died on its first rung. `KACT_FOR_ENV` fills those six
 bytes from `LEVEL_ENV` at `MAP_INSTALL` now — §8.13 has the six
-environments measured against `banks.inc`, and 6 of the 12 addresses
-were ones the old table got wrong.
+environments measured against `banks.inc`, and 7 of the 12 addresses
+were ones the old table got wrong — a count that MOVES, because an
+unpinned address does (§8.13).
 
 `tools/test_climb.py` checks it on the screen rather than in the table
 — the same cel must come out pixel for pixel with `KARA_FACING` either
@@ -2494,8 +2510,8 @@ not what fills this disc; the art is. Counted on the shipped image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the four maps that exist | **272** |
-| **spare** | **25** |
+| the art, the title and the five maps that exist | **273** |
+| **spare** | **24** |
 | ... staying inside a standard 40-track disc | **13** |
 
 Twenty-four maps is twenty-four of those, so four levels an environment
@@ -5010,6 +5026,86 @@ than the camera would like. It is the same arrangement
 `tools/test_generated.py` already climbs on the machine, and the
 alternative is a level one floor shorter.
 
+#### And level 10, which is where level 9's gate leads
+
+`LEVEL_GOTO` goes to `LEVEL_CUR + 1` and levels 9-12 are one
+environment, so level 10 is not a second map that happens to exist — it
+is the one that gate has pointed at since it was placed. Measured, the
+transition is **33 hardware frames** with `LEVEL_ENV` not moving: one
+sector and no art.
+
+**IT OPENS ON THAT GATE, DRAWN OPEN.** `gate_open_l` and `gate_open_r`
+are the two door leaves folded back against the pillars — 5 pixels of 8
+and 8 of 8 with 88 of 128 transparent, which is a doorway you see
+through rather than a door — and **nothing in this game had ever placed
+them**. They are overlays, so the cave behind them is composited in at
+build time like every other overlay here. It is the forest's "opens on
+a cave mouth instead of ending on one" (§8.11) with the artist's own
+tile for it.
+
+**AND SHE GOES DOWN, WHICH IS THE OTHER HALF OF THE ENVIRONMENT'S OWN
+MECHANIC.** Eight floors again — the rows are not a composition, they
+are her box and the camera — but the way out is at the bottom, and
+**every floor she leaves has a HOLE in it three tiles wide**. So going
+down is the first thing this environment has ever offered that is a
+CHOICE:
+
+| | |
+|---|---|
+| the ladder | free, and its column moves every floor, so the floor has to be crossed |
+| the hole | **32 points**, measured — 128 world lines against `FALL_FREE`'s 96, at a point a pixel (§8.4) |
+
+which is the City's ledge-against-gap one environment along, and the
+same arithmetic to the point. Measured on the machine, three holes in a
+row took her **100 → 68 → 36 → 4**: a fourth would kill her, and there
+is a medkit halfway down. The ladders make the level completable
+without spending anything, which `tools/make_cave_map.py` asserts
+rather than hopes — one ladder off every floor, and every one of them
+somewhere she can WALK to, because a hole between her and a ladder is a
+floor she could only leave by falling.
+
+**The hole is three tiles for `BOX_SOLID_V`'s reason** (§8.8): it ORs
+every tile under her six-byte box, so a two-tile gap has positions
+where she is still standing across solid floor. Cutting one leaves two
+edges, and `ledge_l` / `ledge_r` are the tiles the artist drew for them
+— two more that level 9 never places, along with `pillar_base` /
+`pillar_top` and `pool_0` / `pool_1`. **A pillar is two tiles and not
+three**, because its top is a `PLATFORM` and a jump reaches 36 pixels:
+two rows up is 32 and three is 48, which would be scenery pretending to
+be a perch. Its BASE carries nothing — a solid tile in the middle of a
+floor is a wall to a heroine three tiles wide, which is §8.8's garage
+again. Counted, **level 10 places 18 tiles level 9 never does.**
+
+**ONE TOOL, TWO COMPOSITIONS — AND UNLIKE THE FOREST'S, THEY SHARE A
+BAKE.** A tileset belongs to the ENVIRONMENT and not to the level, so
+both maps point into one `cavetiles.bin` and one
+`tileflags_level3_cave.bin`: every (overlay, background) pair either
+level places has to take the same index in BOTH, and the blob is
+appended to once. So the tool builds both maps first, into one `BAKED`,
+and composites afterwards. `make_forest_map.py` never had to say this
+because the forest has no overlays at all (§7.3), and
+`make_city_map.py` never had to because the City is one level.
+
+That level 9 came out **byte for byte the file that shipped** is what
+says the second composition did not disturb the first — and the check
+is sharper than the file, because the two share a tile blob and a flag
+table: the blob's level-9 prefix is identical, and the three flag bytes
+that DID move (`pool_0`, `pool_1`, and one new baked tile) are bytes
+level 9 never places.
+
+| | level 9 | level 10 |
+|---|---|---|
+| she enters | the bottom, `WORLD_CR` 104 | the top, `WORLD_CR` 0, through the open gate |
+| the way on | seven ladders UP, columns 25 10 22 6 20 8 24 | seven ladders DOWN, columns 22 9 21 11 19 13 24 |
+| and the other way | — | a hole in all seven, 32 points each |
+| the key | the second floor from the TOP | the second floor from the BOTTOM |
+| the gate | the top floor, shut | the bottom floor, shut |
+| standable cells | 243 | 224 |
+
+She arrives in level 10 with 42 rounds in reserve and no key, which is
+§8.1's table being exercised by two levels for the first time: the clip
+crossed the door and the key did not.
+
 #### AND THE CLIMB IS WHAT FOUND THE `kact` BUG, WHICH IS THIS FILE'S OWN SPECIES FOR THE THIRD TIME
 
 It hung the machine on the first rung: a garbage frame, a nonsense
@@ -5038,15 +5134,35 @@ nothing per frame, exactly as `ENT_ART_FOR` is done.
 |---|---|---|---|
 | city | `&C4:4CC0` | `&C0:4000` | **both right** — the City IS level 1 |
 | forest | `&C0:4000` | `&C4:4A80` | **NEITHER** |
-| cave | `&C4:4E80` | `&C0:4000` | the left one only |
+| cave | `&C0:4000` | `&C4:5180` | **NEITHER** |
 | undersea | `&C4:4A80` | `&C0:4000` | the left one only |
 | desert | `&C4:4A40` | `&C0:4000` | the left one only |
 | station | `&C4:49C0` | `&C0:4000` | the left one only |
 
-**All 12 agree with `banks.inc` now, and 6 of the 12 are ones the old
+**All 12 agree with `banks.inc` now, and 7 of the 12 are ones the old
 engine got wrong.** Its control is the fault itself: `KACT_FOR_ENV`
 poked to `RET` gives **one distinct answer to all six questions**,
 which is precisely what a table of `L1_*` literals claims.
+
+**AND THAT COUNT WAS 6 WHEN THIS WAS WRITTEN, WHICH IS THE BUG'S OWN
+NATURE SHOWING.** Level 10's baked tiles took `cavetiles.bin` from
+3,712 bytes to 4,480, the allocator put the cave's bank set out
+differently, and its `kact` moved from `&C4:4E80` / `&C0:4000` to
+`&C0:4000` / `&C4:5180` — so level 1's literals went from wrong in one
+of the cave's two addresses to wrong in both. **Nothing in the engine
+changed and the number did**, because an unpinned address moves
+whenever anything in that environment changes size. `tools/test_cave.py`
+therefore DERIVES it from `banks.inc` rather than writing it down; the
+first version had 6 in it and would have reported the engine breaking
+when a map had been added.
+
+**And the control has to be a machine that has only ever loaded level
+1.** `KACT_ROW` is written by `MAP_INSTALL`, so a suite that has been
+into the cave and then pokes `KACT_FOR_ENV` to `RET` is reading the
+CAVE's row, not the `L1_KACT_*` literals the source shipped — a
+leftover rather than the old engine. It read 6 of 12 either way until
+level 10 moved the cave's allocation, and then the two answers parted
+company: 9 against the true 7.
 
 **WHAT THAT COST IS NOT THEORETICAL AND IT WAS NOT ONLY THE CAVE.**
 `drop` lives in `kact` and she plays it falling into every one of the
@@ -6210,6 +6326,32 @@ frame, so this only helps a standing player on a still screen.
   that the two builds agree byte for byte. **Nothing fails**: both
   builds are self-consistent, so only an md5 of the whole disc can see
   it.
+* **A HELPER WHOSE FAILURE IS A RETURN VALUE NOBODY READS TURNS ONE
+  TRUE SENTENCE INTO NINETEEN FALSE ONES.** `bench.boot` called
+  `past_intro` to press the title away and never looked at the answer.
+  `cpc.py` lives OUTSIDE this repository, and for part of an afternoon
+  its `mode` was a method where it had been a property — so
+  `m.mode == 0` compared a bound method with 0, was false for ever,
+  `past_intro` timed out before it pressed anything, and `boot`
+  cheerfully returned **a machine still showing the title picture**.
+  `tools/test_painter.py` then reported eleven wrong checks about maps
+  and pictures and `tools/test_transition.py` eight about a level
+  transition, every one of them measured on a game that had not
+  started. `boot` raises now, naming what did not happen. **And the
+  general rule is the one the rest of this section keeps arriving at
+  from other directions**: a check that cannot tell "the thing is
+  wrong" from "the thing never ran" is not a check.
+* **`build.sh` CLEARS `build/levels` AND NOT `build/`, so a level whose
+  generator is gone stays on the disc.** Removing `make_cave_map.py`'s
+  level 10 and rebuilding left `build/level_10.lvl` where it was;
+  `make_level_image.py` and `dskdata.py` scan `build/level_*.lvl`, so
+  the map went back onto the disc and `DISC_LEVEL_MAPS` still pointed
+  at it. **It was being used as a CONTROL at the time** — "does this
+  failure happen without level 10?" — and the control silently
+  contained the thing it was controlling for. It is the entry below
+  with the directories the other way round, and the test to apply to
+  any "with and without" is the one this file applies to a raster gate:
+  **check that the `without` really is without.**
 * **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
   `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
   group and `B` = bytes in this span, and copied with `LDI` — so the
@@ -6286,7 +6428,11 @@ frame, so this only helps a standing player on a still screen.
   name; everything else is an address that moved. The test is not "does
   this build" but **"what does this symbol resolve to in the other five
   environments"**, and it is a `grep` — measured against `banks.inc`,
-  the three faults were 30 of 36, 1 of 2 and 6 of 12 wrong answers.
+  the three faults were 30 of 36, 1 of 2 and 7 of 12 wrong answers —
+  and that last number is not a constant: adding one map to the cave
+  moved it from 6 to 7, because an unpinned address moves whenever
+  anything in its environment changes size (§8.13). Derive such a
+  count in the suite; do not write it down.
 * **`B` IS A LOOP COUNTER SOMEWHERE ABOVE YOU.** `EBUL_HITS_HER` was
   given a second register for the crouch's shorter hitbox and took `B`;
   its caller holds the pool's slot count there and finishes with `DJNZ`,
@@ -7139,7 +7285,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Twenty of the twenty-four levels have
+   **What is left**: maps. Nineteen of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -7181,7 +7327,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other twenty levels**, which is a designer's work and
+   for the other nineteen levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 
