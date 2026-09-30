@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The cave's maps - levels 9 AND 10, and the first levels that are TALL.
+"""The cave's maps - levels 9 TO 12, all four, and the first levels that are TALL.
 
 THE ARTIST COMPOSED THIS ENVIRONMENT AND THIS TOOL ONLY LAYS IT OUT.
 `assets/sprites/level3_cave/manifest.json` describes every piece and
@@ -38,17 +38,23 @@ Measured, what the bake recovers over drawing the ladder plain: 20
 pixels of 128 over the background and 61 over wall_fill, because the
 cave's background is 88-94 pixels of black out of 128.
 
-ONE TOOL, TWO COMPOSITIONS - AND UNLIKE THE FOREST'S, THEY SHARE A
+ONE TOOL, FOUR COMPOSITIONS - AND UNLIKE THE FOREST'S, THEY SHARE A
 BAKE. A tileset belongs to the ENVIRONMENT and not to the level, so
-levels 9 and 10 point into ONE cavetiles.bin and one
-tileflags_level3_cave.bin: every (overlay, background) pair either
-level places has to take the same index in both, and the blob is
+levels 9 to 12 point into ONE cavetiles.bin and one
+tileflags_level3_cave.bin: every (overlay, background) pair any of them
+places has to take the same index in all of them, and the blob is
 appended to ONCE. make_forest_map.py never had to say this because the
-forest has no overlays at all (7.3). So the maps are built first, both
+forest has no overlays at all (7.3). So the maps are built first, all
 of them, into one BAKED; the composite happens after.
 
-That level 9 is byte for byte the file that shipped is what says the
-second composition did not disturb the first.
+AND THE TILESET IS BOTH OF THE ENVIRONMENT'S SHEETS: the cave's
+forty-seven and then the earthquake's thirteen (build_levels.
+one_tileset), with the composites after all sixty. That renumbered
+every composite by thirteen, so levels 9-11 are no longer the files
+that shipped byte for byte - and what says nothing moved is the
+PICTURE: every one of their 2,048 cells draws the same 64 bytes and
+carries the same attribute, which is CLAUDE.md 8.3's own statement that
+the numbering is not part of the contract.
 
     level 9   THE WAY UP. She enters at the bottom and climbs eight
               floors to a gate. The ladder's column moves every floor,
@@ -67,6 +73,27 @@ second composition did not disturb the first.
               hole is 128 world lines, which is 32 of her 100 points
               against FALL_FREE of 96 (8.4). It is the City's
               ledge-against-gap one environment along.
+
+    level 11  THE WAY UP AGAIN, BY THE ROCK - which is where level 10's
+              gate at the bottom leads, and what plan.md names as the
+              cave's mechanic: a climb on platforms and stalagmites.
+              There is NO LADDER in it. Between every pair of floors is
+              a staircase - a two-tile stalagmite and two ledges, each
+              two rows above the last and starting the column after it
+              ends - so the way up is twenty-eight jumps of 32 lines
+              against a reach of 36. The highest step is six rows above
+              the floor below it, 96 lines, which is FALL_FREE exactly:
+              a miss costs her the height and never a point.
+
+    level 12  DOWN TO THE WATER, the cave's last - where level 11's gate
+              at the top leads, and after the earthquake plan.md ends
+              the environment with. The eighth floor is under the flood,
+              the walls are cracked and pouring, and three of the six
+              ladders are broken: she climbs down to the end and lets
+              go, and the fall is measured from where the ladder ENDS
+              (FALL_MARK, 8.4) - two, three and four rungs short are 96,
+              80 and 64 lines, and all of them free. The gate out stands
+              on the last dry floor, and past it is the undersea.
 
 WHAT IS NOT HERE IS THE PUZZLE. The artist drew a four-slot gate and
 two panels that hint the order sun-moon / eye-star, and CLAUDE.md 8.1
@@ -90,7 +117,13 @@ from make_level import pack, read                              # noqa: E402
 from tilebake import bake_overlays, name_of                    # noqa: E402
 
 ART = os.path.join(ROOT, "assets", "sprites", "level3_cave")
-SHEET = "cave_tiles_cpc_mode0_sheet"
+# THE TILESET IS BOTH SHEETS, in the manifest's order: the cave's own
+# forty-seven and then the earthquake's thirteen - the cracks, the
+# waterfall, the flood's surface and its body. build_levels.one_tileset
+# appends the second blob to the first, so a tile of either sheet is an
+# index a map can name (CLAUDE.md 8.13).
+SHEETS = ("cave_tiles_cpc_mode0_sheet", "cave_quake_cpc_mode0_sheet")
+TILE_SHEETS = (("cave_tiles", 47), ("cave_quake", 13))
 
 MAP_W, MAP_H = 32, 64           # 1.6 screens across, 5.3 DOWN
 TILESET_ID = 3                  # environment 3, levels 9-12
@@ -192,7 +225,99 @@ LEVEL_10 = dict(
     pools=((62, 8), (62, 9)),
 )
 
-LAYOUTS = (LEVEL_9, LEVEL_10)
+LEVEL_11 = dict(
+    level=11,
+    about="the way up, by the rock",
+    ladders=(),
+    holes=(),
+    # THE CLIMB WITHOUT A LADDER, which is what plan.md names as the
+    # cave's own mechanic - "ανάβαση σε πλατφόρμες/stalagmites" - and
+    # level 9 did not use. A staircase is (the floor it rises FROM, the
+    # column of its foot, which way it goes): a two-tile stalagmite on
+    # that floor, then a three-tile ledge, then another, every one TWO
+    # ROWS above the last, and then the floor above - which is a
+    # platform, so she jumps up through it. Two rows is 32 lines against
+    # a jump of 36 (8.4), which is the forest's branch step exactly.
+    #
+    # EACH STEP STARTS IN THE COLUMN AFTER THE LAST ONE ENDS, and that
+    # is BOX_SOLID_V's number again: it ORs every tile under her
+    # six-byte box, so standing at the end of a step she already
+    # overhangs the next one's first column, and a jump STRAIGHT UP
+    # lands on it. A gap would ask for a jump with a run-up; a step
+    # directly overhead would put the ledge through her head, which the
+    # artist's own note ("leave 4 free tiles above a surface") rules
+    # out.
+    #
+    # AND THE HIGHEST STEP IS EXACTLY FALL_FREE ABOVE THE FLOOR BELOW
+    # IT: six rows is 96 lines, and a fall costs only the EXCESS (8.4).
+    # So nothing she can miss in this level costs her a point - a miss
+    # costs the height, and the climb is the skill.
+    stairs=((62, 16, 1), (54, 10, -1), (46, 14, 1), (38, 6, 1),
+            (30, 24, -1), (22, 8, 1), (14, 21, 1)),
+    start=(6, FLOORS[-1]),              # in the doorway she came through
+    gate=(8, FLOORS[0]),                # the way out, shut, at the top
+    entrance=(5, FLOORS[-1]),           # ... and the way in, open
+    # THE KEY IS ON THE SECOND FLOOR FROM THE TOP, level 9's rule: the
+    # climb is done before the gate can be opened.
+    pickups=((15, FLOORS[-2], "ammo"), (17, FLOORS[3], "medkit"),
+             (18, FLOORS[1], "key")),
+    crystals=((62, 25, "crystal_0"), (62, 26, "crystal_1"),
+              (46, 23, "crystal_1"), (22, 5, "crystal_0")),
+    fixtures=((35, 22, "lamp_0"), (19, 24, "lamp_1"),
+              (43, 7, "beam_top"), (44, 7, "beam_post"),
+              (45, 7, "beam_post")),
+    pillars=(),
+    # A drip is a stalactite with a drop forming on it, and the artist
+    # drew it to land "in a pool 3-5 tiles below". Two of the three
+    # cels of one drop, placed as two drops caught at different moments
+    # - one over the pool on the top floor - because a tile does not
+    # animate here (7.3).
+    drips=((14, "drip_2"), (22, "drip_1")),
+    pools=((6, 22), (6, 23)),
+)
+
+LEVEL_12 = dict(
+    level=12,
+    about="down to the water",
+    # THE EIGHTH FLOOR IS UNDER THE WATER. The earthquake plan.md ends
+    # the cave with has happened: the springs have broken, the bottom
+    # of the shaft is flooded, and the gate out stands on the last dry
+    # floor. So the way is DOWN again - she comes in through level
+    # 11's gate at the TOP - toward the water and not away from it,
+    # which is where the undersea level beyond it begins.
+    floors=FLOORS[:-1],
+    flood=FLOORS[-2] + 1,               # the surface, right under it
+    # AND THE EARTHQUAKE BROKE THE LADDERS. Three of the six stop short
+    # - three rungs, two, four - and she lets go at the end. Two rungs
+    # is six rows above the floor below, 96 lines, which is FALL_FREE
+    # exactly, so none of them costs a point; what they cost is that
+    # the fall is measured from where the ladder ENDS, which is
+    # FALL_MARK's whole rule, now with a player on it.
+    ladders=((6, 23), (14, 6, 3), (22, 20), (30, 9, 2), (38, 22, 4),
+             (46, 12)),
+    # ... and some floors broke too: the hole beside a ladder is level
+    # 10's choice, 32 points against the rungs.
+    holes=((6, 25), (22, 24), (30, 4), (38, 25), (46, 4)),
+    start=(9, FLOORS[0]),               # in the doorway she came through
+    gate=(18, FLOORS[-2]),              # the way out, on the last dry floor
+    entrance=(8, FLOORS[0]),            # ... and the way in, open
+    # THE KEY IS ON THE SECOND FLOOR FROM THE BOTTOM, level 10's rule:
+    # the descent is done before the gate can be opened.
+    pickups=((14, FLOORS[1], "ammo"), (14, FLOORS[3], "medkit"),
+             (17, FLOORS[-3], "key")),
+    # The walls are cracked and water pours out of them - two falls
+    # down the left wall, the lower one through the broken floor at
+    # row 46, and two down the right.
+    cracks=((17, 2, "crack_3"), (18, 2, "crack_4"), (41, 2, "crack_4"),
+            (26, 29, "crack_3"), (27, 29, "crack_4"), (50, 29, "crack_4")),
+    falls=((4, 18, 21), (4, 42, 53), (27, 27, 29), (27, 51, 53)),
+    crystals=((14, 16, "crystal_0"), (38, 14, "crystal_1")),
+    fixtures=((33, 16, "lamp_1"), (9, 17, "lamp_0")),
+    pillars=(),
+    pools=(),
+)
+
+LAYOUTS = (LEVEL_9, LEVEL_10, LEVEL_11, LEVEL_12)
 
 TILE_FLAGS = {
     # The rock she stands on. A floating ledge is a PLATFORM - a floor
@@ -208,6 +333,12 @@ TILE_FLAGS = {
     "wall_fill": SOLID, "wall_l": SOLID, "wall_l_b": SOLID,
     "wall_r": SOLID, "wall_r_b": SOLID,
     "ceil": SOLID, "ceil_stalactites": SOLID,
+    # The earthquake's cracks are wall_fill breaking open, so they are
+    # wall; the waterfall, the flood's surface and the flood itself
+    # carry NOTHING, because TA_WATER has no reader (the pools' note
+    # above) and a flag with no reader is this file describing a
+    # mechanic the engine has not got.
+    "crack_1": SOLID, "crack_2": SOLID, "crack_3": SOLID, "crack_4": SOLID,
     # THE SIGNATURE. Ladder AND platform, exactly as the City's is: a
     # platform so she walks over the top rung like any other floor
     # tile, a ladder so DOWN on it steps her onto the shaft (8.8).
@@ -235,11 +366,15 @@ BAKED = {}                      # (overlay tile, tile under it) -> new index
 def tile_names():
     """The cave's tile_table.json names every tile, which the forest's
     does not - there the table carries tags and the manifest's prose
-    carries the names (8.11). So this is the table, read straight."""
+    carries the names (8.11). So this is the table, read straight - both
+    of its sheets, in the order the blob has them."""
     d = json.load(open(os.path.join(ART, "tile_table.json")))
-    sheet = next(s for s in d["sheets"] if s["sheet"] == "cave_tiles")
-    names = [t["name"] for t in sheet["tiles"]]
-    assert len(names) == sheet["count"] == 47, names
+    names = []
+    for sheet, count in TILE_SHEETS:
+        s = next(x for x in d["sheets"] if x["sheet"] == sheet)
+        got = [t["name"] for t in s["tiles"]]
+        assert len(got) == s["count"] == count, (sheet, got)
+        names += got
     return names
 
 
@@ -274,8 +409,16 @@ def build_map(names, L):
     for x in range(WALL_L + 1, WALL_R):
         g[MAP_H - 1][x] = t["ground"]
 
+    # ---- ... or the water that has come up over it ------------------
+    # The flood's body under its surface, wall to wall; the surface is
+    # an overlay, placed with the other overlays below.
+    if L.get("flood"):
+        for r in range(L["flood"] + 1, MAP_H):
+            for x in range(WALL_L + 1, WALL_R):
+                g[r][x] = t["flood_1"]
+
     # ---- the floors: a ledge from wall to wall ---------------------
-    for r in FLOORS:
+    for r in L.get("floors", FLOORS):
         g[r][WALL_L + 1] = t["wall_l_ledge"]
         g[r][WALL_R - 1] = t["wall_r_ledge"]
         for x in range(WALL_L + 2, WALL_R - 1):
@@ -298,14 +441,61 @@ def build_map(names, L):
         g[r - 1][x] = t["pillar_base"]
         g[r - 2][x] = t["pillar_top"]
 
+    # ---- the staircases: a stalagmite and two ledges ---------------
+    # A ledge that reaches a wall grows OUT of it - wall_l_ledge and
+    # wall_r_ledge are drawn for that - and the floors already end in
+    # the same two tiles.
+    for r, c, d in L.get("stairs", ()):
+        g[r - 1][c] = t["pillar_base"]
+        g[r - 2][c] = t["pillar_top"]
+        for k, row in ((1, r - 4), (4, r - 6)):
+            cols = sorted(c + d * (k + i) for i in range(3))
+            for x in cols:
+                g[row][x] = t["ledge_m"]
+            g[row][cols[0]] = t["wall_l_ledge" if cols[0] == WALL_L + 1
+                                else "ledge_l"]
+            g[row][cols[-1]] = t["wall_r_ledge" if cols[-1] == WALL_R - 1
+                                 else "ledge_r"]
+
+    # ---- the ceiling's drips ---------------------------------------
+    for x, n in L.get("drips", ()):
+        g[0][x] = t[n]
+
     # ---- and the water that collects at the bottom ------------------
     for i, (r, x) in enumerate(L["pools"]):
         g[r][x] = t["pool_0" if i % 2 == 0 else "pool_1"]
 
+    # ---- the walls the earthquake has cracked ------------------------
+    for r, x, n in L.get("cracks", ()):
+        g[r][x] = t[n]
+
     # ---- and the ladders between the floors -------------------------
-    for top, col in L["ladders"]:
-        for r in range(top, top + 8):
+    # A THIRD NUMBER IS A LADDER THE EARTHQUAKE BROKE: that many rungs
+    # from the top and then nothing. She climbs down to the end and lets
+    # go - CLIMB_LEAVE, which nothing shipped has ever reached - and the
+    # fall is measured from where the ladder ENDS, because FALL_MARK
+    # follows her down the rungs (8.4).
+    for top, col, *rest in L["ladders"]:
+        for r in range(top, top + (rest[0] if rest else 8)):
             put_overlay(g, names, r, col, "ladder")
+
+    # ---- the water pouring out of the cracks -------------------------
+    # The frame down the column is the ROCK's variant, so a waterfall
+    # over bg_a is always waterfall_1, over bg_b waterfall_2: three
+    # composites for every waterfall in the level rather than twelve.
+    # The same for the flood's surface along its row. A tile does not
+    # animate here (7.3), so which frame is where is a choice of
+    # picture, and this one costs 192 bytes of bank instead of 768.
+    for x, r0, r1 in L.get("falls", ()):
+        for r in range(r0, r1 + 1):
+            here = g[r][x]
+            if here >= len(names) or TILE_FLAGS.get(names[here], 0):
+                continue                        # a floor, or drawn on already
+            put_overlay(g, names, r, x, f"waterfall_{(r + x) % 3 + 1}")
+    if L.get("flood"):
+        r = L["flood"]
+        for x in range(WALL_L + 1, WALL_R):
+            put_overlay(g, names, r, x, f"flood_top_{(r + x) % 3 + 1}")
 
     # ---- the gate, standing on its floor ----------------------------
     # 4 wide x 5 tall: the slots across the top, then four rows of
@@ -461,11 +651,44 @@ def checks(m, names, ents, L):
     # makes the level survivable without spending a point on a hole;
     # the second is what makes eight floors a level rather than one
     # floor eight times.
-    cols = [c for _, c in L["ladders"]]
+    floors = L.get("floors", FLOORS)
+    cols = [lad[1] for lad in L["ladders"]]
     assert len(set(cols)) == len(cols), f"two floors share a ladder: {cols}"
-    hung = {r for r, _ in L["ladders"]}
-    assert hung == set(FLOORS[:-1]) or hung == set(FLOORS[1:]), (
-        f"a floor with no ladder off it: {sorted(hung)}")
+    # A ladder is keyed by the floor it hangs FROM and a staircase by
+    # the floor it rises FROM, so both come down to "the upper floor of
+    # the pair", and every pair has to have one.
+    stairs = L.get("stairs", ())
+    ways = [lad[0] for lad in L["ladders"]] + [r - 8 for r, _, _ in stairs]
+    assert sorted(ways) == sorted(floors[:-1]), (
+        f"a pair of floors with no way between them: {sorted(ways)}")
+
+    # THE STAIRCASES: inside the walls, the highest step no further
+    # above its floor than a fall she can take for free, and the foot
+    # of each one well away from where the last one put her down.
+    free = 64 + 64 // 2                 # FALL_FREE: her box and a half
+    for r, c, d in stairs:
+        for x in (c, c + 6 * d):
+            assert WALL_L < x < WALL_R, f"a staircase through the wall at {x}"
+        assert 6 * 16 <= free, "the top step is a fall that costs"
+    # A BROKEN LADDER IS A FALL FROM WHERE IT ENDS, and it has to be one
+    # she can take: the earthquake broke the ladders and not the level.
+    for top, col, *rest in L["ladders"]:
+        if rest:
+            assert (8 - rest[0]) * 16 <= free, (
+                f"the ladder at {col} ends {8 - rest[0]} rows above the "
+                f"floor - a fall that costs")
+    # ... AND WHERE THE WATER HAS COME UP, THE FLOOR ABOVE IT IS WHOLE:
+    # the flood carries no attribute, so a hole in that floor would be a
+    # fall out of the bottom of the map.
+    if L.get("flood"):
+        assert not [h for h in L["holes"] if h[0] == floors[-1]], (
+            "a hole in the floor over the water")
+        assert floors[-1] < L["flood"], "the water is over the last floor"
+    for (_, c0, d0), (_, c1, _) in zip(stairs, stairs[1:]):
+        landed = c0 + 5 * d0            # the middle of the top ledge
+        assert abs(c1 - landed) >= 6, (
+            f"the staircase at {c1} starts where the one at {c0} ends - "
+            f"a floor she does not have to walk")
 
     where = reachable(m, names, L)
     for i in range(0, len(ents), 8):
@@ -480,7 +703,7 @@ def checks(m, names, ents, L):
     # ... AND EVERY FLOOR HAS TO BE REACHED, which is the cave's own
     # version of the same question: a ladder in the wrong column is a
     # level that stops at the floor below it and looks perfectly fine.
-    for r in FLOORS:
+    for r in floors:
         assert any(row == r for _, row in where), f"floor at row {r} is cut off"
 
     # ... AND EVERY LADDER HAS TO BE STOOD ON. A hole between where she
@@ -488,20 +711,31 @@ def checks(m, names, ents, L):
     # which plays, and costs 32 points a floor, and is not what the map
     # says. reachable() credits no horizontal jump, so this is exactly
     # the question "could she walk to it".
-    for r, c in L["ladders"]:
+    for r, c, *_ in L["ladders"]:
         assert (c, r) in where, (
             f"the ladder at tile {c}, row {r} is somewhere she cannot "
             f"walk to - a hole is between her and it")
+
+    # ... AND EVERY STEP HAS TO BE STOOD ON, which is the same question
+    # a staircase asks: a step she cannot reach is scenery, and the one
+    # above it is then a step nobody can reach either.
+    for r, c, d in stairs:
+        steps = [(c, r - 2)] + [(c + d * (k + i), row)
+                                for k, row in ((1, r - 4), (4, r - 6))
+                                for i in range(3)]
+        for x, row in steps:
+            assert (x, row) in where, (
+                f"the step at tile {x}, row {row} is out of her reach")
     return len(pickups), len(where)
 
 
 def main():
     names = tile_names()
 
-    # BOTH MAPS FIRST, INTO ONE BAKED. The blob and the flag table are
-    # the ENVIRONMENT's, so a pair placed by either level has to come
-    # out at one index - and level 9 is built first so that its own
-    # eleven keep the indices they shipped with.
+    # ALL THE MAPS FIRST, INTO ONE BAKED. The blob and the flag table
+    # are the ENVIRONMENT's, so a pair placed by any level has to come
+    # out at one index - and they are built in level order so that each
+    # level added appends its new pairs after everybody else's.
     built = []
     for L in LAYOUTS:
         g = build_map(names, L)
@@ -510,7 +744,7 @@ def main():
         built.append((L, g, ents, pickups, standable))
 
     extra_bytes, extra_names, remap, flat = bake_overlays(
-        ART, SHEET, names, BAKED)
+        ART, SHEETS, names, BAKED)
     for _, g, _, _, _ in built:
         for r in range(MAP_H):
             for x in range(MAP_W):
@@ -530,7 +764,7 @@ def main():
                         | TILE_FLAGS.get(names[over], 0))
     flags = bytes(flags) + bytes(256 - len(flags))
 
-    # THE BLOB IS TRUNCATED TO THE SHEET'S OWN TILES FIRST, so running
+    # THE BLOB IS TRUNCATED TO THE TILESET'S OWN TILES FIRST, so running
     # this twice bakes the same pairs rather than stacking a second
     # copy on the first - make_city_map.py's own rule, and the same
     # reason: build.sh runs this AFTER build_levels.py exported the
@@ -566,8 +800,10 @@ def main():
         print(f"-> level_{L['level']}.lvl    {len(lvl)} bytes: "
               f"{back['width']}x{back['height']}, {back['entities']} entities "
               f"({pickups} pickups), tileset {TILESET_ID} - {L['about']}")
-        print(f"   {len(FLOORS)} floors 8 rows apart, {len(L['ladders'])} "
-              f"ladders, {len(L['holes'])} holes, a 4x5 gate, "
+        print(f"   {len(L.get('floors', FLOORS))} floors 8 rows apart, "
+              f"{len(L['ladders'])} "
+              f"ladders, {len(L.get('stairs', ()))} staircases, "
+              f"{len(L['holes'])} holes, a 4x5 gate, "
               f"{standable} standable cells")
     return 0
 

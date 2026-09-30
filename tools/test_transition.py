@@ -142,6 +142,19 @@ def main():
     two, off_map = make_levels()
     try:
         run(os.path.join(ROOT, "build.sh"), "--relink")
+        # THE SYMBOLS ARE THE RELINKED BINARY'S, NOT THE SHIPPED ONE'S.
+        # DISC_LEVEL_MAPS and the stream records behind it are IN the
+        # core image, five bytes a map, and this suite ADDS two maps -
+        # so everything after them moves, and past an `align` that no
+        # longer absorbs it, by a whole alignment. The day level 11
+        # shipped, PLAYER_HP and KEYS_COUNT moved 32 bytes under a
+        # suite that had read game.sym before relinking: it poked the
+        # key into a byte nothing reads and reported that LEVEL_ENTER
+        # had not cleared it. Read them from what is on the disc.
+        was = sym
+        sym = symbols()
+        moved = sum(1 for k in was if k in sym and was[k] != sym[k])
+        print(f"  ({moved} symbols moved with the two maps it added)")
         city = open(os.path.join(BUILD, "levels", "level1_city",
                                  "citytiles.bin"), "rb").read()[:512]
         forest = open(os.path.join(BUILD, "levels", "level2_forest",

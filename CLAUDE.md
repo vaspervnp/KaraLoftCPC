@@ -233,6 +233,40 @@ has offered that is a CHOICE. Measured, three holes took her 100 → 68 →
 tileset belongs to the environment; `level_9.lvl` comes out byte for
 byte the file that shipped (§8.13).
 
+**AND THE CAVE HAS A THIRD MAP, WHICH IS CLIMBED WITHOUT A LADDER.**
+Level 10's gate at the bottom leads to level 11 — 32 hardware frames,
+no art — and level 11 goes UP again the way plan.md says the cave does,
+**on platforms and stalagmites**: there is not a cell of `TA_CLIMB` in
+it. Between every pair of floors is a two-tile stalagmite and two
+ledges, each two rows above the last and starting the column after it
+ends, so the way up is **twenty-eight jumps of 32 lines against a reach
+of 36**, and the vertical camera follows JUMPS for the first time.
+Measured on the machine: every step, `WORLD_CR` 104 → 0, **773 game
+frames in 1,549 hardware ones** — not one dropped with a jump cel and
+the incoming row on the same frames — and her box never higher than
+screen line 16. The top step is 96 lines above its floor, which is
+`FALL_FREE` exactly, so a miss costs her the height and never a point;
+with the threshold one line lower the same fall costs one (§8.13).
+
+**AND THE CAVE IS FOUR MAPS, THE LAST OF WHICH GOES DOWN TO THE WATER.**
+Level 11 leaves at the top, so level 12 comes in at the top and goes
+DOWN — after the earthquake plan.md ends the environment with. The
+eighth floor is under the flood, the walls are cracked and pouring,
+and **three of its six ladders are broken**: she climbs down to the
+end and lets go, which is `CLIMB_LEAVE` in play for the first time,
+and the machine measures each fall from where the ladder ENDS — **96,
+80 and 64 lines for stubs two, three and four rungs short, HP 100
+throughout**; with `FALL_MARK` poked out the first one is measured
+from where she entered the level, 256 lines, and kills her. The gate
+out stands on the last dry floor, and past it is level 13 — the
+undersea, unpainted — so the game goes back to its title. **None of
+that art was reachable before**: the earthquake's thirteen tiles were a
+blob of their own at `&7711` of C4, which is not a multiple of 64, so
+no map could name one. The cave's tileset is both its sheets now; that
+renumbered every composite by thirteen, and levels 9-11 are **the same
+picture out of different bytes** — every cell the same 64 bytes and the
+same attribute, 65, 74 and 17 map bytes naming another index (§8.13).
+
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
 `collide.asm` and **read by nothing** — one use in the engine and it
@@ -517,8 +551,9 @@ tools/cpclib.py            Mode 0 encoding, palette, screen layout - the one
 tools/aseprite2spans.py    Aseprite sheet+JSON -> span-compressed bank
 tools/spawns.py            projectile spawn points -> build/spawns.inc
 tools/pack.py              ZX0 for everything that goes on the disc
-tools/build_levels.py      the level art packages -> blobs, and which of
-                           them get a second facing
+tools/build_levels.py      the level art packages -> blobs, which of
+                           them get a second facing, and an environment's
+                           tile sheets as ONE tileset (the cave's, 8.13)
 tools/level_banks.py       blobs -> bank images -> one ZX0 stream each
 tools/dskdata.py           those streams onto the disc as raw sectors
 tools/png2screen.py        image         -> overscan.bin / 16K screen
@@ -538,11 +573,12 @@ tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
                            overlays to bake, so no city_map.bin step to
                            mirror. One LAYOUT an entry, one set of
                            machinery (8.11)
-tools/make_cave_map.py     the cave's maps - levels 9 AND 10, 32x64,
-                           the first SHIPPED maps that are TALL and the
-                           first with ladders since the City. One tool,
-                           two compositions, and they SHARE a bake
-                           because a tileset is the environment's (8.13)
+tools/make_cave_map.py     the cave's maps - levels 9 TO 12, all four,
+                           32x64, the first SHIPPED maps that are TALL
+                           and the first with ladders since the City.
+                           One tool, four compositions, and they SHARE
+                           a bake because a tileset is the
+                           environment's (8.13)
 tools/tilebake.py          the overlay bake, once: the City's own baker,
                            lifted so the cave could use it (7.3)
 tools/blender_title.py     the title scene and its CPC render settings
@@ -577,11 +613,14 @@ tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
                            it to the bottom (11 step 7)
-tools/test_cave.py         levels 9 and 10 on the machine: the first
+tools/test_cave.py         levels 9 to 12 on the machine: the first
                            tall maps SHIPPED, climbed floor by floor to
-                           the gate and then back DOWN the next one,
-                           what a hole costs her, and her action cels
-                           measured per environment (8.13)
+                           the gate, back DOWN the next one, up the
+                           third by twenty-eight jumps and down the
+                           fourth on broken ladders to the water; what
+                           a hole costs her and what a missed step and
+                           a broken ladder do not; and her action cels
+                           per environment (8.13)
 tools/test_*.py            acceptance suites, twenty-six of them
 tools/run_tests.sh         all of them, in order
 
@@ -1500,7 +1539,7 @@ this palette it comes out as the colour Kara's boots rest on.
 | 1 city | `city_tiles` | 41 | **11** — roof props, the water tank, the lamp post | 704 B |
 | 2 forest | `forest_tiles` | 42 | 0 | — |
 | 3 cave | `cave_tiles` | 47 | **9** — crystals, beams, lamps, the ladder, the open gate | 576 B |
-| 3 cave | `cave_quake` | 13 | **8** — the waterfall and the flood's surface | 512 B |
+| 3 cave | `cave_quake` | 13 | **8** — the waterfall and the flood's surface; **tiles 47-59 of the cave's tileset** since level 12 (§8.13) | 512 B |
 | 4 undersea | `sea_tiles` | 42 | 0 | — |
 | 5 desert | `desert_tiles` / `desert_quicksand` | 41 / 4 | 0 | — |
 | 6 station | `station_tiles` | 39 | 0 | — |
@@ -2504,18 +2543,20 @@ files have four 1 KB blocks of room left, and the data ends at sector
 
 #### And what it leaves for the levels, now that there can be twenty-four
 
-A level's own bytes are **358 packed — one sector** — so the maps are
-not what fills this disc; the art is. Counted on the shipped image:
+A level's own bytes are **358 to 430 packed — one sector** — so the
+maps are not what fills this disc; the art is. Counted on the shipped
+image:
 
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the five maps that exist | **273** |
-| **spare** | **24** |
-| ... staying inside a standard 40-track disc | **13** |
+| the art, the title and the seven maps that exist | **275** |
+| **spare** | **22** |
+| ... staying inside a standard 40-track disc | **4** |
 
-Twenty-four maps is twenty-four of those, so four levels an environment
-fits with eight to spare **and needs the extended pair of tracks**,
+Twenty-four maps is seventeen more of those, so four levels an
+environment fits with five to spare **and needs the extended pair of
+tracks**,
 which is what the image already carries and what many drives will not
 read. `tools/dskdata.py` says so rather than leaving it to the drive:
 past 40 tracks it prints how many sectors are out there, and past 42 it
@@ -2648,7 +2689,8 @@ is somewhere to go now, and the line was not the interesting part —
 So **several levels share an environment's art**, and a transition
 between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
 is **4**, which is six environments of four levels: 24 maps, 24
-sectors, against the 31 the disc has spare (§7.9).
+sectors — seven of them on the disc now, and 22 spare for the other
+seventeen (§7.9).
 
 **`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
 
@@ -5093,18 +5135,178 @@ table: the blob's level-9 prefix is identical, and the three flag bytes
 that DID move (`pool_0`, `pool_1`, and one new baked tile) are bytes
 level 9 never places.
 
-| | level 9 | level 10 |
-|---|---|---|
-| she enters | the bottom, `WORLD_CR` 104 | the top, `WORLD_CR` 0, through the open gate |
-| the way on | seven ladders UP, columns 25 10 22 6 20 8 24 | seven ladders DOWN, columns 22 9 21 11 19 13 24 |
-| and the other way | — | a hole in all seven, 32 points each |
-| the key | the second floor from the TOP | the second floor from the BOTTOM |
-| the gate | the top floor, shut | the bottom floor, shut |
-| standable cells | 243 | 224 |
+| | level 9 | level 10 | level 11 | level 12 |
+|---|---|---|---|---|
+| she enters | the bottom, `WORLD_CR` 104 | the top, `WORLD_CR` 0, through the open gate | the bottom, `WORLD_CR` 104, through the open gate | the top, `WORLD_CR` 0, through the open gate |
+| the way on | seven ladders UP, columns 25 10 22 6 20 8 24 | seven ladders DOWN, columns 22 9 21 11 19 13 24 | seven staircases UP, stalagmites at 16 10 14 6 24 8 21 | six ladders DOWN, columns 23 6 20 9 22 12 — three of them broken |
+| and the other way | — | a hole in all seven, 32 points each | — : a missed step is a free fall | a hole in five, 32 points each |
+| the key | the second floor from the TOP | the second floor from the BOTTOM | the second floor from the TOP | the second floor from the BOTTOM |
+| the gate | the top floor, shut | the bottom floor, shut | the top floor, shut | the last dry floor, shut, over the water |
+| standable cells | 243 | 224 | 243 | 175 |
 
 She arrives in level 10 with 42 rounds in reserve and no key, which is
 §8.1's table being exercised by two levels for the first time: the clip
 crossed the door and the key did not.
+
+#### And level 11, which is climbed without a ladder
+
+Level 10's gate at the bottom leads to level 11 — **32 hardware
+frames**, `LEVEL_ENV` unmoved. plan.md names the cave's mechanic as
+*ανάβαση σε πλατφόρμες/stalagmites* and level 9 climbed ladders; this
+one has **none — `TA_CLIMB` on not one of its 2,048 cells** — and she
+goes up by the rock.
+
+**Between every pair of floors is a staircase**: a two-tile stalagmite
+and two three-tile ledges, each TWO ROWS above the last. Two rows is 32
+lines against a jump of 36, which is the forest's branch step exactly
+(§8.11), so the way up is twenty-eight jumps. The floors stay wall to
+wall and they are platforms, so the last jump of each staircase goes up
+THROUGH the floor above and lands on it.
+
+**EACH STEP STARTS IN THE COLUMN AFTER THE LAST ONE ENDS, AND THAT IS
+`BOX_SOLID_V`'S NUMBER AGAIN.** It ORs every tile under her six-byte
+box, so standing at the end of a step she already overhangs the next
+one's first column, and a jump STRAIGHT UP lands on it. A gap would ask
+for a run-up; a step directly overhead would put the ledge through her
+head, which the artist's own note rules out — *"leave 4 free tiles
+above a surface"*. It is also the whole of the driver: nothing in
+`tools/test_cave.py` knows where a step is. It reads the run of
+platform two rows above her feet out of the level's own map through
+`TILE_ATTR`, walks until her box overhangs it, and jumps.
+
+**THE TOP STEP IS `FALL_FREE` ABOVE ITS FLOOR, EXACTLY.** Six rows is
+96 lines and a fall costs only the excess (§8.4), so nothing she can
+miss in this level costs her a point: a miss costs the height, and the
+climb is the skill. That is measured by the machine's own `FALL_TOP`
+and not read off the map — walking off the top step of the first
+staircase is **96 lines and 0 points**, and with `FALL_DAMAGE`'s two
+immediates set one line lower the same walk costs **exactly 1**, which
+is what says the fall is AT the boundary rather than something shorter
+that would be free anyway. `cp FALL_FREE + 1` makes the boundary
+inclusive, and now it is a measurement.
+
+**AND THE VERTICAL CAMERA FOLLOWS JUMPS FOR THE FIRST TIME.** A ladder
+moves her two lines a game frame; a jump is 36 in four, and a
+`CAMERA_V` row step takes three. Measured over the whole climb:
+
+| | |
+|---|---|
+| the jumps | **28**, row 62 → 6, every one exactly two rows |
+| the view | `WORLD_CR` 104 → 0 |
+| the highest her box went | **screen line 16** — never clipped at the top |
+| the loop | **773 game frames in 1,549 hardware**, anchored at the start (§10): not one dropped, with a jump cel and the incoming row on the same frames, which no level before this one put together |
+| her health | 100 → 100 |
+
+**Its control is the stalagmite**: `TA_PLATFORM` taken off its top in
+`TILE_ATTR`, with the driver keeping its own copy so it still walks her
+there and still jumps. The ledge above is four rows up — 64 lines
+against a reach of 36 — and **she cannot leave the bottom floor.**
+
+The medkit is on the floor she crosses halfway up, and she walks past
+it: she arrives at full health, because level 10's ladders are free,
+and at full health a medkit is the one pickup that is refused (§8.6).
+The suite checks it is still there. And the ceiling over the top floor
+carries **`drip_1` and `drip_2`** — a stalactite with a drop forming on
+it, which the artist drew to land "in a pool 3-5 tiles below" — placed
+as two drops caught at different moments, one of them over a pool,
+because a tile does not animate here (§7.3). They are the two tiles level 11 places
+that neither of the others does.
+
+`level_9.lvl` and `level_10.lvl` come out **byte for byte the files
+that shipped**, the shared blob's first 4,480 bytes are unchanged, and
+not one byte of `tileflags_level3_cave.bin` moved: level 11's three new
+pairs are an overlay on bare rock, which carries nothing.
+
+#### And level 12, which goes down to the water
+
+Level 11 leaves at the TOP, so level 12 comes in at the top — 32
+hardware frames, `LEVEL_ENV` unmoved — and goes DOWN, which is where
+plan.md ends the environment: *σεισμός: υπόγειες πηγές σπάνε, η σπηλιά
+πλημμυρίζει*. The springs have broken. **The eighth floor is under
+the water** — `flood_1` from row 56 to the bottom of the map under a
+row of the flood's surface — the walls are cracked and pouring, and
+the gate out stands on the last dry floor with the water right under
+it. Past the gate is level 13, the undersea's first, which nobody has
+painted, so the game goes back to its title: a full reset, HP 100 —
+the end of the cave.
+
+**NONE OF THAT ART WAS REACHABLE, AND WHY IS A MEMORY-MAP FACT.** A map
+cell is an index into ONE blob, the one `tools/level_banks.py` pins at
+`&4000` of C4, so that `TILE_SRC` is `index * 64` and nothing else
+(§8.6). The earthquake is a second tile sheet, and exported as a blob
+of its own it went wherever the allocator had room — `&C4:7711`, which
+is not even a multiple of 64 — so the cracks, the waterfall and the
+flood were on the disc and no map could name a single one of them.
+`build_levels.one_tileset` appends an environment's later tile sheets
+to its first, in the manifest's order, so the cave's tileset is its
+forty-seven and then the earthquake's thirteen (47-59), with the
+composites after all sixty. The separate 832-byte blob is gone, so the
+bank set paid only for the new composites.
+
+**IT IS THE CAVE'S ONLY, AND THAT IS A MEASUREMENT.** The desert
+(quicksand) and the station (the lasers) have second sheets too.
+Merged, the desert fits; **the station does not ALLOCATE** — 71,839
+bytes into 80,896 either way, since the bytes do not change, but the
+lasers' 384 were a small blob best-fit could drop into any gap, and
+inside the pinned tileset they are not, so best-fit and 2,000 shuffles
+found no layout. Each joins `ONE_TILESET` the day a map of its own
+wants the second sheet, and the station's day is a packing problem.
+
+**AND IT RENUMBERED EVERY COMPOSITE BY THIRTEEN**, so levels 9-11 are
+not the files that shipped any more: **65, 74 and 17 map bytes name a
+different index.** What says nothing moved is the PICTURE — each map
+resolved through the old blob and through the new one, cell by cell:
+**0 of 2,048 cells draw different bytes and 0 carry a different
+attribute**, in all three; the control is the old map through the new
+blob, which gets 65 cells wrong. §8.3 already says the numbering is
+not part of the contract, and this is that sentence with a tileset
+growing under three shipped levels.
+
+**THE EARTHQUAKE BROKE THREE OF THE SIX LADDERS**, and that puts a
+player on a branch of `PLAYER_CLIMB` nothing shipped had ever reached:
+past the last rung with no floor under it, `.let_go` and `CLIMB_LEAVE`,
+and she falls. **The fall is measured from where the ladder ENDS**,
+because `FALL_MARK` follows her while she is not going down under
+gravity, and on a ladder she never is (§8.4). Measured by the machine's
+own `FALL_TOP`, against the stub lengths read off the map:
+
+| the ladder | rungs | fell | cost |
+|---|---:|---:|---:|
+| off floor 14 | 3 of 8 | **80** lines | 0 |
+| off floor 30 | 2 of 8 | **96** — `FALL_FREE` exactly | 0 |
+| off floor 38 | 4 of 8 | **64** | 0 |
+| the three whole ones | 8 | no fall at all | 0 |
+
+**Its control is `FALL_MARK` poked to `RET`**: the mark then stays
+wherever `PLAYER_SPAWN` put it, at the top of the level, and the first
+broken ladder is measured **256 lines — exactly from where she entered
+to where she landed — and kills her.** `tools/make_cave_map.py` refuses
+a broken ladder that ends further above its floor than `FALL_FREE`,
+because the earthquake broke the ladders and not the level; the holes
+beside five of them are level 10's choice again, 32 points against the
+rungs.
+
+**The earthquake's tiles carry no attribute except the cracks**, which
+are wall and `TA_SOLID`. The waterfall, the flood's surface and the
+flood itself carry nothing, because `TA_WATER` has no reader — the
+same reason level 10's pools are `PLATFORM` and not water, which
+`tools/make_cave_map.py` says where it places them — and the floor over the water is
+whole, which the tool asserts, since a hole in it would be a fall out
+of the bottom of the map. **The waterfall's frame is the rock's
+variant**: a column of it over `bg_a` is always `waterfall_1`, over
+`bg_b` always `waterfall_2`, so every waterfall in the level is three
+composites and not twelve, and the flood's surface along its row is
+three more. A tile does not animate here (§7.3), so which frame is
+where is a choice of picture — and this one is 192 bytes of bank
+instead of 768.
+
+**What is NOT here is the flood as a MECHANIC.** The artist's notes
+have it rising a row every two frames, rocks falling, the screen
+shaking and her switching to the swim cels once she is under — and the
+cave's bank set does not carry `kswim` (§6.2: the swim set REPLACES the
+run set, on level 4), `TA_WATER` has no reader, and plan.md puts the
+rising water in the 3 → 4 transition, as a raster-interrupt palette
+effect. The water here is where the flood has got to, drawn.
 
 #### AND THE CLIMB IS WHAT FOUND THE `kact` BUG, WHICH IS THIS FILE'S OWN SPECIES FOR THE THIRD TIME
 
@@ -5134,7 +5336,7 @@ nothing per frame, exactly as `ENT_ART_FOR` is done.
 |---|---|---|---|
 | city | `&C4:4CC0` | `&C0:4000` | **both right** — the City IS level 1 |
 | forest | `&C0:4000` | `&C4:4A80` | **NEITHER** |
-| cave | `&C0:4000` | `&C4:5180` | **NEITHER** |
+| cave | `&C0:4000` | `&C4:5700` | **NEITHER** |
 | undersea | `&C4:4A80` | `&C0:4000` | the left one only |
 | desert | `&C4:4A40` | `&C0:4000` | the left one only |
 | station | `&C4:49C0` | `&C0:4000` | the left one only |
@@ -5154,7 +5356,11 @@ changed and the number did**, because an unpinned address moves
 whenever anything in that environment changes size. `tools/test_cave.py`
 therefore DERIVES it from `banks.inc` rather than writing it down; the
 first version had 6 in it and would have reported the engine breaking
-when a map had been added.
+when a map had been added. **Level 11 moved it again** — three more
+baked tiles, 192 bytes, and the left-hand blob went from `&C4:5180` to
+`&C4:5240` — and the derived count stayed 7, which is the suite doing
+exactly what it was changed to do. Level 12 moved it a third time, to
+`&C4:5700`, and it is 7 again.
 
 **And the control has to be a machine that has only ever loaded level
 1.** `KACT_ROW` is written by `MAP_INSTALL`, so a suite that has been
@@ -6352,6 +6558,26 @@ frame, so this only helps a standing player on a still screen.
   with the directories the other way round, and the test to apply to
   any "with and without" is the one this file applies to a raster gate:
   **check that the `without` really is without.**
+* **A SUITE THAT RELINKS HAS TO READ THE SYMBOLS OF WHAT IT RELINKED.**
+  `DISC_LEVEL_MAPS` and the stream records behind it are IN the core
+  image, five bytes a map, so a map added to `build/` moves code.
+  `tools/test_transition.py` adds two, and the day level 11 shipped
+  that took **194 symbols** with it — `PLAYER_HP` and `KEYS_COUNT` by
+  32 bytes, because ten bytes crossed an `align` that had been
+  absorbing them. The suite had read `game.sym` BEFORE relinking, so it
+  poked the key into a byte nothing reads and reported that
+  `LEVEL_ENTER` had not cleared it: **an engine fault that did not
+  exist, in a build whose engine had not changed a byte.** It had
+  passed until then only because the padding had room for ten more.
+  `test_painter.py` and `test_generated.py` replace `level_1.lvl`
+  rather than adding a map, so their symbols do not move — today.
+  **And the first control for it was not one either**: run in a git
+  worktree of the previous commit, the same suite booted the MAIN
+  tree's disc with the main tree's symbols, because `bench.py`'s `ROOT`
+  is absolute. It failed in six places instead of two and proved
+  nothing. The real control was the previous commit in THIS tree, with
+  `build/level_11.lvl` deleted by hand and the md5 checked to be the
+  shipped one before anything was measured.
 * **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
   `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
   group and `B` = bytes in this span, and copied with `LDI` — so the
@@ -7285,7 +7511,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Nineteen of the twenty-four levels have
+   **What is left**: maps. Seventeen of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -7327,7 +7553,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other nineteen levels**, which is a designer's work and
+   for the other seventeen levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

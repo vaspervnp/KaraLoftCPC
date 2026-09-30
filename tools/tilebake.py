@@ -49,15 +49,21 @@ def bake_overlays(art, sheet_stem, names, BAKED):
     """
     import cpclib
     from aseprite2spans import game_palette
-    sheet = Image.open(os.path.join(
-        art, f"{sheet_stem}.png")).convert("RGBA")
-    js = json.load(open(os.path.join(art, f"{sheet_stem}.json")))
-    frames = js["frames"]
-    if isinstance(frames, dict):
-        frames = [frames[k] for k in frames]
+    # ONE SHEET OR SEVERAL, in the tileset's own order. An environment's
+    # tile sheets are one tileset (build_levels.one_tileset), so an
+    # index past the first sheet's last tile is a tile of the second -
+    # the cave's waterfall over its own rock is a pair across two PNGs.
+    stems = [sheet_stem] if isinstance(sheet_stem, str) else list(sheet_stem)
+    frames = []
+    for stem in stems:
+        sheet = Image.open(os.path.join(art, f"{stem}.png")).convert("RGBA")
+        fr = json.load(open(os.path.join(art, f"{stem}.json")))["frames"]
+        if isinstance(fr, dict):
+            fr = [fr[k] for k in fr]
+        frames += [(sheet, f["frame"]) for f in fr]
     palette = game_palette(os.path.join(ROOT, "src", "palette.asm"))
 
-    w, h = frames[0]["frame"]["w"], frames[0]["frame"]["h"]
+    w, h = frames[0][1]["w"], frames[0][1]["h"]
     cache = {}
 
     def pens_of(i):
@@ -70,7 +76,7 @@ def bake_overlays(art, sheet_stem, names, BAKED):
         if i in cache:
             return cache[i]
         if i < len(names):
-            b = frames[i]["frame"]
+            sheet, b = frames[i]
             crop = sheet.crop((b["x"], b["y"],
                                b["x"] + b["w"], b["y"] + b["h"]))
             cache[i] = cpclib.quantise(crop, palette)

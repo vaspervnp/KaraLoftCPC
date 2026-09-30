@@ -216,6 +216,59 @@ def do_sheet(dirn, stem, name, tiles, mirror, extra, dest, extra_l=None,
     return rows
 
 
+ONE_TILESET = {"level3_cave"}             # see one_tileset
+
+
+def one_tileset(dest, sheets, rows):
+    """AN ENVIRONMENT'S TILE SHEETS ARE ONE TILESET, in the manifest's
+    order, and the first one's blob is it.
+
+    The engine reads a map cell as an index into ONE blob - the one
+    level_banks.py pins at &4000 of C4, so that TILE_SRC is index * 64
+    and nothing else (CLAUDE.md 8.6). Three environments have a second
+    tile sheet: the cave's earthquake, the desert's quicksand and the
+    station's lasers. Exported as blobs of their own they went wherever
+    the allocator had room - the cave's at &7711, which is not even a
+    multiple of 64 - so no map could name a single one of their tiles,
+    and the art for the cave's flood, the desert's signature mechanic
+    and the station's traps was on the disc and out of reach.
+
+    Appending them keeps every tile of the FIRST sheet at the index it
+    had, which is the one a map already names; anything that bakes
+    overlays afterwards (make_city_map.py, make_cave_map.py) appends
+    after the whole tileset.
+
+    IT IS DONE WHERE A MAP NEEDS IT AND NOT EVERYWHERE, and that is a
+    measurement: merged, the station does not ALLOCATE. It is 71,839
+    bytes into 80,896 either way - the bytes do not change - but its
+    lasers' 384 were a small blob the allocator could put in any gap,
+    and inside the pinned tileset they are not, so best-fit and 2,000
+    shuffles found no layout at all. The desert merges and fits. Each
+    joins this set the day a map of its own wants the second sheet,
+    and the station's day is a packing problem to solve then.
+    """
+    if os.path.basename(dest) not in ONE_TILESET:
+        return rows
+    blobs = [os.path.join(dest, s.replace("_", "").lower()) for s in sheets]
+    blobs = [b for b in blobs if os.path.exists(b + ".bin")]
+    if len(blobs) < 2:
+        return rows
+    first, joined = blobs[0], bytearray(open(blobs[0] + ".bin", "rb").read())
+    for b in blobs[1:]:
+        joined += open(b + ".bin", "rb").read()
+        for ext in (".bin", ".zx0", ".inc", "_frames.json"):
+            if os.path.exists(b + ext):
+                os.remove(b + ext)
+    open(first + ".bin", "wb").write(joined)
+    gone = {os.path.basename(b) + ".bin" for b in blobs}
+    rows = [r for r in rows if r[0] not in gone]
+    rows.append((os.path.basename(first) + ".bin", len(joined),
+                 zx0(first + ".bin")))
+    print(f"    {os.path.basename(first)}: {' + '.join(sheets)} - one "
+          f"tileset, {len(joined) // 64} tiles")
+    return rows
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     grand_raw = grand_pk = 0
@@ -248,7 +301,9 @@ def main():
                 kind = "sprites"        # a character the manifest omits
             rows += do_sheet(d, stem, sheet.upper().replace("_", ""),
                              kind == "tiles", sheet in MIRRORED, (), dest)
-        report[lvl] = rows
+        tiles = [s["name"] for s in json.load(open(man))["sheets"]
+                 if s["kind"] == "tiles"]
+        report[lvl] = one_tileset(dest, tiles, rows)
 
     w = max(len(r[0]) for rs in report.values() for r in rs)
     for lvl, rows in report.items():
