@@ -267,6 +267,26 @@ renumbered every composite by thirteen, and levels 9-11 are **the same
 picture out of different bytes** — every cell the same 64 bytes and the
 same attribute, 65, 74 and 17 map bytes naming another index (§8.13).
 
+**AND THE CITY HAS TWO MAPS, AND THE SECOND IS THE CITY'S OWN
+MECHANIC.** Level 1's garage has pointed at level 2 since the day it
+was placed — 54 hardware frames, one sector, no art — and level 2
+**opens on that garage drawn OPEN**, `open_ramp` under three rows of
+`void`, two tiles nothing had ever placed. plan.md names the City's
+mechanic as rooftop jumps and level 1 has one gap, out of everybody's
+way; here the key is on the last of five roofs and **every one of the
+four gaps is a jump she has to make**, because crates three high cut the
+street into pits and each pit's one ladder goes back up to the roof she
+jumped FROM. The jumps were measured before they were placed, at both
+phases a two-byte stride can meet the lip in, and the level was redrawn
+twice by what that found: **her jump rises 21 lines, not the 36 the
+source said**, so a solid roof two rows up is a wall; and **a three-tile
+gap downhill is not a jump at all** — running off its edge lands on the
+far roof at one phase in two — so the downhill gaps are four wide. The
+hard one goes UP a row, **3 or 4 game frames to take off in against 6
+or 7 for the level one**, and the medkit is in the pit under it. Not
+one composite level 1 did not already bake, so the City's tile blob,
+flags and bake record are byte for byte what they were (§8.14).
+
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
 `collide.asm` and **read by nothing** — one use in the engine and it
@@ -428,7 +448,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-six pass**, the editor's own among them. Eighteen checks in
+twenty-seven pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -564,8 +584,10 @@ tools/make_fade.py         one step toward black for every hardware
                            colour, out of the cube the palette is (6.6)
 tools/make_loader.py       the label screen's palette note -> kara.bas,
                            the disc's front door (7.9)
-tools/make_city_map.py     the City's 128x16 map, over the DRAWN tiles,
-                           and the build-time bake of its overlay tiles
+tools/make_city_map.py     the City's maps - levels 1 AND 2, 128x16,
+                           over the DRAWN tiles - and the build-time bake
+                           of their overlays, which they share and level
+                           2 adds nothing to (8.14)
 tools/make_level.py        that map + the entity table -> level_1.lvl,
                            the reference implementation of editor.md 9.2
 tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
@@ -602,7 +624,13 @@ tools/test_xclip.py        the X clip: the clipped lane against the same
                            v-model, and the running game at both edges
 tools/test_transition.py   the level after this one: a map read inside an
                            environment, an art read across one, and what
-                           she carries through the door
+                           she carries through the door - on the SHIPPED
+                           levels 2 and 5, not a pair it made (8.14)
+tools/test_city.py         level 2 on the machine: out of level 1's
+                           garage, across the rooftops from the joystick,
+                           every gap's take-off window at both stride
+                           phases, a miss and what it costs, the jump's
+                           real height, and the way out (8.14)
 tools/test_forest.py       levels 5 and 6 on the machine: out of the
                            City into the forest, the bands as the
                            engine reads them, she walks each end to
@@ -621,7 +649,7 @@ tools/test_cave.py         levels 9 to 12 on the machine: the first
                            a hole costs her and what a missed step and
                            a broken ladder do not; and her action cels
                            per environment (8.13)
-tools/test_*.py            acceptance suites, twenty-six of them
+tools/test_*.py            acceptance suites, twenty-seven of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -2550,11 +2578,11 @@ image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the seven maps that exist | **275** |
-| **spare** | **22** |
-| ... staying inside a standard 40-track disc | **4** |
+| the art, the title and the eight maps that exist | **276** |
+| **spare** | **21** |
+| ... staying inside a standard 40-track disc | **3** |
 
-Twenty-four maps is seventeen more of those, so four levels an
+Twenty-four maps is sixteen more of those, so four levels an
 environment fits with five to spare **and needs the extended pair of
 tracks**,
 which is what the image already carries and what many drives will not
@@ -2689,8 +2717,8 @@ is somewhere to go now, and the line was not the interesting part —
 So **several levels share an environment's art**, and a transition
 between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
 is **4**, which is six environments of four levels: 24 maps, 24
-sectors — seven of them on the disc now, and 22 spare for the other
-seventeen (§7.9).
+sectors — eight of them on the disc now, and 21 spare for the other
+sixteen (§7.9).
 
 **`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
 
@@ -3458,7 +3486,7 @@ rather than chosen:
 |---|---:|---:|
 | walking off the roof into `ROOF_GAP` | 128 lines | **32 points** |
 | letting go of the LEDGE | 70 | free |
-| a jump that lands where it left | 36 | free |
+| a jump that lands where it left | 21 | free — the arc, measured (§8.14) |
 | climbing down the ladder | — | not a fall at all |
 
 **So the ledge is the safe way down and the gap is the one that hurts**,
@@ -4762,9 +4790,9 @@ thing that scrolls it.
 **THE LEVEL NUMBER IS 5 AND NOT 2.** An environment is a bank set and a
 level is a map (§8.1): the forest is environment 2 and its block is
 levels 5-8, so this is `level_5.lvl` with tileset 2 in its header.
-Walking out of level 1's garage goes to level 2, which is a City map
-nobody has painted — so it is reachable by `LEVEL_GOTO` and not yet by
-playing.
+Walking out of level 1's garage goes to level 2, the City's second
+map (§8.14); the forest is three doors further on, and two of those
+doors are levels nobody has painted yet.
 
 **What the flags are, and the one rule they are all an instance of**:
 
@@ -5186,7 +5214,7 @@ that would be free anyway. `cp FALL_FREE + 1` makes the boundary
 inclusive, and now it is a measurement.
 
 **AND THE VERTICAL CAMERA FOLLOWS JUMPS FOR THE FIRST TIME.** A ladder
-moves her two lines a game frame; a jump is 36 in four, and a
+moves her two lines a game frame; a jump rises 21 in three, and a
 `CAMERA_V` row step takes three. Measured over the whole climb:
 
 | | |
@@ -5405,6 +5433,127 @@ opens and the slots are drawn unfilled. Wiring the books to the slots
 is a mechanic and not a map, and inventing its contract quietly would
 be the worse of the two ways to be wrong.
 
+### 8.14 Level 2: the City again, across the rooftops
+
+`tools/make_city_map.py` writes it beside level 1 and
+`tools/test_city.py` drives it. Level 1 ends at a garage its key opens
+and `LEVEL_GOTO` goes to `LEVEL_CUR + 1`, so level 2 is the map that
+door has pointed at since it was placed: **54 hardware frames**,
+`LEVEL_ENV` unmoved, one sector and no art.
+
+**IT OPENS ON THAT GARAGE, DRAWN OPEN** — the manifest's own recipe,
+`open_ramp` under three rows of `void` with a green lock over them, two
+tiles nothing had ever placed. She comes out of it onto the street,
+`WORLD_CR` 8 of 8, which is the cave's open gate (§8.13) one
+environment back.
+
+**AND IT IS THE CITY'S OWN MECHANIC, WHICH LEVEL 1 SHOWED ONCE.**
+plan.md names it — *άλματα σε ταράτσες* — and level 1 has one gap, out
+of the way of everything it asks her to do. Here the key is on the last
+of five roofs and every gap between them is a jump she HAS to make:
+
+| | |
+|---|---|
+| the street | **cut into pits** by barricades three crates high, 48 lines against a jump that clears 21. A building's face is background (§8.8), so without them a player who fell into the first gap could walk to the last building's ladder |
+| each pit | **one ladder out, onto the roof she jumped FROM** — so a miss costs the fall and the climb back, never the jump itself |
+| the key's roof | **no ladder at all**: the last jump is the only way onto it, and its roof is FALL_FREE above the street, so the way back down is free |
+| between gaps | two steps up a row each onto the tallest roof, with the clip and the water tank on it |
+
+**THE JUMP RISES 21 LINES, NOT 36, AND THE LEVEL WAS DRAWN AGAINST THE
+WRONG ONE FIRST.** `P_JUMP`'s comment added up `15+11+7+3 = 36` and §9's
+table carried it. `.jump` stores `P_JUMP` and falls through into
+`.airborne`, which adds `P_GRAVITY` **before** it moves her, so −15 is
+never a step: measured on a row-8 roof, standing, walking and running
+alike, her feet go **128 → 117 → 110 → 107**, then 108. Thirty-six is
+what she REACHES onto a `PLATFORM`, because feet that fall into a
+platform's row are snapped onto its top by `.land` — 21 + 15 — and that
+is what every branch, ledge and stalagmite in the forest and the cave
+was measured against, which is why nothing there could show it. **A
+SOLID step is 21**: she cannot move over it until her box has cleared
+it. The first draft of this level put a roof two rows up across her
+path and she stood under it jumping; every roof in the City is solid,
+so it is two steps of one row now. The control is that step taken back
+out of the working map: **stuck at column 55, the tall roof two rows
+above her.** §10 has the rule.
+
+**AND A THREE-TILE GAP DOWNHILL IS NOT A JUMP AT ALL.** Run off its
+edge without pressing anything and the far roof catches her — measured,
+she leaves the lip at byte 89 and lands at 95, her box over the far
+roof's first byte — at one of the two phases a two-byte stride meets
+the lip in. So the downhill gaps are four wide, and **no gap on this
+level is crossed by running off its edge**, which the suite checks at
+both phases for all four.
+
+**WHAT A JUMP CAN BE IS MEASURED, AND AT BOTH PHASES.** Pressing UP at
+every byte column from sixteen before each gap to ten past it, on the
+level itself, game frames of take-off window:
+
+| gap | wide | roof rows | running, even / odd byte | walking |
+|---|---:|---|---|---:|
+| 22 | 3 | 7 → 7 | 6 / 7 | 3 |
+| 47 | 4 | 7 → 8 | 5 / 6 | 0 |
+| 74 | 3 | 8 → 7, **UP** | **3 / 4** | 0 |
+| 100 | 4 | 7 → 8 | 5 / 6 | 0 |
+
+**The phase is worth a frame, always the same way round**: an odd byte
+column meets the lip a byte earlier. Two shapes are not in the table
+because no press clears them, measured over a gap cut into level 1's own
+roof in RAM: **two rows up across any gap, and four tiles on the
+level.** The tool asserts every gap is a shape in this table, and the
+suite measures the table again and compares.
+
+**ONE PRESS RULE IS INSIDE EVERY WINDOW**, which is the whole driver:
+UP on the frame her box reaches the byte column before the gap's first.
+Over the rooftops from the top of the first ladder to the key, **192
+game frames in 385 hardware ones** with the drones held off — the lock,
+with a jump cel and the incoming column on the same frames — and **387
+with them on, HP 100 → 84**: two of their rounds, and she still makes
+all four.
+
+**A MISS COSTS WHAT THE TOOL SAYS, AND THE TOOL SAYS IT FROM THE
+APEX.** A walking jump at the four-wide gap falls **133 lines by the
+machine's own `FALL_TOP` — 112 of drop and 21 of arc — and costs 37**,
+HP 100 → 63, which is `miss_cost()`'s number; the pit's ladder puts
+her back on the roof she jumped from, and the run then makes it. The
+medkit is in the pit under the jump that goes UP, and it moved a column
+to get there: at column 75 a walking miss landed one byte past it, and
+at **76 every miss measured lands on it** — a walk, and two runs
+pressed too early — and pays the 21 back.
+
+**WALKING OFF THE KEY'S ROOF IS 96 LINES, `FALL_FREE` EXACTLY, AND
+FREE**, into the pit the way out is in; UP at the garage there with the
+key is `GS_CLEAR`, and level 3 is unpainted, so the game goes back to
+its title — a full reset, reserve 28.
+
+**NOT ONE COMPOSITE LEVEL 1 HAD NOT ALREADY BAKED.** The two maps share
+the bake because a tileset is the environment's (§8.13), and level 2 is
+drawn to add no pair: the roof props stand on `far_fill`, the lamps go
+on columns whose wall is the same brick and window as level 1's lamps,
+and the one water tank stands at column 56 of a row-6 roof, where the
+skyline behind it is `far_step` and `far_block` and an air-conditioner
+is under its corner — **the exact pairs level 1's three tanks were
+baked from.** `main()` asserts the bake did not grow, and
+`citytiles.bin`, the flag table, `city_baked.json`, `city_map.bin` and
+`level_1.lvl` are byte for byte what they were — which the editor's
+golden suite and `tools/test_painter.py` hold them to.
+
+**AND `tools/test_transition.py` RUNS ON THE SHIPPED DISC NOW.** It made
+its own level 2 — level 1 with a stripe across its wall — and its own
+level 5, relinked, and rebuilt afterwards. Both are real levels, and a
+suite that overwrote them would be measuring a level that does not ship;
+the City's level 2 is its same-environment case and the forest's level 5
+its control, as they come off the disc, and nothing is written to
+`build/`. **And `tools/test_flow.py` failed two checks the day level 2
+went on the disc**, both of them right: it cleared level 1 and waited
+for the title, which was "off the end of the painted levels" only for
+as long as there was nothing after level 1. It goes through two garages
+now — the coins cross the first, which is what makes the empty pocket
+after the second a reset and not a door.
+
+**What is NOT here**: an agent (§9 — a 12×64 sprite does not fit the
+frame), the informant level 1 has, and the escape car, which is a set
+piece for the City's last level.
+
 ## 9. Performance budget — measured directly, and it closes
 
 A hardware frame is **79,872 T-states**. **A GAME FRAME IS TWO OF THEM:
@@ -5521,7 +5670,7 @@ re-derived to leave the game where it was in REAL time, not in frames:
 |---|---:|---:|---|
 | walk | 1 byte on one frame in 2 | **1 byte a frame** | 25 bytes/s either way |
 | run | 1 byte a frame | **2 bytes a frame** | 50 bytes/s — and 2 bytes IS one CRTC character, so a run scrolls every game frame |
-| jump | `P_JUMP` −8, `P_GRAVITY` 1 | **−15, 4** | 15+11+7+3 = the same 36 px in the same 8 hardware frames |
+| jump | `P_JUMP` −8, `P_GRAVITY` 1 | **−15, 4** | **11+7+3 = 21 px, measured** — gravity is added before the first move, so −15 is never a step, and this row's old 15+11+7+3 = 36 was the constants added up rather than the arc (§8.14) |
 | terminal fall | `P_VY_MAX` 8 | **15** | twice would be 16, which is a whole tile — see below |
 | coyote | 6 frames | **3** | |
 | the ladder | 1 px a frame | **2** | |
@@ -5535,8 +5684,8 @@ destination-only and is exact only while a single step cannot skip a
 tile, so 16 — one whole tile — is not available. 15 is as near as a
 25 Hz fall can get, which is 94% of the old speed.
 
-**And the physics is sampled half as often.** Her jump is four updates
-to the apex where it was eight, and a fall steps 15 pixels where it
+**And the physics is sampled half as often.** Her jump is three updates
+to the apex (§8.14), and a fall steps 15 pixels where it
 stepped 8. Nothing in the level notices — a floor is 16 pixels and the
 probe still cannot cross one — but it is the real cost of the decision
 and it is what the coyote window and the roof's gap were re-measured
@@ -6578,6 +6727,18 @@ frame, so this only helps a standing player on a still screen.
   nothing. The real control was the previous commit in THIS tree, with
   `build/level_11.lvl` deleted by hand and the md5 checked to be the
   shipped one before anything was measured.
+* **A COMMENT THAT ADDS UP THE CONSTANTS IS NOT A MEASUREMENT OF THE
+  MOTION.** `P_JUMP`'s said `rises 15+11+7+3 = 36 px`, §9's table
+  repeated it, and the first draft of level 2 was drawn against it: a
+  roof two rows up, which she then stood under, jumping. `.jump` falls
+  into `.airborne`, which adds gravity BEFORE it moves her, so −15 is
+  never a step and the arc is 21 (§8.14). **And every level before it
+  hid that**, because every one was built of PLATFORMS, and the landing
+  snap lifts feet that fall into a platform's row onto its top — which
+  adds back exactly the 15 the arithmetic had wrong. So the number was
+  right in effect everywhere it had been measured, and wrong the first
+  time a level was made of solid steps. The test is one line: jump and
+  read `KARA_WY`.
 * **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
   `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
   group and `B` = bytes in this span, and copied with `LDI` — so the
@@ -7511,7 +7672,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Seventeen of the twenty-four levels have
+   **What is left**: maps. Sixteen of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -7553,7 +7714,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other seventeen levels**, which is a designer's work and
+   for the other sixteen levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

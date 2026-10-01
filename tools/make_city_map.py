@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""The City map, over the DRAWN 8x16 tiles.
+"""The City's maps, over the DRAWN 8x16 tiles: level 1, and level 2.
+
+Everything below down to LEVEL 2's own header is level 1, and it comes
+out byte for byte what it was before level 2 existed - that is the
+check that the second map did not disturb the first. The two SHARE the
+bake, because a tileset belongs to the environment (CLAUDE.md 8.13), and
+level 2 is drawn to need no composite level 1 does not already have.
 
 This replaces make_placeholder_level.py's stand-in sheet: the tiles are
 now the artist's, exported by build_levels.py into the level's own bank,
@@ -322,17 +328,9 @@ ROOF_GAP = list(range(95, 98))
 ROOF_WALK_REACH = 83
 
 
-def main():
-    T, names = tile_names()
-    side = os.path.join(ROOT, "build", "levels", "level1_city",
-                        "citytiles_frames.json")
-    exported = json.load(open(side))
-    assert exported["tiles"] and exported["box"] == [4, 16], exported["box"]
-    n_exported = 1 + max(t["to"] for t in exported["tags"])
-    if n_exported != len(names):
-        raise SystemExit(f"the sheet exports {n_exported} tiles but the "
-                         f"manifest names {len(names)} - one of them moved")
-
+def build_level_1(T, names):
+    """Level 1's map, its overlays recorded in BAKED and not yet
+    composited - the bake is done once, for both maps, in main()."""
     g = [[T["void"]] * MAP_W for _ in range(MAP_H)]
 
     for x in range(MAP_W):
@@ -467,12 +465,363 @@ def main():
             assert g[y][x] == T["far_fill"], (
                 f"tile ({x},{y}) is in the gap and is not open air")
 
+    return g
+
+
+from make_level import pack, read                    # noqa: E402
+
+# =====================================================================
+# LEVEL 2: ACROSS THE ROOFTOPS
+#
+# Level 1 ends at a garage its key opens, and LEVEL_GOTO goes to
+# LEVEL_CUR + 1 (CLAUDE.md 8.1) - so level 2 is the map that door has
+# pointed at since the day it was placed. Same environment: one sector
+# and no art. AND IT OPENS ON A GARAGE DRAWN OPEN, which is the
+# manifest's own recipe - "open rows 1-3 void x2, row 4 open_ramp x2" -
+# for two tiles nothing had ever placed. It is the cave's open gate
+# (8.13) one environment back: she comes out of the door she went in by.
+#
+# AND IT IS THE CITY'S OWN MECHANIC, WHICH LEVEL 1 SHOWED ONCE. plan.md
+# names it - "άλματα σε ταράτσες" - and level 1 has one gap, out of the
+# way of everything it asks her to do. Here the key is on the last of
+# five roofs and every gap between them is a jump she HAS to make:
+#
+#   * THE STREET IS CUT INTO PITS. A building's face is background
+#     (8.8), so the street runs under every roof and a player who fell
+#     into the first gap could walk to the last building's ladder. Three
+#     crates high is 48 lines against a jump that clears 21 - and that
+#     would reach 36 if a crate were a platform - so a barricade of
+#     them is a wall, and each pit has ONE ladder, on the building she
+#     jumped FROM. A miss costs the fall and the climb back - never the
+#     jump itself.
+#   * THE KEY'S ROOF HAS NO LADDER AT ALL, so the last jump is the only
+#     way onto it - and its roof is FALL_FREE above the street, so the
+#     way back down costs nothing.
+#
+# WHAT A JUMP CAN BE IS MEASURED, NOT CHOSEN. RUN_JUMPS is the take-off
+# window in game frames, by the gap's width and the far roof's row less
+# the near one's, at each of the two phases a run's two-byte stride can
+# meet the lip in - measured on this level, on the machine, by pressing
+# UP at every byte column from sixteen before each gap to ten past it
+# (tools/test_city.py does it again). Four things fell out of that, and
+# the first two are why the level is the shape it is:
+#
+#   * TWO ROWS UP ACROSS A GAP, OR FOUR TILES LEVEL, NOBODY CAN JUMP -
+#     measured over a gap cut into level 1's own roof in RAM, with
+#     every other shape in RUN_JUMPS beside them.
+#   * A THREE-TILE GAP DOWNHILL IS NOT A JUMP AT ALL. Running off its
+#     edge without pressing anything lands her on the far roof at one
+#     stride phase in two - so a gap whose far roof is lower is FOUR
+#     wide here, and then nothing short of a jump crosses it.
+#   * The window depends on the stride's phase by one frame, always the
+#     same way round: an odd byte column meets the lip a byte earlier.
+#   * A WALK clears the level gap in three frames and nothing else at
+#     all. The other three are what the run is for (8.8).
+#
+# The five roofs use three of them, and in an order:
+#
+#   G1   7 -> 7, three wide    level: level 1's own gap, 6 or 7 frames
+#   G2   7 -> 8, FOUR wide     downhill, and four BECAUSE it is: 5 or 6
+#   ...  two steps up a row each to the tallest roof, and a drop off it
+#   G3   8 -> 7, three wide    UP a row: 3 or 4 frames, the hard one
+#   G4   7 -> 8, FOUR wide     as G2, onto the key's roof
+#
+# EVERY NUMBER ON THIS LEVEL IS A COMPOSITE LEVEL 1 ALREADY BAKED. The
+# props stand on far_fill, the lamps go on columns whose wall is the
+# same brick and window as level 1's lamps, and the one water tank
+# stands where the skyline behind it and the air-conditioner under it
+# are the pairs level 1's three tanks were baked from. So the City's
+# tile blob, its flag table and its bake record do not change by a
+# byte - which is what the editor's golden suite and test_painter.py
+# hold them to - and main() asserts it rather than hoping.
+# =====================================================================
+RUN_JUMPS = {(3, 0): (6, 7), (4, 1): (5, 6), (3, -1): (3, 4)}
+WALK_JUMPS = {(3, 0): 3}            # ... and walking, either phase
+# HOW HIGH SHE GOES IS 21 LINES AND NOT 36, and every roof here is
+# SOLID, so that is the number. .jump stores P_JUMP and falls into
+# .airborne, which adds P_GRAVITY BEFORE it moves her: the -15 is never
+# a step and the arc is 11 + 7 + 3, measured on the machine as 128 ->
+# 117 -> 110 -> 107. Thirty-six is what she reaches onto a PLATFORM,
+# because feet that fall INTO a platform's row are snapped onto its top
+# (21 + 15); a solid roof she cannot move over until her box has
+# cleared it, so a step of two rows is a wall - which is what the first
+# version of this level found, standing under a tall roof it had put
+# in her way.
+JUMP_RISE = 21
+FALL_FREE = 96              # KARA_BOX_H * 1.5, and inclusive (8.4)
+
+L2_BUILDINGS = (            # (first column, last column, roof row)
+    (0, 21, 7),             # the one she comes out of
+    (25, 46, 7),
+    (51, 53, 8),            # four that stand shoulder to shoulder: two
+    (54, 55, 7),            # steps of a row each up to the tallest -
+    (56, 61, 6),            # which is as much as a solid roof allows -
+    (62, 73, 8),            # and a drop of two rows off its far side
+    (77, 99, 7),            # the way out is at its foot
+    (104, 127, 8),          # the key's - and not a ladder on it
+)
+L2_LADDERS = (19, 44, 71, 97)       # one on each building before a gap
+L2_BARRICADES = (30, 56, 83)        # three crates high, at street level
+L2_GARAGE_IN = 6                    # the one she came out of, drawn OPEN
+L2_GARAGE_OUT = 88                  # the way out, shut, under roof four
+L2_CRATES = ((2, 2), (3, 1))        # (column, crates high): the coin's
+L2_LAMPS = (12, 36, 54, 66, 78, 96, 108, 120)
+L2_PROPS = ((4, "ac_unit"), (13, "chimney"), (16, "antenna"),
+            (28, "chimney"), (33, "ac_unit"), (40, "antenna"),
+            (52, "chimney"), (57, "ac_unit"),
+            (65, "ac_unit"), (68, "antenna"),
+            (80, "chimney"), (86, "ac_unit"), (93, "chimney"),
+            (107, "antenna"), (116, "ac_unit"), (122, "chimney"))
+L2_TANKS = (56,)                    # on the tall roof, over (57)'s ac_unit
+
+# WHERE SHE STARTS: just out of the garage, a row above the pavement so
+# she falls the last 16 lines onto it - level 1's own reason (above).
+L2_START = (84, 208)                # world pixels: x, and the box's base
+L2_PICKUPS = (                      # (column, base row, PU_*, p1)
+    (2, 12, PU_COIN, 5),            # on the crates, by the garage
+    (60, 6, PU_AMMO, 14),           # on the tall roof, which is on the way
+    (76, 14, PU_MEDKIT, 0),         # in the pit under the hardest jump
+    (112, 8, PU_KEY, 0),            # on the last roof
+)
+L2_DRONES = ((36, 4), (88, 3), (117, 3))   # (column, patrol half-width)
+
+
+def l2_roof(x):
+    """The roof row over column x, or None where there is no building."""
+    for x0, x1, r in L2_BUILDINGS:
+        if x0 <= x <= x1:
+            return r
+    return None
+
+
+def l2_building(x):
+    for i, (x0, x1, _) in enumerate(L2_BUILDINGS):
+        if x0 <= x <= x1:
+            return i
+    return None
+
+
+def l2_gaps():
+    """(first column, width, near roof, far roof), west to east."""
+    out = []
+    for (_, a1, ra), (b0, _, rb) in zip(L2_BUILDINGS, L2_BUILDINGS[1:]):
+        if b0 > a1 + 1:
+            out.append((a1 + 1, b0 - a1 - 1, ra, rb))
+    return out
+
+
+def l2_pit(x):
+    """Which stretch of street column x is in: the barricades cut it."""
+    return sum(1 for b in L2_BARRICADES if b < x)
+
+
+def miss_cost(near):
+    """What a missed jump off a roof at row `near` costs her: the fall
+    is measured from the APEX (FALL_MARK, 8.4) down to the pavement."""
+    return max(0, (ROW_PAVEMENT - near) * 16 + JUMP_RISE - FALL_FREE)
+
+
+def build_level_2(T, names):
+    """Level 2's map, its overlays recorded in the SAME BAKED as level 1's."""
+    g = [[T["void"]] * MAP_W for _ in range(MAP_H)]
+    for x in range(MAP_W):
+        g[ROW_SKY_TOP][x] = T["sky_stars"] if (x * 7) % 11 == 0 else T["void"]
+        g[ROW_SKY_MID][x] = T["sky_mid"]
+        g[ROW_SKY_LOW][x] = T["sky_low"]
+        g[ROW_FAR_TOP][x] = (T["far_tower"], T["far_block"], T["far_step"],
+                             T["far_block"])[(x // 3) % 4]
+        roof = l2_roof(x)
+        # The skyline's black down to the roof - or, in a gap, all the
+        # way to the pavement, which is level 1's own gap exactly.
+        for y in range(ROW_FAR_TOP + 1,
+                       ROW_PAVEMENT if roof is None else roof):
+            g[y][x] = T["far_fill"]
+        if roof is not None:
+            g[roof][x] = T["roof_m"]
+            # THE SAME WALL AS LEVEL 1'S, cell for cell, because it is
+            # the same function of the column and the row - which is
+            # what lets a lamp here be a composite level 1 already has.
+            for y in range(roof + 1, ROW_PAVEMENT):
+                lit = ((x // 2 + y) % 3 == 0)
+                g[y][x] = (T["brick_win_lit"] if lit and (x + y) % 2 == 0
+                           else T["brick_win_dark"] if lit else T["brick"])
+        g[ROW_PAVEMENT][x] = T["sidewalk"]
+        g[ROW_STREET][x] = T["street_line"] if (x % 8) < 2 else T["street"]
+    for x0, x1, r in L2_BUILDINGS:
+        g[r][x0], g[r][x1] = T["roof_l"], T["roof_r"]
+
+    for x in L2_LADDERS:
+        for y in range(l2_roof(x), ROW_PAVEMENT):
+            g[y][x] = T["ladder"]
+
+    # ---- the two garages: 4 wide x 5 tall, on the pavement ----------
+    for x0, shut in ((L2_GARAGE_IN, False), (L2_GARAGE_OUT, True)):
+        top = ROW_PAVEMENT - 5
+        mid = T["shutter"] if shut else T["void"]
+        low = T["shutter_bottom"] if shut else T["open_ramp"]
+        g[top][x0:x0 + 4] = [T["jamb_l"], T["sign_p"],
+                             T["lock_red"] if shut else T["lock_green"],
+                             T["jamb_r"]]
+        for r in range(1, 4):
+            g[top + r][x0:x0 + 4] = [T["jamb_l"], mid, mid, T["jamb_r"]]
+        g[top + 4][x0:x0 + 4] = [T["jamb_l"], low, low, T["jamb_r"]]
+
+    # ---- crates: the barricades, and the coin's two steps ------------
+    for x in L2_BARRICADES:
+        for y in range(ROW_PAVEMENT - 3, ROW_PAVEMENT):
+            g[y][x] = T["crate"]
+    for x, high in L2_CRATES:
+        for y in range(ROW_PAVEMENT - high, ROW_PAVEMENT):
+            g[y][x] = T["crate"]
+
+    # ---- the overlays: props, the tank over its ac_unit, the lamps ---
+    for x, name in L2_PROPS:
+        put_overlay(g, names, l2_roof(x) - 1, x, name)
+    for x0 in L2_TANKS:
+        r = l2_roof(x0)
+        for rr in range(3):
+            for c in range(2):
+                put_overlay(g, names, r - 3 + rr, x0 + c, f"tank_{rr}{c}")
+    for x in L2_LAMPS:
+        put_overlay(g, names, ROW_PAVEMENT - 2, x, "lamp_top")
+        put_overlay(g, names, ROW_PAVEMENT - 1, x, "lamp_pole")
+    return g
+
+
+def build_entities_2():
+    e = [entity_px(EK_PLAYER_START, *L2_START, EF_ACTIVE)]
+    for x, row, kind, amount in L2_PICKUPS:
+        e.append(entity(EK_PICKUP, x, row, EF_ACTIVE | EF_TOUCH, kind, amount))
+    # THE DOOR, which is level 1's garage record: p1 is the pickup that
+    # opens it, and EF_SOLID is what the format calls a shut door.
+    e.append(entity(EK_DOOR, L2_GARAGE_OUT, ROW_PAVEMENT,
+                    EF_ACTIVE | EF_SOLID, 0, PU_KEY))
+    # Drones two rows above the roof under them, which is where level 1
+    # puts its own for the reason written there: her muzzle's line.
+    for x, half in L2_DRONES:
+        e.append(entity(EK_ENEMY, x, l2_roof(x) - 2, EF_ACTIVE, EN_DRONE, half))
+    return b"".join(e)
+
+
+def l2_checks(g, T, ents):
+    """The level's terms, each one a way it could load, look right and
+    be impossible - or be possible the wrong way."""
+    gaps = l2_gaps()
+    for x0, x1, r in L2_BUILDINGS:
+        # Six is level 1's roof, and a jump's apex 36 lines above it is
+        # as high as anything in this game has taken her; nine keeps her
+        # middle inside CAM_BOT, so every roof is framed at WORLD_CR 0.
+        assert 6 <= r <= 9, f"the roof at {x0}..{x1} is on row {r}"
+    for (_, a1, ra), (b0, _, rb) in zip(L2_BUILDINGS, L2_BUILDINGS[1:]):
+        if b0 == a1 + 1:                # shoulder to shoulder
+            assert (ra - rb) * 16 < JUMP_RISE, (
+                f"the roof at {b0} is {ra - rb} rows above the one before "
+                f"it, and a jump clears {JUMP_RISE} lines of SOLID roof")
+            assert (rb - ra) * 16 <= FALL_FREE, f"the drop at {b0} costs"
+    for x, w, near, far in gaps:
+        assert (w, far - near) in RUN_JUMPS, (
+            f"the gap at {x} is {w} wide from row {near} to row {far}, "
+            f"which no measured run-jump reaches")
+        # A BARRICADE SHE CAN LAND ON IS ONE SHE CAN WALK OVER. Under a
+        # roof she can drift while she falls - measured, a missed jump
+        # comes down a tile and a half past the gap - so they stand
+        # well clear of every gap's two edges.
+        for b in L2_BARRICADES:
+            assert b <= x - 6 or b >= x + w + 5, (
+                f"the barricade at {b} is within six tiles of the gap at {x}")
+    for b in L2_BARRICADES:
+        assert l2_roof(b) is not None, f"the barricade at {b} is in a gap"
+        assert all(g[y][b] == T["crate"]
+                   for y in range(ROW_PAVEMENT - 3, ROW_PAVEMENT))
+        assert 3 * 16 > JUMP_RISE + 15  # a wall even if crates were platforms
+    # EVERY PIT HAS ONE WAY OUT, AND IT IS BACK UP TO WHERE SHE JUMPED.
+    for x, w, near, far in gaps:
+        pit = l2_pit(x)
+        assert all(l2_pit(c) == pit for c in range(x, x + w)), \
+            f"a barricade stands in the gap at {x}"
+        ups = [c for c in L2_LADDERS if l2_pit(c) == pit]
+        near_b = l2_building(x - 1)
+        assert any(l2_building(c) == near_b for c in ups), (
+            f"nothing in the pit under the gap at {x} leads back up to "
+            f"the roof she jumped from")
+        assert all(l2_building(c) <= near_b for c in ups), (
+            f"the pit under the gap at {x} has a ladder onto a roof PAST "
+            f"it, so the jump is one she never has to make")
+    last = len(L2_BUILDINGS) - 1
+    assert not any(l2_building(c) == last for c in L2_LADDERS), \
+        "the key's roof has a ladder, so the last jump is optional"
+    for c in L2_LADDERS:
+        assert l2_roof(c) is not None and g[l2_roof(c)][c] == T["ladder"]
+        assert all(g[y][c] == T["ladder"]
+                   for y in range(l2_roof(c), ROW_PAVEMENT))
+    # The coin's crates: a step of one and then of two, each a row up.
+    hs = sorted(h for _, h in L2_CRATES)
+    assert hs[0] * 16 < JUMP_RISE and all(
+        (b - a) * 16 < JUMP_RISE for a, b in zip(hs, hs[1:]))
+    # Where things are, and which stretch of street they are on.
+    key = next(p for p in L2_PICKUPS if p[2] == PU_KEY)
+    assert l2_building(key[0]) == last and key[1] == l2_roof(key[0])
+    assert l2_pit(L2_START[0] // 8) == 0 and l2_pit(L2_LADDERS[0]) == 0
+    assert l2_pit(L2_GARAGE_OUT) == l2_pit(gaps[-1][0]), (
+        "the way out is not in the pit she lands in off the key's roof")
+    assert (ROW_PAVEMENT - L2_BUILDINGS[-1][2]) * 16 <= FALL_FREE, (
+        "walking off the key's roof costs her something")
+    for x, row, kind, _ in L2_PICKUPS:
+        assert row in (ROW_PAVEMENT, l2_roof(x),
+                       ROW_PAVEMENT - dict(L2_CRATES).get(x, 0)), \
+            f"pickup {kind} at {x} is standing on nothing"
+        assert x not in L2_LADDERS and x not in dict(L2_PROPS), \
+            f"pickup {kind} at {x} shares its cell with a ladder or a prop"
+    for x, name in L2_PROPS:
+        assert l2_roof(x) is not None and x not in L2_LADDERS, \
+            f"{name} at {x} is over a gap or a ladder"
+    for x in L2_LAMPS:
+        assert l2_roof(x) is not None and x not in L2_LADDERS
+        assert not any(b == x for b in L2_BARRICADES)
+        assert not any(x0 <= x < x0 + 4
+                       for x0 in (L2_GARAGE_IN, L2_GARAGE_OUT))
+    # One enemy a screen - level 1's own rule, the same assert.
+    beats = sorted((x - h, x + h) for x, h in L2_DRONES)
+    for (_, a_hi), (b_lo, _) in zip(beats, beats[1:]):
+        assert b_lo - a_hi > SCREEN_TILES, (
+            f"two drones can be on screen at once: {a_hi} and {b_lo}")
+    assert len(ents) % 8 == 0 and len(ents) // 8 <= ENT_MAX
+    return gaps
+
+
+def main():
+    T, names = tile_names()
+    side = os.path.join(ROOT, "build", "levels", "level1_city",
+                        "citytiles_frames.json")
+    exported = json.load(open(side))
+    assert exported["tiles"] and exported["box"] == [4, 16], exported["box"]
+    n_exported = 1 + max(t["to"] for t in exported["tags"])
+    if n_exported != len(names):
+        raise SystemExit(f"the sheet exports {n_exported} tiles but the "
+                         f"manifest names {len(names)} - one of them moved")
+
+    g = build_level_1(T, names)
+    # ... AND LEVEL 2, INTO THE SAME BAKED. A tileset is the
+    # environment's (CLAUDE.md 8.13): a pair either level places has to
+    # take one index in both, so both maps are built before anything is
+    # composited - and level 2 is drawn to add no pair at all.
+    level_1_pairs = dict(BAKED)
+    g2 = build_level_2(T, names)
+    ents2 = build_entities_2()
+    gaps2 = l2_checks(g2, T, ents2)
+    assert BAKED == level_1_pairs, (
+        f"level 2 placed overlay pairs level 1 never baked: "
+        f"{sorted(set(BAKED) - set(level_1_pairs))}. They would bake after "
+        f"level 1's and level 1 would not move - but citytiles.bin, its flag "
+        f"table and city_baked.json would, and the editor's golden suite and "
+        f"tools/test_painter.py hold all three to level 1's bake byte for "
+        f"byte. Move the prop, or change those with it.")
     # ---- the overlays, composited onto what they cover --------------
     # The map holds the BAKED tile, so every blitter stays a plain copy
     # and the frame pays nothing. See the note by put_overlay().
     extra_bytes, extra_names, remap, flat = bake_overlays(
         CITY_ART, CITY_SHEET, names, BAKED)
-    for row in g:                       # the provisional ids become the
+    for row in g + g2:                  # the provisional ids become the
         for x in range(MAP_W):          # real ones, or the overlay again
             if row[x] in remap:
                 row[x] = remap[row[x]]
@@ -561,6 +910,29 @@ def main():
         f"{SCREEN_LINES}-line display shows without scrolling at all")
     assert STREET_Y + 16 <= WORLD_LINES, "the street falls out of the world"
     assert ROOF_Y + 96 <= STREET_Y, "the climb is too short to be worth a ladder"
+
+    # ---- level 2, straight into the format: there is no second
+    # city_map.bin, because make_level.py's two inputs are level 1's
+    # golden intermediates (tools/test_format.py reads them) and level 2
+    # has no reason to grow a pair of its own.
+    blob2 = bytes(b for row in g2 for b in row)
+    assert len(blob2) == MAP_W * MAP_H and max(blob2) < len(names)
+    lvl2 = pack(level_id=2, tileset_id=1, width=MAP_W, height=MAP_H,
+                map_bytes=blob2, entities=ents2)
+    open(os.path.join(ROOT, "build", "level_2.lvl"), "wb").write(lvl2)
+    back = read(lvl2)
+    assert back["map"] == blob2 and back["entities"] == len(ents2) // 8
+    print(f"-> level_2.lvl     {len(lvl2)} bytes: {MAP_W}x{MAP_H}, "
+          f"{back['entities']} entities, tileset 1, and not one overlay "
+          f"pair level 1 had not already baked")
+    print(f"   {len(L2_BUILDINGS)} roofs at rows "
+          f"{', '.join(str(r) for _, _, r in L2_BUILDINGS)}; ladders at "
+          f"{list(L2_LADDERS)}; the street cut at {list(L2_BARRICADES)}")
+    for x, w, near, far in gaps2:
+        print(f"   gap at {x:3d}, {w} wide, row {near} -> {far}: a run-jump "
+              f"with {'/'.join(map(str, RUN_JUMPS[w, far - near]))} game "
+              f"frames to take off in, "
+              f"and a miss costs {miss_cost(near)}")
 
 
 if __name__ == "__main__":

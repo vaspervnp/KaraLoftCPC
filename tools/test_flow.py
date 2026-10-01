@@ -13,8 +13,9 @@ CLAUDE.md 11 step 8. Four things that did not exist:
      exactly two steps. It is measured WHERE IT SHOWS, because the gate
      array cannot be read back - here or on the machine (7.7).
   3. GAME_STATE, FLOW_CHECK and FLOW_STEP. She dies, the screen fades,
-     and the level comes back; the garage opens, the title comes up,
-     and it starts again.
+     and the level comes back; the garage opens onto the next level,
+     and off the end of the painted ones the title comes up and it
+     starts again.
   4. LEVEL_RESET, and it is the dangerous one. A restart is SCROLL_INIT
      - the map, the entity table, the tile flags, the bake and the
      enemies all come back out of the pristine LEVEL_IMAGE at &B000 -
@@ -417,6 +418,23 @@ def clear_checks(sym):
     # a poke made between frames is gone before FLOW_CHECK sees it.
     # What is driven here is the STEP, which is the half with a disc
     # read in it.
+    #
+    # TWICE, BECAUSE LEVEL 1'S GARAGE LEADS SOMEWHERE NOW. Until level 2
+    # existed the first clear WAS the end of the painted levels; it is
+    # a one-sector transition today (8.14), and the title is what the
+    # SECOND garage opens onto, with level 3 unpainted. The coins go
+    # through the first door (8.1), which is what makes the empty
+    # pocket afterwards a reset and not a door.
+    m.poke(sym["GAME_STATE"], GS_CLEAR)
+    for _ in range(300):
+        m.run_frames(2)
+        if m.peek(sym["GAME_STATE"]) == GS_PLAY and m.peek(sym["LEVEL_CUR"]) == 1:
+            break
+    m.run_frames(10)
+    check("the first garage opens onto level 2, coins and all",
+          m.peek(sym["LEVEL_CUR"]) == 1 and m.peek(sym["COINS_COUNT"]) == 7,
+          f"LEVEL_CUR {m.peek(sym['LEVEL_CUR'])}, coins "
+          f"{m.peek(sym['COINS_COUNT'])}")
     m.poke(sym["GAME_STATE"], GS_CLEAR)
     titled = False
     for _ in range(60):

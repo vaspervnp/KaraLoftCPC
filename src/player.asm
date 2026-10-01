@@ -83,10 +83,18 @@ P_RUN           equ 2           ; SHIFT: twice that, which is also exactly
 P_PUSH          equ 2           ; bytes per camera step: one CRTC character
 ; THE PHYSICS IS PER GAME FRAME AND THERE ARE HALF AS MANY OF THEM, so
 ; every velocity doubles and gravity quadruples to leave the arc where
-; it was in REAL time. Measured against the 50 Hz numbers: -15 with a
-; gravity of 4 rises 15+11+7+3 = 36 pixels in four game frames, which
-; is the same 36 pixels in the same eight hardware frames the old
-; -8/1 took over eight.
+; it was in REAL time.
+;
+; AND THE ARC IS 21 LINES, NOT THE 36 THIS COMMENT USED TO ADD UP.
+; .jump stores P_JUMP and falls through into .airborne, which adds
+; P_GRAVITY BEFORE it moves her - so -15 is never a step and the rise
+; is 11+7+3. Measured on a row-8 roof, standing, walking and running
+; alike: feet at 128 -> 117 -> 110 -> 107, then 108. What she REACHES is
+; 36 onto a PLATFORM, because feet that fall into a platform's row are
+; snapped onto its top (.land) - 21 + 15 - and that is what every
+; branch and ledge in the forest and the cave was measured against. A
+; SOLID step is 21: she cannot move over it until her box has cleared
+; it, so two rows of roof is a wall (CLAUDE.md 8.14).
 P_GRAVITY       equ 4
 ; A FALL OF MORE THAN ONE AND A HALF OF HER OWN HEIGHT COSTS HER, AND
 ; ONLY THE EXCESS IS PAID FOR. The height is KARA_BOX_H and not a
@@ -99,7 +107,7 @@ P_GRAVITY       equ 4
 ;                                        ... 32 over, so 32 points
 ;   letting go of the LEDGE              world y 90 -> 160,  70 lines
 ;                                        ... under 96, so free
-;   a jump that lands where it left      36 lines of arc, free
+;   a jump that lands where it left      21 lines of arc, free
 ;   climbing down the ladder             not a fall at all
 ;
 ; which is the design in one table: the ledge is the safe way down and
@@ -115,7 +123,7 @@ P_VY_MAX        equ 15          ; MUST stay under one tile (16) - a
                                 ; IS NOT ALLOWED: 15 is as near as the
                                 ; probe lets a 25 Hz fall get, and it is
                                 ; 94% of the old speed in real time.
-P_JUMP          equ -15         ; rises 15+11+7+3 = 36 px, about 2.2 tiles
+P_JUMP          equ -15         ; rises 11+7+3 = 21 px: see P_GRAVITY
 P_COYOTE        equ 3           ; game frames after the ground goes away in which
                                 ; UP is still a jump. SHE CROSSES THE ROOF'S
                                 ; GAP IN A 15-FRAME ARC AND THE HOLE IS 12
