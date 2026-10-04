@@ -404,6 +404,15 @@ def sweep_checks(sym, restarted):
                       f"alignments")
 
 
+def painted_run():
+    """The last level of the unbroken run from level 1 that has a map on
+    the disc - the one whose way out goes back to the title."""
+    n = 1
+    while os.path.exists(os.path.join(ROOT, "build", f"level_{n + 1}.lvl")):
+        n += 1
+    return n
+
+
 def clear_checks(sym):
     print("\n  the way out opens, and the game starts again:")
     m = boot(sym, scroll=True)
@@ -419,12 +428,12 @@ def clear_checks(sym):
     # What is driven here is the STEP, which is the half with a disc
     # read in it.
     #
-    # TWICE, BECAUSE LEVEL 1'S GARAGE LEADS SOMEWHERE NOW. Until level 2
-    # existed the first clear WAS the end of the painted levels; it is
-    # a one-sector transition today (8.14), and the title is what the
-    # SECOND garage opens onto, with level 3 unpainted. The coins go
-    # through the first door (8.1), which is what makes the empty
-    # pocket afterwards a reset and not a door.
+    # THROUGH EVERY GARAGE THAT LEADS SOMEWHERE. Until level 2 existed
+    # the first clear WAS the end of the painted levels; it is a
+    # one-sector transition today (8.14), and the title is what the
+    # garage of the LAST painted level opens onto. The coins go through
+    # every door (8.1), which is what makes the empty pocket afterwards
+    # a reset and not a door.
     m.poke(sym["GAME_STATE"], GS_CLEAR)
     for _ in range(300):
         m.run_frames(2)
@@ -435,6 +444,24 @@ def clear_checks(sym):
           m.peek(sym["LEVEL_CUR"]) == 1 and m.peek(sym["COINS_COUNT"]) == 7,
           f"LEVEL_CUR {m.peek(sym['LEVEL_CUR'])}, coins "
           f"{m.peek(sym['COINS_COUNT'])}")
+    # ... AND THROUGH EVERY DOOR AFTER IT THAT LEADS SOMEWHERE. Which
+    # level is the first nobody has painted is read off build/, not
+    # written down: written down, this suite failed the day level 2
+    # went on the disc and again the day level 3 did.
+    last = painted_run()
+    for lv in range(3, last + 1):
+        m.poke(sym["GAME_STATE"], GS_CLEAR)
+        for _ in range(600):
+            m.run_frames(2)
+            if (m.peek(sym["GAME_STATE"]) == GS_PLAY
+                    and m.peek(sym["LEVEL_CUR"]) == lv - 1):
+                break
+        m.run_frames(10)
+    check(f"... and every door after it, to level {last}, the last painted",
+          m.peek(sym["LEVEL_CUR"]) == last - 1
+          and m.peek(sym["COINS_COUNT"]) == 7,
+          f"LEVEL_CUR {m.peek(sym['LEVEL_CUR'])}, coins "
+          f"{m.peek(sym['COINS_COUNT'])} - they cross every door")
     m.poke(sym["GAME_STATE"], GS_CLEAR)
     titled = False
     for _ in range(60):

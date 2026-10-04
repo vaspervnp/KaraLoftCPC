@@ -203,7 +203,13 @@ def main():
     m2.run_frames(20)
     m2.poke(sym["PLAYER_HP"], 40)
     m2.poke(sym["AMMO_RESERVE"], 2)
-    clear_to_next(m2, sym, 1)
+    # THE LAST PAINTED LEVEL IS READ OFF build/, because written down
+    # it was "level 2" and stopped being true the day level 3 shipped.
+    last = 1
+    while os.path.exists(os.path.join(BUILD, f"level_{last + 1}.lvl")):
+        last += 1
+    for lv in range(2, last + 1):
+        clear_to_next(m2, sym, lv - 1)
     m2.poke(sym["GAME_STATE"], GS_CLEAR)
     back = None
     for f in range(1200):
@@ -213,7 +219,7 @@ def main():
             break
         if f > 200:                      # the title waits for a press
             m2.joystick(0x10); m2.run_frames(2); m2.joystick(0)
-    check("level 3 is not painted, so it goes back to the first",
+    check(f"level {last + 1} is not painted, so it goes back to the first",
           back is not None, f"after {back} hardware frames and a title"
           if back is not None else "it never came back")
     check("... and THAT is a full reset, not a transition",

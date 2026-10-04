@@ -61,20 +61,23 @@ def check(name, ok, detail=""):
 class City:
     """The running game on level 2, in the units the level is written in."""
 
-    def __init__(self, sym, drones=False):
+    def __init__(self, sym, drones=False, level=LEVEL):
         self.sym = sym
         self.m = m = boot(sym, scroll=True)
-        m.poke(sym["GAME_STATE"], GS_CLEAR)      # level 1's garage, opened
-        self.frames = None
-        for f in range(900):
-            m.run_frames(1)
-            # THE SYNC IS THE FSM COMING BACK TO PLAY, not LEVEL_OK - that
-            # is still 1 from the level being left (8.1).
-            if (m.peek(sym["GAME_STATE"]) == 0
-                    and m.peek(sym["LEVEL_CUR"]) == LEVEL - 1):
-                self.frames = f
-                m.run_frames(10)
-                break
+        # One garage a level: level 1's opens onto level 2, level 2's onto
+        # level 3. `frames` is the LAST door's.
+        for lv in range(2, level + 1):
+            m.poke(sym["GAME_STATE"], GS_CLEAR)
+            self.frames = None
+            for f in range(900):
+                m.run_frames(1)
+                # THE SYNC IS THE FSM COMING BACK TO PLAY, not LEVEL_OK -
+                # that is still 1 from the level being left (8.1).
+                if (m.peek(sym["GAME_STATE"]) == 0
+                        and m.peek(sym["LEVEL_CUR"]) == lv - 1):
+                    self.frames = f
+                    m.run_frames(10)
+                    break
         hdr = m.read_ram(sym["LEVEL_LVL"], 21)
         self.hdr = hdr
         self.w, self.h = hdr[5] | hdr[6] << 8, hdr[7] | hdr[8] << 8
@@ -458,21 +461,20 @@ def main():
     check("UP at the garage with the key opens it",
           c.byte("GAME_STATE") == GS_CLEAR,
           f"GAME_STATE {c.byte('GAME_STATE')}")
-    back = None
-    for f in range(1500):
+    hp, res = c.byte("PLAYER_HP"), c.byte("AMMO_RESERVE")
+    on = None
+    for f in range(900):
         c.m.run_frames(1)
-        if c.byte("LEVEL_CUR") == 0 and c.byte("GAME_STATE") == 0:
-            back = f
+        if c.byte("LEVEL_CUR") == LEVEL and c.byte("GAME_STATE") == 0:
+            on = f
             break
-        if f > 200 and f % 30 == 0:             # the title waits for a press
-            c.m.joystick(JOY["fire"])
-            c.m.run_frames(2)
-            c.m.joystick(0)
-    check("... and level 3 is not painted, so the game starts over",
-          back is not None and c.byte("PLAYER_HP") == 100
-          and c.byte("AMMO_RESERVE") == 28 and c.byte("KEYS_COUNT") == 0,
-          f"after {back} hardware frames and a title: HP "
-          f"{c.byte('PLAYER_HP')}, reserve {c.byte('AMMO_RESERVE')}")
+    check("... and it leads to level 3, which is the next door along",
+          on is not None and c.byte("LEVEL_ENV") == 0
+          and c.byte("PLAYER_HP") == hp and c.byte("AMMO_RESERVE") == res
+          and c.byte("KEYS_COUNT") == 0,
+          f"after {on} hardware frames: HP {c.byte('PLAYER_HP')} and reserve "
+          f"{c.byte('AMMO_RESERVE')} came with her, the key did not "
+          f"(keys {c.byte('KEYS_COUNT')})")
     del c
 
     # ---- under fire --------------------------------------------------

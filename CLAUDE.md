@@ -291,6 +291,23 @@ every one of them.** The medkit is in the pit under the one that goes
 up. Not one composite level 1 did not already bake, so the City's tile
 blob, flags and bake record are byte for byte what they were (§8.14).
 
+**AND THE CITY HAS THREE MAPS, AND THE THIRD IS THE OTHER HALF OF IT:
+THE STREET.** Level 2's garage leads to level 3 and it opens on that
+garage drawn open. Level 2 was the rooftops, every way on a jump; here
+every way on is a CLIMB and a way DOWN. A barricade three crates high
+cuts the pavement under every roof but the last, so the only way past
+one is that building's ladder and the roof over it; and between the
+buildings are plazas eight tiles wide that **no take-off, at either
+phase of a run, lands across** — so the way off a roof is down, and
+there are two. **Walked off, the drop is paid for — 16 off a row-7
+roof, 32 off a row-6 one, by the machine's own `FALL_TOP`; hung off
+the ledge and let go, it is 54 or 70 lines and free.** The ledge has
+been in the game since a play-test asked for it and no level needed
+it; here every roof is that choice, and the two are each other's
+control. Walking off all three is 80 of her 100 points and survivable,
+with a medkit in the second plaza; the key is on the last roof, which
+has a ladder, because every barricade is one-way (§8.15).
+
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
 `collide.asm` and **read by nothing** — one use in the engine and it
@@ -452,7 +469,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-seven pass**, the editor's own among them. Eighteen checks in
+twenty-eight pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -588,10 +605,10 @@ tools/make_fade.py         one step toward black for every hardware
                            colour, out of the cube the palette is (6.6)
 tools/make_loader.py       the label screen's palette note -> kara.bas,
                            the disc's front door (7.9)
-tools/make_city_map.py     the City's maps - levels 1 AND 2, 128x16,
+tools/make_city_map.py     the City's maps - levels 1, 2 AND 3, 128x16,
                            over the DRAWN tiles - and the build-time bake
-                           of their overlays, which they share and level
-                           2 adds nothing to (8.14)
+                           of their overlays, which they share and levels
+                           2 and 3 add nothing to (8.14, 8.15)
 tools/make_level.py        that map + the entity table -> level_1.lvl,
                            the reference implementation of editor.md 9.2
 tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
@@ -635,6 +652,10 @@ tools/test_city.py         level 2 on the machine: out of level 1's
                            every gap's take-off window at both stride
                            phases, a miss and what it costs, the jump's
                            real height, and the way out (8.14)
+tools/test_city3.py        level 3 on the machine: over every barricade
+                           by its ladder and down every roof by the
+                           ledge, walked off instead for what that costs,
+                           no jump across a plaza, and the way out (8.15)
 tools/test_forest.py       levels 5 and 6 on the machine: out of the
                            City into the forest, the bands as the
                            engine reads them, she walks each end to
@@ -653,7 +674,7 @@ tools/test_cave.py         levels 9 to 12 on the machine: the first
                            a hole costs her and what a missed step and
                            a broken ladder do not; and her action cels
                            per environment (8.13)
-tools/test_*.py            acceptance suites, twenty-seven of them
+tools/test_*.py            acceptance suites, twenty-eight of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -2582,11 +2603,11 @@ image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the eight maps that exist | **276** |
-| **spare** | **21** |
-| ... staying inside a standard 40-track disc | **3** |
+| the art, the title and the nine maps that exist | **277** |
+| **spare** | **20** |
+| ... staying inside a standard 40-track disc | **2** |
 
-Twenty-four maps is sixteen more of those, so four levels an
+Twenty-four maps is fifteen more of those, so four levels an
 environment fits with five to spare **and needs the extended pair of
 tracks**,
 which is what the image already carries and what many drives will not
@@ -2721,8 +2742,8 @@ is somewhere to go now, and the line was not the interesting part —
 So **several levels share an environment's art**, and a transition
 between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
 is **4**, which is six environments of four levels: 24 maps, 24
-sectors — eight of them on the disc now, and 21 spare for the other
-sixteen (§7.9).
+sectors — nine of them on the disc now, and 20 spare for the other
+fifteen (§7.9).
 
 **`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
 
@@ -5555,8 +5576,8 @@ column**, so none can reach a barricade, which stand five tiles clear.
 
 **WALKING OFF THE KEY'S ROOF IS 96 LINES, `FALL_FREE` EXACTLY, AND
 FREE**, into the pit the way out is in; UP at the garage there with the
-key is `GS_CLEAR`, and level 3 is unpainted, so the game goes back to
-its title — a full reset, reserve 28.
+key is `GS_CLEAR` — and that garage leads to level 3 (§8.15), with her
+health and her reserve and without the key.
 
 **NOT ONE COMPOSITE LEVEL 1 HAD NOT ALREADY BAKED.** The two maps share
 the bake because a tileset is the environment's (§8.13), and level 2 is
@@ -5579,13 +5600,97 @@ its control, as they come off the disc, and nothing is written to
 `build/`. **And `tools/test_flow.py` failed two checks the day level 2
 went on the disc**, both of them right: it cleared level 1 and waited
 for the title, which was "off the end of the painted levels" only for
-as long as there was nothing after level 1. It goes through two garages
-now — the coins cross the first, which is what makes the empty pocket
-after the second a reset and not a door.
+as long as there was nothing after level 1. It goes through every
+garage now, to the last painted level, which it reads off `build/` —
+see §8.15 for why it is read rather than written down.
 
 **What is NOT here**: an agent (§9 — a 12×64 sprite does not fit the
 frame), the informant level 1 has, and the escape car, which is a set
 piece for the City's last level.
+
+### 8.15 Level 3: the City again, down to the street
+
+`tools/make_city_map.py` writes it with levels 1 and 2 —
+`build_city()` takes a LAYOUT now, level 2's and level 3's, and
+level 2 comes out of it byte for byte the file that shipped — and
+`tools/test_city3.py` drives it. Level 2's garage leads here: **55
+hardware frames**, one sector, `LEVEL_ENV` unmoved, her health and her
+reserve through the door and not the key. **It opens on that garage
+drawn open**, the way level 2 opened on level 1's.
+
+**LEVEL 2 WAS THE ROOFTOPS AND THIS IS THE STREET.** Every way on in
+level 2 was a jump; here every way on is a climb and a way down, which
+is the other half of what the City's art and the engine already carry:
+
+| | |
+|---|---|
+| the street | **cut under every roof but the last** by a barricade three crates high — 48 lines, a wall even to a platform's reach of 43 — standing between that building's ladder and its far edge. Walking on from the garage she stops with her box at bytes 86..91 against crates at 92; with the crate's `TA_SOLID` taken off she walks to byte 240 |
+| the ladders | **one a building, on the side she arrives from**, so the only way past a barricade is up the ladder and across the roof over it |
+| the plazas | **eight tiles of open street between buildings**, and the suite sweeps every take-off from 24 bytes before each lip, at both phases of a run: **0 of them land across** |
+| the last roof | the key at its far end, **and a ladder**, and the way out in the garage under it |
+
+**SO THE WAY OFF A ROOF IS DOWN, AND THERE ARE TWO.** Measured off
+the same three lips, by the machine's own `FALL_TOP`:
+
+| roof | row | walked off | hung off the ledge and let go |
+|---|---:|---|---|
+| 0..25 | 7 | 112 lines, **16 points** | hanging at feet 170, 54 lines, **free** |
+| 34..59 | 6 | 128 lines, **32 points** | hanging at 154, 70 lines, **free** |
+| 68..93 | 6 | 128 lines, **32 points** | hanging at 154, 70 lines, **free** |
+
+**THE TWO ARE EACH OTHER'S CONTROL**: a fall rule that charged for
+everything fails the ledge column and one that charged for nothing
+fails the other. The ledge has been in the game since step 16 of
+§11's module 5 and no level had needed it — level 1 put it beside a
+ladder — so this is its first level. **Walking off all three is
+survivable**: 16 + 32 + 32 = 80, and the medkit in the second plaza
+takes her from 52 to 87 on the way, so she reaches the last ladder
+with 55. A player who never finds the ledge is punished and not
+stopped, which is the cave's ladder-or-hole (§8.13) in the City.
+
+**THE KEY GOES WHERE A MISS CAN BE WALKED BACK TO.** Every barricade
+is one-way — nothing leads back over one — so a key on a roof she has
+already left behind would be a level she cannot finish, with nothing on
+the screen to say so. It is at the far end of the LAST roof, and the
+last roof has a ladder from the street the way out is on; walking off
+its near edge is 96 lines, `FALL_FREE` exactly, and free.
+
+**Measured on the machine**, the whole drive from the joystick — four
+ladders, three ledges, the two crates on the roofs and the one in the
+first plaza jumped, the key, back off the last roof and UP at the
+garage: **848 game frames in 1,696 hardware ones**, the lock, with HP
+100 throughout. With the drones on and **not one round fired back**,
+she reaches the key with **68**: two of their rounds on the first tall
+roof, the medkit, two on the second and two on the last — about what
+level 2's drive under fire costs, for a level crossed at a climb's
+pace rather than a run's. Level 4 is unpainted, so the garage goes back to the
+title — a full reset.
+
+**Not one composite level 1 had not already baked**, by the rules
+level 2 found (§8.14): props over `far_fill`, lamps on columns 0 mod 6
+under a roof, the water tank where level 2's stands — and the roof
+crates are OPAQUE, a tile and not an overlay, so they cost the bake
+nothing. `main()` asserts it for both levels, and `level_1.lvl`,
+`level_2.lvl` and the City's tile blob, flags and bake record are byte
+for byte what they were.
+
+**AND TWO SUITES HAD THE END OF THE PAINTED LEVELS WRITTEN INTO
+THEM**, which is the third time a new level has failed them for being
+there: `tools/test_flow.py` cleared two garages and waited for the
+title, and `tools/test_transition.py` said "level 3 is not painted" in
+its own check. Both read the run of painted levels off `build/` now and
+clear every door in it — the `with`/`without` lesson of §10, applied to
+the end of the game rather than to a control.
+
+**What the suite's driver had to learn**, and both are instruments
+rather than the level: `walk_to` does not jump, so it stopped at the
+plaza's crate and never reached the ladder; and with the drones on, a
+dropped game frame is two frames she does not move, which a driver
+that jumped after two still frames took for a wall — and arrived at a
+lip in the air, where DOWN is not a ledge. It jumps after four.
+
+**What is NOT here**: an agent (§9), and the escape car, which is the
+City's last level's set piece.
 
 ## 9. Performance budget — measured directly, and it closes
 
@@ -7706,7 +7811,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Sixteen of the twenty-four levels have
+   **What is left**: maps. Fifteen of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -7748,7 +7853,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other sixteen levels**, which is a designer's work and
+   for the other fifteen levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

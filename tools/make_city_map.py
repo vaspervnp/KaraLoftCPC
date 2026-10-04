@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The City's maps, over the DRAWN 8x16 tiles: level 1, and level 2.
+"""The City's maps, over the DRAWN 8x16 tiles: levels 1, 2 and 3.
 
 Everything below down to LEVEL 2's own header is level 1, and it comes
 out byte for byte what it was before level 2 existed - that is the
@@ -631,8 +631,17 @@ def miss_cost(near):
     return max(0, (ROW_PAVEMENT - near) * 16 + JUMP_RISE - FALL_FREE)
 
 
-def build_level_2(T, names):
-    """Level 2's map, its overlays recorded in the SAME BAKED as level 1's."""
+def build_city(L, T, names):
+    """A City map out of one LAYOUT - level 2's or level 3's - with its
+    overlays recorded in the SAME BAKED as level 1's. Everything here is
+    the City's and nothing is a level's: which buildings, at what height,
+    with their ladders, barricades, garages, crates and props, is L."""
+    def roof_of(x):
+        for x0, x1, r in L["buildings"]:
+            if x0 <= x <= x1:
+                return r
+        return None
+
     g = [[T["void"]] * MAP_W for _ in range(MAP_H)]
     for x in range(MAP_W):
         g[ROW_SKY_TOP][x] = T["sky_stars"] if (x * 7) % 11 == 0 else T["void"]
@@ -640,7 +649,7 @@ def build_level_2(T, names):
         g[ROW_SKY_LOW][x] = T["sky_low"]
         g[ROW_FAR_TOP][x] = (T["far_tower"], T["far_block"], T["far_step"],
                              T["far_block"])[(x // 3) % 4]
-        roof = l2_roof(x)
+        roof = roof_of(x)
         # The skyline's black down to the roof - or, in a gap, all the
         # way to the pavement, which is level 1's own gap exactly.
         for y in range(ROW_FAR_TOP + 1,
@@ -657,15 +666,15 @@ def build_level_2(T, names):
                            else T["brick_win_dark"] if lit else T["brick"])
         g[ROW_PAVEMENT][x] = T["sidewalk"]
         g[ROW_STREET][x] = T["street_line"] if (x % 8) < 2 else T["street"]
-    for x0, x1, r in L2_BUILDINGS:
+    for x0, x1, r in L["buildings"]:
         g[r][x0], g[r][x1] = T["roof_l"], T["roof_r"]
 
-    for x in L2_LADDERS:
-        for y in range(l2_roof(x), ROW_PAVEMENT):
+    for x in L["ladders"]:
+        for y in range(roof_of(x), ROW_PAVEMENT):
             g[y][x] = T["ladder"]
 
-    # ---- the two garages: 4 wide x 5 tall, on the pavement ----------
-    for x0, shut in ((L2_GARAGE_IN, False), (L2_GARAGE_OUT, True)):
+    # ---- the garages: 4 wide x 5 tall, on the pavement ---------------
+    for x0, shut in L["garages"]:
         top = ROW_PAVEMENT - 5
         mid = T["shutter"] if shut else T["void"]
         low = T["shutter_bottom"] if shut else T["open_ramp"]
@@ -676,26 +685,39 @@ def build_level_2(T, names):
             g[top + r][x0:x0 + 4] = [T["jamb_l"], mid, mid, T["jamb_r"]]
         g[top + 4][x0:x0 + 4] = [T["jamb_l"], low, low, T["jamb_r"]]
 
-    # ---- crates: the barricades, and the coin's two steps ------------
-    for x in L2_BARRICADES:
+    # ---- crates: the barricades, the street's steps, the roofs' -----
+    for x in L["barricades"]:
         for y in range(ROW_PAVEMENT - 3, ROW_PAVEMENT):
             g[y][x] = T["crate"]
-    for x, high in L2_CRATES:
+    for x, high in L["crates"]:
         for y in range(ROW_PAVEMENT - high, ROW_PAVEMENT):
             g[y][x] = T["crate"]
+    for x in L.get("roof_crates", ()):
+        g[roof_of(x) - 1][x] = T["crate"]   # opaque: no pair to bake
 
     # ---- the overlays: props, the tank over its ac_unit, the lamps ---
-    for x, name in L2_PROPS:
-        put_overlay(g, names, l2_roof(x) - 1, x, name)
-    for x0 in L2_TANKS:
-        r = l2_roof(x0)
+    for x, name in L["props"]:
+        put_overlay(g, names, roof_of(x) - 1, x, name)
+    for x0 in L["tanks"]:
+        r = roof_of(x0)
         for rr in range(3):
             for c in range(2):
                 put_overlay(g, names, r - 3 + rr, x0 + c, f"tank_{rr}{c}")
-    for x in L2_LAMPS:
+    for x in L["lamps"]:
         put_overlay(g, names, ROW_PAVEMENT - 2, x, "lamp_top")
         put_overlay(g, names, ROW_PAVEMENT - 1, x, "lamp_pole")
     return g
+
+
+L2 = dict(buildings=L2_BUILDINGS, ladders=L2_LADDERS,
+          barricades=L2_BARRICADES,
+          garages=((L2_GARAGE_IN, False), (L2_GARAGE_OUT, True)),
+          crates=L2_CRATES, props=L2_PROPS, tanks=L2_TANKS, lamps=L2_LAMPS)
+
+
+def build_level_2(T, names):
+    """Level 2's map, its overlays recorded in the SAME BAKED as level 1's."""
+    return build_city(L2, T, names)
 
 
 def build_entities_2():
@@ -800,6 +822,196 @@ def l2_checks(g, T, ents):
     return gaps
 
 
+# =====================================================================
+# LEVEL 3: DOWN TO THE STREET AND UP AGAIN
+#
+# Level 2's garage leads here, and level 3 opens on it drawn OPEN, as
+# level 2 opened on level 1's. Level 2 was the rooftops and every way on
+# was a jump; this one is the street, and every way on is a CLIMB and a
+# way DOWN, which is the other half of what the City's art and the
+# engine already carry:
+#
+#   * THE STREET IS CUT UNDER EVERY BUILDING. A barricade three crates
+#     high stands on the pavement under each roof but the last - 48
+#     lines against a jump of 28, a wall even to a reach of 43 - so the
+#     only way past one is the building's ladder, on its near side, and
+#     the roof over the top of it.
+#   * BETWEEN THE BUILDINGS IS OPEN STREET, EIGHT TILES OF IT, which no
+#     jump crosses (measured in tools/test_city3.py: every take-off at
+#     either phase of a run comes down in the plaza). So the way off a
+#     roof is DOWN, and there are two: walk off the edge, which is the
+#     roof's height against FALL_FREE at a point a pixel - 16 off a
+#     row-7 roof, 32 off a row-6 one - or DOWN AT THE LIP, hang off the
+#     ledge and let go, which is 70 lines at the most and free (8.8).
+#     The ledge has been in the game since a play-test asked for it and
+#     no level has needed it; here every roof is a choice between the
+#     two, the City's version of the cave's ladder-or-hole (8.13).
+#   * WALKING OFF EVERY EDGE IS SURVIVABLE: 16 + 32 + 32 = 80 of her 100,
+#     with a medkit in the second plaza, so a player who never finds the
+#     ledge is punished and not stopped.
+#   * THE KEY IS ON THE LAST ROOF AND THE LAST ROOF HAS A LADDER, and the
+#     way out is a garage under it, past the last barricade. Every
+#     barricade is one-way - nothing leads back over one - so the key
+#     goes where a miss can always be walked back to; a key on a roof
+#     she has left behind would be a level she cannot finish.
+#
+# And not one composite level 1 did not already bake: props over
+# far_fill, lamps on columns 0 mod 6 under a roof, the tank where level
+# 2's stands, and the roof crates are opaque. main() asserts it.
+# =====================================================================
+L3_BUILDINGS = (            # (first column, last column, roof row)
+    (0, 25, 7),             # the one she comes out of
+    (34, 59, 6),
+    (68, 93, 6),
+    (102, 127, 8),          # the key's, with the way out under it
+)
+L3_LADDERS = (19, 37, 71, 105)      # each on the side she arrives from
+L3_BARRICADES = (23, 44, 78)        # under every roof but the last
+L3_GARAGE_IN = 6                    # level 2's way out, drawn OPEN
+L3_GARAGE_OUT = 112                 # past the last barricade, shut
+L3_CRATES = ((2, 2), (3, 1), (30, 1))   # the coin's two steps; one in
+                                        # the first plaza, with the clip
+L3_ROOF_CRATES = (41, 76)           # one to jump on each tall roof
+L3_LAMPS = (12, 48, 84, 108, 120)
+L3_PROPS = ((4, "ac_unit"), (13, "chimney"), (16, "antenna"),
+            (39, "chimney"), (47, "ac_unit"), (53, "antenna"),
+            (57, "ac_unit"),
+            (73, "antenna"), (82, "chimney"), (88, "ac_unit"),
+            (110, "chimney"), (116, "antenna"), (121, "ac_unit"))
+L3_TANKS = (56,)                    # on the first tall roof, as level 2's
+L3_START = (84, 208)                # out of the garage, a row up
+L3_PICKUPS = (                      # (column, base row, PU_*, p1)
+    (2, 12, PU_COIN, 5),            # on the crates, by the garage
+    (30, 13, PU_AMMO, 14),          # on the first plaza's crate
+    (64, 14, PU_MEDKIT, 0),         # in the second plaza
+    (98, 14, PU_COIN, 5),           # in the third
+    (124, 8, PU_KEY, 0),            # at the far end of the last roof
+)
+L3_DRONES = ((50, 4), (84, 4), (118, 3))    # (column, patrol half-width)
+L3 = dict(buildings=L3_BUILDINGS, ladders=L3_LADDERS,
+          barricades=L3_BARRICADES,
+          garages=((L3_GARAGE_IN, False), (L3_GARAGE_OUT, True)),
+          crates=L3_CRATES, roof_crates=L3_ROOF_CRATES, props=L3_PROPS,
+          tanks=L3_TANKS, lamps=L3_LAMPS)
+
+
+def l3_roof(x):
+    for x0, x1, r in L3_BUILDINGS:
+        if x0 <= x <= x1:
+            return r
+    return None
+
+
+def l3_building(x):
+    for i, (x0, x1, _) in enumerate(L3_BUILDINGS):
+        if x0 <= x <= x1:
+            return i
+    return None
+
+
+def l3_pit(x):
+    """Which stretch of street column x is in: the barricades cut it."""
+    return sum(1 for b in L3_BARRICADES if b < x)
+
+
+def walk_off_cost(roof):
+    """Walking off a roof at row `roof` onto the pavement: no apex, just
+    the drop, against FALL_FREE at a point a pixel (8.4)."""
+    return max(0, (ROW_PAVEMENT - roof) * 16 - FALL_FREE)
+
+
+def build_level_3(T, names):
+    return build_city(L3, T, names)
+
+
+def build_entities_3():
+    e = [entity_px(EK_PLAYER_START, *L3_START, EF_ACTIVE)]
+    for x, row, kind, amount in L3_PICKUPS:
+        e.append(entity(EK_PICKUP, x, row, EF_ACTIVE | EF_TOUCH, kind, amount))
+    e.append(entity(EK_DOOR, L3_GARAGE_OUT, ROW_PAVEMENT,
+                    EF_ACTIVE | EF_SOLID, 0, PU_KEY))
+    for x, half in L3_DRONES:
+        e.append(entity(EK_ENEMY, x, l3_roof(x) - 2, EF_ACTIVE, EN_DRONE, half))
+    return b"".join(e)
+
+
+def l3_checks(g, T, ents):
+    """Level 3's terms - each one a way it could load, look right and be
+    impossible, or be possible without the climb it is made of."""
+    B = L3_BUILDINGS
+    for x0, x1, r in B:
+        assert 6 <= r <= 9, f"the roof at {x0}..{x1} is on row {r}"
+    plazas = []
+    for (_, a1, _), (b0, _, _) in zip(B, B[1:]):
+        # Eight is twice the four-tile gap no press cleared on the old
+        # jump; the suite measures that nothing clears it on this one.
+        assert b0 - a1 - 1 >= 8, f"the plaza after {a1} is a jump"
+        plazas.append((a1 + 1, b0 - a1 - 1))
+    last = len(B) - 1
+    # ONE LADDER A BUILDING, ON THE SIDE SHE ARRIVES FROM, AND EVERY
+    # BARRICADE BETWEEN ITS BUILDING'S LADDER AND ITS FAR EDGE.
+    for i, (x0, x1, r) in enumerate(B):
+        ups = [c for c in L3_LADDERS if l3_building(c) == i]
+        assert len(ups) == 1, f"building {i} has ladders at {ups}"
+        bars = [b for b in L3_BARRICADES if l3_building(b) == i]
+        if i == last:
+            assert not bars, "the way out is behind a barricade"
+            continue
+        assert len(bars) == 1 and ups[0] < bars[0] < x1, (
+            f"building {i}: ladder {ups} and barricade {bars} - the street "
+            f"under it is not cut between the two")
+        assert all(g[y][bars[0]] == T["crate"]
+                   for y in range(ROW_PAVEMENT - 3, ROW_PAVEMENT))
+        assert r < ROW_PAVEMENT - 3 - 3, "the roof is down on the crates"
+        assert l3_pit(ups[0]) == l3_pit(x0 - 1 if i else 0), (
+            f"building {i}'s ladder is not on the street she arrives by")
+    assert 3 * 16 > JUMP_RISE + 15         # a wall even to a platform's reach
+    for c in L3_LADDERS:
+        assert all(g[y][c] == T["ladder"]
+                   for y in range(l3_roof(c), ROW_PAVEMENT))
+    # WALKING OFF EVERY EDGE IS SURVIVABLE, and the ledge is the point.
+    costs = [walk_off_cost(r) for _, _, r in B[:-1]]
+    assert sum(costs) < 100, f"walking off every roof costs {costs}"
+    # The start, the doors and the key.
+    assert l3_pit(L3_START[0] // 8) == 0 and l3_pit(L3_GARAGE_IN) == 0
+    assert l3_building(L3_GARAGE_OUT) == last
+    assert l3_pit(L3_GARAGE_OUT) == len(L3_BARRICADES)
+    assert l3_pit(L3_LADDERS[-1]) == len(L3_BARRICADES)
+    key = next(p for p in L3_PICKUPS if p[2] == PU_KEY)
+    assert l3_building(key[0]) == last and key[1] == l3_roof(key[0])
+    # The coin's crates: a step of one and then of two, each a row up;
+    # and every crate on the street or a roof is ONE she can jump.
+    hs = sorted(h for x, h in L3_CRATES if x < L3_GARAGE_IN)
+    assert hs[0] * 16 < JUMP_RISE and all(
+        (b - a) * 16 < JUMP_RISE for a, b in zip(hs, hs[1:]))
+    assert all(h * 16 < JUMP_RISE for x, h in L3_CRATES if x > L3_GARAGE_IN)
+    for x in L3_ROOF_CRATES:
+        assert l3_roof(x) is not None and x not in L3_LADDERS
+    for x, row, kind, _ in L3_PICKUPS:
+        assert row in (ROW_PAVEMENT, l3_roof(x),
+                       ROW_PAVEMENT - dict(L3_CRATES).get(x, 0)), \
+            f"pickup {kind} at {x} is standing on nothing"
+        assert x not in L3_LADDERS and x not in dict(L3_PROPS) \
+            and x not in L3_ROOF_CRATES and x not in L3_BARRICADES, \
+            f"pickup {kind} at {x} shares its cell"
+    for x, name in L3_PROPS:
+        assert l3_roof(x) is not None and x not in L3_LADDERS \
+            and x not in L3_ROOF_CRATES, f"{name} at {x}"
+        assert all(x not in (x0, x1) for x0, x1, _ in B), \
+            f"{name} at {x} is on a roof's lip"
+    for x in L3_LAMPS:
+        assert l3_roof(x) is not None and x % 6 == 0
+        assert x not in L3_LADDERS and x not in L3_BARRICADES
+        assert not any(x0 <= x < x0 + 4
+                       for x0 in (L3_GARAGE_IN, L3_GARAGE_OUT))
+    beats = sorted((x - h, x + h) for x, h in L3_DRONES)
+    for (_, a_hi), (b_lo, _) in zip(beats, beats[1:]):
+        assert b_lo - a_hi > SCREEN_TILES, (
+            f"two drones can be on screen at once: {a_hi} and {b_lo}")
+    assert len(ents) % 8 == 0 and len(ents) // 8 <= ENT_MAX
+    return plazas, costs
+
+
 def main():
     T, names = tile_names()
     side = os.path.join(ROOT, "build", "levels", "level1_city",
@@ -820,8 +1032,11 @@ def main():
     g2 = build_level_2(T, names)
     ents2 = build_entities_2()
     gaps2 = l2_checks(g2, T, ents2)
+    g3 = build_level_3(T, names)
+    ents3 = build_entities_3()
+    plazas3, costs3 = l3_checks(g3, T, ents3)
     assert BAKED == level_1_pairs, (
-        f"level 2 placed overlay pairs level 1 never baked: "
+        f"level 2 or 3 placed overlay pairs level 1 never baked: "
         f"{sorted(set(BAKED) - set(level_1_pairs))}. They would bake after "
         f"level 1's and level 1 would not move - but citytiles.bin, its flag "
         f"table and city_baked.json would, and the editor's golden suite and "
@@ -832,7 +1047,7 @@ def main():
     # and the frame pays nothing. See the note by put_overlay().
     extra_bytes, extra_names, remap, flat = bake_overlays(
         CITY_ART, CITY_SHEET, names, BAKED)
-    for row in g + g2:                  # the provisional ids become the
+    for row in g + g2 + g3:             # the provisional ids become the
         for x in range(MAP_W):          # real ones, or the overlay again
             if row[x] in remap:
                 row[x] = remap[row[x]]
@@ -944,6 +1159,23 @@ def main():
               f"with {'/'.join(map(str, RUN_JUMPS[w, far - near]))} game "
               f"frames to take off in, "
               f"and a miss costs {miss_cost(near)}")
+
+    # ---- level 3, the same way ---------------------------------------
+    blob3 = bytes(b for row in g3 for b in row)
+    assert len(blob3) == MAP_W * MAP_H and max(blob3) < len(names)
+    lvl3 = pack(level_id=3, tileset_id=1, width=MAP_W, height=MAP_H,
+                map_bytes=blob3, entities=ents3)
+    open(os.path.join(ROOT, "build", "level_3.lvl"), "wb").write(lvl3)
+    back = read(lvl3)
+    assert back["map"] == blob3 and back["entities"] == len(ents3) // 8
+    print(f"-> level_3.lvl     {len(lvl3)} bytes: {MAP_W}x{MAP_H}, "
+          f"{back['entities']} entities, tileset 1, and not one new pair")
+    print(f"   {len(L3_BUILDINGS)} roofs at rows "
+          f"{', '.join(str(r) for _, _, r in L3_BUILDINGS)}; ladders at "
+          f"{list(L3_LADDERS)}; the street cut at {list(L3_BARRICADES)}")
+    for (x, w), c in zip(plazas3, costs3):
+        print(f"   plaza at {x:3d}, {w} wide: walking off the roof before it "
+              f"costs {c}, the ledge nothing")
 
 
 if __name__ == "__main__":
