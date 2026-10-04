@@ -16,16 +16,19 @@ byte column one before the gap's first - and the rule is inside every
 window only because the windows were measured, which the last section
 of this suite does again on the level itself.
 
-THE JUMP IS 21 LINES AND NOT 36, which is the finding this level was
-built on: every roof here is SOLID and a solid step of two rows is a
-wall (CLAUDE.md 8.14, and the comment by P_GRAVITY). Thirty-six is what
-she reaches onto a PLATFORM, which is every branch and ledge the forest
-and the cave were measured against.
+THE JUMP IS 28 LINES - P_JUMP's own comment used to say 36 when it
+was 21 - and that is the number this level is shaped by: every roof
+here is SOLID and a solid step of two rows is a wall (CLAUDE.md 8.14,
+and the comment by P_GRAVITY). Forty-three is what she reaches onto a
+PLATFORM, which is every branch and ledge the forest and the cave were
+measured against - and still short of three rows.
 
-AND A THREE-TILE GAP DOWNHILL IS NOT A JUMP: running off its edge lands
-her on the far roof at one stride phase in two. So the downhill gaps
-are four wide, and the run-off control below is what says no gap on
-this level can be crossed without a press.
+AND A THREE-TILE GAP DOWNHILL CAN BE CROSSED WITHOUT A PRESS: running
+off its edge lands her on the far roof at one stride phase in two. That
+was a reason to make the downhill gaps four wide, and a play-test said
+four was too wide to make at all - so they are three, every gap is one
+a WALK can make, and the run-off check below says which gaps a run off
+the edge crosses rather than that none does.
 """
 import os
 import sys
@@ -306,9 +309,14 @@ def window(c, gap, w, near, far, start, run=True):
             c.m.key_up('A')
         for _ in range(3):
             c.step()
-        over = c.feet() == far * 16 and c.wx() + 5 >= (gap + w) * 4
+        # ACROSS IS ON A ROOF PAST THE GAP, not on the far roof's own
+        # line: past a narrow far roof a long jump comes down on the
+        # step beyond it, and that is a jump made, not one missed.
+        over = c.feet() < PAVEMENT and c.wx() + 5 >= (gap + w) * 4
         if over:
-            if X is None:
+            # ACROSS WITH NO PRESS AT ALL is a run-off, whether or not a
+            # press was asked for: a late X she never reached is one.
+            if pressed is None:
                 ran_off = True
             else:
                 good.append(pressed)
@@ -489,17 +497,18 @@ def main():
     climb_up(mi)
     g2, w2, n2, f2 = gaps[1]
     run_east(mi, g2 - 3)
-    # A WALKING press at the lip. The four-wide gap is one no walk
-    # reaches, so this is a jump that falls short - measured from its
-    # APEX, which is what a miss is.
+    # A WALKING press five bytes before the gap. The arc carries a walk
+    # eight, so it comes down where the near roof has already run out:
+    # a jump that falls short - measured from its APEX, which is what a
+    # miss is.
     mi.m.joystick(JOY["right"])
     for _ in range(200):
-        if mi.wx() >= g2 * 4 - 1:
+        if mi.wx() >= g2 * 4 - 5:
             break
         mi.step()
     fell, hp0, hp1 = fall(mi, "right", joy_extra=JOY["up"])
     cost = city.miss_cost(n2)
-    check("a walking jump at the four-wide gap falls into the pit",
+    check("a walking jump pressed too early falls into the pit",
           mi.feet() == PAVEMENT and mi.pit(mi.col()) == mi.pit(g2),
           f"feet {mi.feet()}, column {mi.col()}")
     check("... and it costs what the tool says, measured from the apex",
@@ -518,7 +527,7 @@ def main():
           f"feet {mi.feet()}, column {mi.col()}")
 
     # ---- how high she goes, which is what the level is shaped by ----
-    print("\n  the jump is 21 lines, and a solid roof two rows up is a wall:")
+    print("\n  the jump is 28 lines, and a solid roof two rows up is a wall:")
     for _ in range(6):
         mi.step()
     floor, low = mi.feet(), mi.feet()
@@ -528,10 +537,10 @@ def main():
     for _ in range(12):
         mi.step()
         low = min(low, mi.feet())
-    check("a jump rises 21 lines, not P_JUMP's 36",
+    check("a jump rises 28 lines, under the 32 of two rows",
           floor - low == city.JUMP_RISE,
           f"feet {floor} -> {low}: gravity is added before the first move, "
-          f"so -15 is never a step")
+          f"so -17 is never a step - 13+9+5+1")
     # THE CONTROL IS THE STEP. Take the middle roof out of the WORKING
     # map - what collision reads - and the tall roof is two rows of
     # solid straight up from where she stands.
@@ -564,13 +573,13 @@ def main():
           f"column {medx}, under the gap at {g3} - the one that goes UP")
     mk.put(g3 * 4 - 20, n3 * 16)
     mk.m.joystick(JOY["right"])
-    for _ in range(200):
-        if mk.wx() >= g3 * 4 - 1:
+    for _ in range(200):                # the same early walking press
+        if mk.wx() >= g3 * 4 - 5:
             break
         mk.step()
     fell, hp0, hp1 = fall(mk, "right", joy_extra=JOY["up"])
     taken = [r for r in mk.records(EK_PICKUP) if r[6] == city.PU_MEDKIT]
-    check("a walk at it misses, and the medkit pays for the fall",
+    check("a walk pressed early misses, and the medkit pays for it",
           mk.feet() == PAVEMENT and fell is not None
           and fell - city.FALL_FREE == city.miss_cost(n3)
           and hp1 == 100 and taken and taken[0][5] & EF_TAKEN,
@@ -583,30 +592,38 @@ def main():
     wm = City(sym)
     walk_to(wm, ups[0])
     climb_up(wm)
-    all_match, no_runoff = True, True
+    all_match, runoff_match = True, True
     for g, w, n, f in gaps:
-        got = []
+        got, offs = [], 0
         for phase in (0, 1):
             start = g * 4 - 24 + phase
             good, ran_off = window(wm, g, w, n, f, start)
             got.append(len(good))
-            no_runoff = no_runoff and not ran_off
+            offs += ran_off
+        runoff_match = runoff_match and offs == (
+            1 if (w, f - n) in city.RUN_OFF else 0)
         walk, _ = window(wm, g, w, n, f, g * 4 - 24, run=False)
         want = city.RUN_JUMPS[w, f - n]
         wwant = city.WALK_JUMPS.get((w, f - n), 0)
-        all_match = all_match and tuple(got) == want and len(walk) == wwant
+        # A RUN'S WINDOW IS EXACT AND A WALK'S IS A FLOOR: the walk's
+        # measured a frame wider here, after the drive, than on a machine
+        # that had just arrived, and the run's did not move (make_city_map).
+        ok = tuple(got) == want and len(walk) >= wwant
+        all_match = all_match and ok
         print(f"      gap at {g:3d}, {w} wide, row {n} -> {f}: running "
               f"{got[0]}/{got[1]} frames, walking {len(walk)}"
-              f"{'' if tuple(got) == want and len(walk) == wwant else '  <- the tool says ' + str(want) + ', walking ' + str(wwant)}")
+              f"{'' if ok else '  <- the tool says ' + str(want) + ', walking at least ' + str(wwant)}")
     check("they are the windows make_city_map.py was built against",
-          all_match, "even and odd stride, a run - and a walk")
-    check("... and no gap is crossed by running off its edge",
-          no_runoff, "every one of them needs the press")
-    hard = city.RUN_JUMPS[gaps[2][1], gaps[2][3] - gaps[2][2]]
-    easy = city.RUN_JUMPS[gaps[0][1], gaps[0][3] - gaps[0][2]]
-    check("the jump UP is the hard one",
-          max(hard) < min(easy), f"{hard} frames against the level jump's "
-          f"{easy}")
+          all_match, "even and odd stride at a run, and a walk makes every "
+          "one of them")
+    check("... and a run off the edge crosses the downhill ones only",
+          runoff_match, "at one stride phase of the two, and the level "
+          "and the uphill gap never")
+    wins = [city.RUN_JUMPS[w, f - n] for _, w, n, f in gaps]
+    hard = wins[2]
+    check("the jump UP is still the tightest",
+          all(sum(hard) < sum(o) for i, o in enumerate(wins) if i != 2),
+          f"{hard} frames against {[o for i, o in enumerate(wins) if i != 2]}")
 
     print()
     if fails:

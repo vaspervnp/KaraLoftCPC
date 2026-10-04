@@ -242,7 +242,7 @@ def main():
 
     # THE CLIMB IS THE LEVEL AND THE FLOOD FILL ONLY MODELS IT. The key
     # sits two branches up - ground to row 7, row 7 to row 5, each
-    # inside the two rows her 36-pixel jump reaches - and
+    # inside the two rows her jump's 43 pixels reach - and
     # make_forest_map.py refuses a level whose key it cannot reach. That
     # is a conservative model of a walk; this is the walk.
     GROUND_WY, B7_WY, B5_WY = ROW_GROUND * 16 - 64, 7 * 16 - 64, 5 * 16 - 64

@@ -142,7 +142,7 @@ LEVEL_5 = dict(
     trees=(9, 24, 47, 66, 96, 110),     # the two-tile trunk's LEFT column
     pits=((14, 2), (30, 3), (72, 3), (102, 3)),     # (left column, width)
     # (left column, length, row). THE ROWS ARE 5 AND 7 AND THAT IS HER
-    # JUMP: 36 pixels against a 16-pixel row is two rows, so a row-5
+    # JUMP: 43 pixels onto a platform against a 16-pixel row is two rows, so a row-5
     # branch with no row-7 branch under it is scenery - see reachable().
     branches=((18, 4, 7), (34, 4, 7), (36, 5, 5),
               (78, 4, 7), (84, 4, 7), (86, 5, 5), (114, 4, 7)),
@@ -459,7 +459,7 @@ def checks(m, t, ents, L):
         row = (ents[i + 3] | ents[i + 4] << 8) // 16
         assert (x, row) in where, (
             f"a kind-{ents[i]} record at tile {x}, row {row} is somewhere "
-            f"she cannot stand - her jump is 36 pixels and a row is 16")
+            f"she cannot stand - her jump reaches 43 pixels and a row is 16")
 
     # ... and she has to be able to WALK to the door, which on this
     # level means the ground is not cut in two by anything solid.

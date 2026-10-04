@@ -240,11 +240,11 @@ no art — and level 11 goes UP again the way plan.md says the cave does,
 it. Between every pair of floors is a two-tile stalagmite and two
 ledges, each two rows above the last and starting the column after it
 ends, so the way up is **twenty-eight jumps of 32 lines against a reach
-of 36**, and the vertical camera follows JUMPS for the first time.
-Measured on the machine: every step, `WORLD_CR` 104 → 0, **773 game
-frames in 1,549 hardware ones** — not one dropped with a jump cel and
+of 43**, and the vertical camera follows JUMPS for the first time.
+Measured on the machine: every step, `WORLD_CR` 104 → 0, **801 game
+frames in 1,605 hardware ones** — not one dropped with a jump cel and
 the incoming row on the same frames — and her box never higher than
-screen line 16. The top step is 96 lines above its floor, which is
+screen line 13. The top step is 96 lines above its floor, which is
 `FALL_FREE` exactly, so a miss costs her the height and never a point;
 with the threshold one line lower the same fall costs one (§8.13).
 
@@ -278,14 +278,18 @@ four gaps is a jump she has to make**, because crates three high cut the
 street into pits and each pit's one ladder goes back up to the roof she
 jumped FROM. The jumps were measured before they were placed, at both
 phases a two-byte stride can meet the lip in, and the level was redrawn
-twice by what that found: **her jump rises 21 lines, not the 36 the
-source said**, so a solid roof two rows up is a wall; and **a three-tile
-gap downhill is not a jump at all** — running off its edge lands on the
-far roof at one phase in two — so the downhill gaps are four wide. The
-hard one goes UP a row, **3 or 4 game frames to take off in against 6
-or 7 for the level one**, and the medkit is in the pit under it. Not
-one composite level 1 did not already bake, so the City's tile blob,
-flags and bake record are byte for byte what they were (§8.14).
+twice by what that found: **her jump rose 21 lines, not the 36 the
+source said**, so a solid roof two rows up is a wall. **And then a
+play-test on Caprice32 could not make the second gap or the third**:
+four tiles wide downhill and three up a row, 5/6 and 3/4 game frames
+to take off in at a run and none at all at a walk. So **the jump is a
+game frame longer** — `P_JUMP` −15 → −17, 28 lines and eight frames in
+the air, the least that buys a frame, and still under the 32 of two
+rows, so no level can reach anything it could not — and every gap is
+three wide: **7/8, 8/9, 6/7 and 8/9 frames at a run, and a walk makes
+every one of them.** The medkit is in the pit under the one that goes
+up. Not one composite level 1 did not already bake, so the City's tile
+blob, flags and bake record are byte for byte what they were (§8.14).
 
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
@@ -3486,7 +3490,7 @@ rather than chosen:
 |---|---:|---:|
 | walking off the roof into `ROOF_GAP` | 128 lines | **32 points** |
 | letting go of the LEDGE | 70 | free |
-| a jump that lands where it left | 21 | free — the arc, measured (§8.14) |
+| a jump that lands where it left | 28 | free — the arc, measured (§8.14) |
 | climbing down the ladder | — | not a fall at all |
 
 **So the ledge is the safe way down and the gap is the one that hurts**,
@@ -4842,8 +4846,9 @@ somewhere she cannot stand.
 
 **AND THE FIRST VERSION OF THIS MAP HAD AN UNREACHABLE KEY, WHICH IS
 WHY THE TOOL NOW MODELS THE WALK.** The key went on a row-5 branch and
-the nearest row-7 branch was fifteen tiles away: **her jump is 36
-pixels and a row is 16**, so two rows is the most she can reach and a
+the nearest row-7 branch was fifteen tiles away: **her jump reached 36
+pixels onto a branch — 43 since §8.14 — and a row is 16**, so two rows
+is the most she can reach either way and a
 row-5 branch with no row-7 branch under it is scenery. The level
 loaded, played, looked right, and could not be finished — the exact
 species §11 step 7 is about, in a map the validator would pass because
@@ -4888,8 +4893,8 @@ are what the run is for, the way the City's roof gap is.
 
 **THE KEY IS TWO BRANCHES UP**, which is level 5's idea taken one step:
 there it sat on a row-5 branch with a row-7 branch under it, and here
-the climb IS the level. Each step is inside the two rows her 36-pixel
-jump reaches, and the flood fill in `make_forest_map.py` refuses the
+the climb IS the level. Each step is inside the two rows her jump
+reaches, and the flood fill in `make_forest_map.py` refuses the
 level otherwise — but a fill is a conservative model of a walk, so
 `tools/test_forest.py` drives the climb on the machine: she stood at
 `KARA_WY` **80, 48 and 16** — the ground, the row-7 branch, the row-5
@@ -5140,7 +5145,7 @@ where she is still standing across solid floor. Cutting one leaves two
 edges, and `ledge_l` / `ledge_r` are the tiles the artist drew for them
 — two more that level 9 never places, along with `pillar_base` /
 `pillar_top` and `pool_0` / `pool_1`. **A pillar is two tiles and not
-three**, because its top is a `PLATFORM` and a jump reaches 36 pixels:
+three**, because its top is a `PLATFORM` and a jump reaches 43 pixels onto one:
 two rows up is 32 and three is 48, which would be scenery pretending to
 be a perch. Its BASE carries nothing — a solid tile in the middle of a
 floor is a wall to a heroine three tiles wide, which is §8.8's garage
@@ -5186,7 +5191,7 @@ goes up by the rock.
 
 **Between every pair of floors is a staircase**: a two-tile stalagmite
 and two three-tile ledges, each TWO ROWS above the last. Two rows is 32
-lines against a jump of 36, which is the forest's branch step exactly
+lines against a reach of 43, which is the forest's branch step exactly
 (§8.11), so the way up is twenty-eight jumps. The floors stay wall to
 wall and they are platforms, so the last jump of each staircase goes up
 THROUGH the floor above and lands on it.
@@ -5214,21 +5219,21 @@ that would be free anyway. `cp FALL_FREE + 1` makes the boundary
 inclusive, and now it is a measurement.
 
 **AND THE VERTICAL CAMERA FOLLOWS JUMPS FOR THE FIRST TIME.** A ladder
-moves her two lines a game frame; a jump rises 21 in three, and a
+moves her two lines a game frame; a jump rises 28 in four, and a
 `CAMERA_V` row step takes three. Measured over the whole climb:
 
 | | |
 |---|---|
 | the jumps | **28**, row 62 → 6, every one exactly two rows |
 | the view | `WORLD_CR` 104 → 0 |
-| the highest her box went | **screen line 16** — never clipped at the top |
-| the loop | **773 game frames in 1,549 hardware**, anchored at the start (§10): not one dropped, with a jump cel and the incoming row on the same frames, which no level before this one put together |
+| the highest her box went | **screen line 13** — never clipped at the top |
+| the loop | **801 game frames in 1,605 hardware**, anchored at the start (§10): not one dropped, with a jump cel and the incoming row on the same frames, which no level before this one put together |
 | her health | 100 → 100 |
 
 **Its control is the stalagmite**: `TA_PLATFORM` taken off its top in
 `TILE_ATTR`, with the driver keeping its own copy so it still walks her
 there and still jumps. The ledge above is four rows up — 64 lines
-against a reach of 36 — and **she cannot leave the bottom floor.**
+against a reach of 43 — and **she cannot leave the bottom floor.**
 
 The medkit is on the floor she crosses halfway up, and she walks past
 it: she arrives at full health, because level 10's ladders are free,
@@ -5454,71 +5459,99 @@ of five roofs and every gap between them is a jump she HAS to make:
 
 | | |
 |---|---|
-| the street | **cut into pits** by barricades three crates high, 48 lines against a jump that clears 21. A building's face is background (§8.8), so without them a player who fell into the first gap could walk to the last building's ladder |
+| the street | **cut into pits** by barricades three crates high, 48 lines against a jump that clears 28. A building's face is background (§8.8), so without them a player who fell into the first gap could walk to the last building's ladder |
 | each pit | **one ladder out, onto the roof she jumped FROM** — so a miss costs the fall and the climb back, never the jump itself |
 | the key's roof | **no ladder at all**: the last jump is the only way onto it, and its roof is FALL_FREE above the street, so the way back down is free |
 | between gaps | two steps up a row each onto the tallest roof, with the clip and the water tank on it |
 
-**THE JUMP RISES 21 LINES, NOT 36, AND THE LEVEL WAS DRAWN AGAINST THE
+**THE JUMP ROSE 21 LINES, NOT 36, AND THE LEVEL WAS DRAWN AGAINST THE
 WRONG ONE FIRST.** `P_JUMP`'s comment added up `15+11+7+3 = 36` and §9's
 table carried it. `.jump` stores `P_JUMP` and falls through into
-`.airborne`, which adds `P_GRAVITY` **before** it moves her, so −15 is
+`.airborne`, which adds `P_GRAVITY` **before** it moves her, so −15 was
 never a step: measured on a row-8 roof, standing, walking and running
-alike, her feet go **128 → 117 → 110 → 107**, then 108. Thirty-six is
-what she REACHES onto a `PLATFORM`, because feet that fall into a
+alike, her feet went **128 → 117 → 110 → 107**, then 108. Thirty-six was
+what she REACHED onto a `PLATFORM`, because feet that fall into a
 platform's row are snapped onto its top by `.land` — 21 + 15 — and that
 is what every branch, ledge and stalagmite in the forest and the cave
 was measured against, which is why nothing there could show it. **A
-SOLID step is 21**: she cannot move over it until her box has cleared
-it. The first draft of this level put a roof two rows up across her
-path and she stood under it jumping; every roof in the City is solid,
-so it is two steps of one row now. The control is that step taken back
-out of the working map: **stuck at column 55, the tall roof two rows
-above her.** §10 has the rule.
+SOLID step is the rise itself**: she cannot move over it until her box
+has cleared it. The first draft of this level put a roof two rows up
+across her path and she stood under it jumping; every roof in the City
+is solid, so it is two steps of one row now. The control is that step
+taken back out of the working map: **stuck at column 55, the tall roof
+two rows above her** — still, at the 28 lines below. §10 has the rule.
 
-**AND A THREE-TILE GAP DOWNHILL IS NOT A JUMP AT ALL.** Run off its
-edge without pressing anything and the far roof catches her — measured,
-she leaves the lip at byte 89 and lands at 95, her box over the far
-roof's first byte — at one of the two phases a two-byte stride meets
-the lip in. So the downhill gaps are four wide, and **no gap on this
-level is crossed by running off its edge**, which the suite checks at
-both phases for all four.
+**AND THEN A PLAY-TEST COULD NOT MAKE THE SECOND GAP OR THE THIRD, SO
+THE JUMP IS A GAME FRAME LONGER.** On Caprice32, at the keyboard: the
+four-tile gap downhill *"is too big and she does not jump it"*, and
+the one where the building rises a row she could not make either.
+Measured, both were run-only and tight — 5/6 and 3/4 game frames to
+take off in — and nothing at all at a walk. The answer was both halves:
+
+* **`P_JUMP` −15 → −17**, and nothing else in the physics. −16 lands on
+  the seventh frame as well, so −17 is the least that buys a frame of
+  flight: **13+9+5+1 = 28 lines, back on the roof on the EIGHTH game
+  frame**, measured 128 → 115 → 106 → 101 → 100 → 103 → 110 → 121 → 128
+  standing, walking and running alike. That is a byte more at a walk
+  and two at a run. **28 is under the 32 of two rows** and 28 + 15 = 43
+  is under the 48 of three, so a solid step of two rows is still a wall
+  and no platform anywhere became reachable that was not — the forest,
+  the cave and level 1 are the same levels, and their suites say so
+  without a number changed except the climb's own clock: level 11's 28
+  jumps are **801 game frames in 1,605** where they were 773 in 1,549,
+  her box as high as screen line 13 where it was 16.
+* **The downhill gaps are three wide**, not four. That gives one thing
+  away: **a three-tile gap downhill can be crossed without a press** —
+  run off its edge and the far roof catches her at one of the two
+  phases a two-byte stride meets the lip in. It was why they were four
+  wide. Now it is a gift, `RUN_OFF` names the shape, and the suite
+  checks that a run off the edge crosses the two downhill gaps at one
+  phase each and the other two never.
 
 **WHAT A JUMP CAN BE IS MEASURED, AND AT BOTH PHASES.** Pressing UP at
 every byte column from sixteen before each gap to ten past it, on the
-level itself, game frames of take-off window:
+level itself, game frames of take-off window — and a press that clears
+the far roof and comes down on the step beyond it counts as made,
+which the first suite did not and which is why gap 48 once read a
+frame short of gap 101's identical shape:
 
-| gap | wide | roof rows | running, even / odd byte | walking |
-|---|---:|---|---|---:|
-| 22 | 3 | 7 → 7 | 6 / 7 | 3 |
-| 47 | 4 | 7 → 8 | 5 / 6 | 0 |
-| 74 | 3 | 8 → 7, **UP** | **3 / 4** | 0 |
-| 100 | 4 | 7 → 8 | 5 / 6 | 0 |
+| gap | wide | roof rows | running, even / odd byte | walking | before the play-test |
+|---|---:|---|---|---:|---|
+| 22 | 3 | 7 → 7 | 7 / 8 | 3 | 6 / 7, walk 3 |
+| 48 | 3 | 7 → 8 | 8 / 9 | 5 | 4 wide: 5 / 6, walk **0** |
+| 74 | 3 | 8 → 7, **UP** | 6 / 7 | 3 | **3 / 4**, walk **0** |
+| 101 | 3 | 7 → 8 | 8 / 9 | 5 | 4 wide: 5 / 6, walk **0** |
 
-**The phase is worth a frame, always the same way round**: an odd byte
-column meets the lip a byte earlier. Two shapes are not in the table
-because no press clears them, measured over a gap cut into level 1's own
-roof in RAM: **two rows up across any gap, and four tiles on the
-level.** The tool asserts every gap is a shape in this table, and the
-suite measures the table again and compares.
+**A run's window is exact and a walk's is a floor**: the walk at gap 22
+measured 3 on a machine that had just arrived and 4 on one that had
+driven there, where a run's did not move. **The phase is worth a frame
+at a run**: an odd byte column meets the lip a byte earlier. Two shapes
+are not in the table because no press cleared them on the old jump,
+measured over a gap cut into level 1's own roof in RAM: **two rows up
+across any gap, and four tiles on the level.** The tool asserts every
+gap is a shape in this table, and the suite measures the table again
+and compares. The jump UP is still the tightest, by a frame.
 
 **ONE PRESS RULE IS INSIDE EVERY WINDOW**, which is the whole driver:
 UP on the frame her box reaches the byte column before the gap's first.
-Over the rooftops from the top of the first ladder to the key, **192
-game frames in 385 hardware ones** with the drones held off — the lock,
-with a jump cel and the incoming column on the same frames — and **387
-with them on, HP 100 → 84**: two of their rounds, and she still makes
-all four.
+Over the rooftops from the top of the first ladder to the key, **193
+game frames in 387 hardware ones** with the drones held off — the lock,
+with a jump cel and the incoming column on the same frames — and the
+same with them on, **HP 100 → 84**: two of their rounds, and she still
+makes all four.
 
 **A MISS COSTS WHAT THE TOOL SAYS, AND THE TOOL SAYS IT FROM THE
-APEX.** A walking jump at the four-wide gap falls **133 lines by the
-machine's own `FALL_TOP` — 112 of drop and 21 of arc — and costs 37**,
-HP 100 → 63, which is `miss_cost()`'s number; the pit's ladder puts
-her back on the roof she jumped from, and the run then makes it. The
-medkit is in the pit under the jump that goes UP, and it moved a column
-to get there: at column 75 a walking miss landed one byte past it, and
-at **76 every miss measured lands on it** — a walk, and two runs
-pressed too early — and pays the 21 back.
+APEX.** A walking jump pressed five bytes before gap 48 comes down where
+the near roof has run out and falls **140 lines by the machine's own
+`FALL_TOP` — 112 of drop and 28 of arc — and costs 44**, HP 100 → 56,
+which is `miss_cost()`'s number; the pit's ladder puts her back on the
+roof she jumped from, and the run then makes it. The medkit is in the
+pit under the jump that goes UP, at column 76, and **every miss
+measured at that gap lands on it** — swept over every take-off from
+twenty-four bytes before the gap to twelve past it, at a walk and at
+both phases of a run — and pays the 28 back. Over the same sweep at all
+four gaps, **no miss comes down further than the far roof's first
+column**, so none can reach a barricade, which stand five tiles clear.
 
 **WALKING OFF THE KEY'S ROOF IS 96 LINES, `FALL_FREE` EXACTLY, AND
 FREE**, into the pit the way out is in; UP at the garage there with the
@@ -5670,7 +5703,7 @@ re-derived to leave the game where it was in REAL time, not in frames:
 |---|---:|---:|---|
 | walk | 1 byte on one frame in 2 | **1 byte a frame** | 25 bytes/s either way |
 | run | 1 byte a frame | **2 bytes a frame** | 50 bytes/s — and 2 bytes IS one CRTC character, so a run scrolls every game frame |
-| jump | `P_JUMP` −8, `P_GRAVITY` 1 | **−15, 4** | **11+7+3 = 21 px, measured** — gravity is added before the first move, so −15 is never a step, and this row's old 15+11+7+3 = 36 was the constants added up rather than the arc (§8.14) |
+| jump | `P_JUMP` −8, `P_GRAVITY` 1 | **−17, 4** | **13+9+5+1 = 28 px, measured** — gravity is added before the first move, so −17 is never a step. It was −15 and 11+7+3 = 21, which this row once wrote as 15+11+7+3 = 36, the constants added up rather than the arc; a play-test then found the City's gaps too wide for it, and −17 is a game frame more in the air (§8.14) |
 | terminal fall | `P_VY_MAX` 8 | **15** | twice would be 16, which is a whole tile — see below |
 | coyote | 6 frames | **3** | |
 | the ladder | 1 px a frame | **2** | |
@@ -5684,7 +5717,7 @@ destination-only and is exact only while a single step cannot skip a
 tile, so 16 — one whole tile — is not available. 15 is as near as a
 25 Hz fall can get, which is 94% of the old speed.
 
-**And the physics is sampled half as often.** Her jump is three updates
+**And the physics is sampled half as often.** Her jump is four updates
 to the apex (§8.14), and a fall steps 15 pixels where it
 stepped 8. Nothing in the level notices — a floor is 16 pixels and the
 probe still cannot cross one — but it is the real cost of the decision
@@ -6738,7 +6771,8 @@ frame, so this only helps a standing player on a still screen.
   adds back exactly the 15 the arithmetic had wrong. So the number was
   right in effect everywhere it had been measured, and wrong the first
   time a level was made of solid steps. The test is one line: jump and
-  read `KARA_WY`.
+  read `KARA_WY`. (It is −17 and 28 now, after a play-test — and that
+  number was measured before it was written into any comment.)
 * **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
   `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
   group and `B` = bytes in this span, and copied with `LDI` — so the

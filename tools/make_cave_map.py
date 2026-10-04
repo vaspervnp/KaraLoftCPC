@@ -81,7 +81,7 @@ the numbering is not part of the contract.
               a staircase - a two-tile stalagmite and two ledges, each
               two rows above the last and starting the column after it
               ends - so the way up is twenty-eight jumps of 32 lines
-              against a reach of 36. The highest step is six rows above
+              against a reach of 43. The highest step is six rows above
               the floor below it, 96 lines, which is FALL_FREE exactly:
               a miss costs her the height and never a point.
 
@@ -213,7 +213,7 @@ LEVEL_10 = dict(
               (57, 7, "beam_top"), (58, 7, "beam_post"),
               (59, 7, "beam_post")),
     # A pillar is TWO tiles and not three, because its top is a
-    # PLATFORM and a jump reaches 36 pixels: two rows up is 32 and
+    # PLATFORM and a jump reaches 43 pixels onto one: two rows up is 32 and
     # three is 48, which would be scenery pretending to be a perch.
     # Its BASE carries nothing - a solid tile in the middle of a floor
     # is a wall to a heroine three tiles wide (8.8's garage).
@@ -237,7 +237,7 @@ LEVEL_11 = dict(
     # that floor, then a three-tile ledge, then another, every one TWO
     # ROWS above the last, and then the floor above - which is a
     # platform, so she jumps up through it. Two rows is 32 lines against
-    # a jump of 36 (8.4), which is the forest's branch step exactly.
+    # a reach of 43 (8.4), which is the forest's branch step exactly.
     #
     # EACH STEP STARTS IN THE COLUMN AFTER THE LAST ONE ENDS, and that
     # is BOX_SOLID_V's number again: it ORs every tile under her

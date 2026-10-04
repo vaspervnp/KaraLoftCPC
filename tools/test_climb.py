@@ -708,7 +708,7 @@ def main():
     check("and a WALKING jump off the same lip does not clear it",
           walked_it["wy"] + KARA_BOX_H >= STREET_Y,
           f"she ends at {walked_it['wy'] + KARA_BOX_H} on tile "
-          f"{walked_it['wx'] // 4} - half a byte a frame is 7 bytes of arc "
+          f"{walked_it['wx'] // 4} - a byte a frame is 8 bytes of arc "
           f"against a 12-byte hole")
 
     # ---- 11. the street, past the garage ----------------------------

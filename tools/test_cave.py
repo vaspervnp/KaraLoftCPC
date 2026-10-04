@@ -629,7 +629,7 @@ def main():
     # names the cave's mechanic as a climb on platforms and stalagmites
     # and level 9 climbed ladders; this one has none at all. Between
     # every pair of floors is a stalagmite and two ledges, each two rows
-    # above the last - 32 lines against a jump of 36 - so the way up is
+    # above the last - 32 lines against a reach of 43 - so the way up is
     # twenty-eight jumps, and the vertical camera follows JUMPS for the
     # first time rather than a ladder or a fall.
     # -----------------------------------------------------------------
@@ -714,7 +714,7 @@ def main():
     check("... and the view goes the whole way with her",
           p.byte("WORLD_CR") == 0,
           f"WORLD_CR {V_CR_MAX} -> {p.byte('WORLD_CR')}")
-    # A JUMP IS THE FASTEST THING SHE DOES UPWARD - 36 lines in four
+    # A JUMP IS THE FASTEST THING SHE DOES UPWARD - 28 lines in four
     # game frames, where a ladder is two lines a frame - so it is the
     # first thing that could carry her off the top of the picture
     # before CAMERA_V's row steps (three game frames each) catch up.

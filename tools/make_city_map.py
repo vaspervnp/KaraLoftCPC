@@ -506,25 +506,30 @@ from make_level import pack, read                    # noqa: E402
 # (tools/test_city.py does it again). Four things fell out of that, and
 # the first two are why the level is the shape it is:
 #
-#   * TWO ROWS UP ACROSS A GAP, OR FOUR TILES LEVEL, NOBODY CAN JUMP -
-#     measured over a gap cut into level 1's own roof in RAM, with
-#     every other shape in RUN_JUMPS beside them.
-#   * A THREE-TILE GAP DOWNHILL IS NOT A JUMP AT ALL. Running off its
-#     edge without pressing anything lands her on the far roof at one
-#     stride phase in two - so a gap whose far roof is lower is FOUR
-#     wide here, and then nothing short of a jump crosses it.
-#   * The window depends on the stride's phase by one frame, always the
-#     same way round: an odd byte column meets the lip a byte earlier.
-#   * A WALK clears the level gap in three frames and nothing else at
-#     all. The other three are what the run is for (8.8).
+#   * EVERY GAP IS THREE WIDE, AND A WALK MAKES EVERY ONE OF THEM. It
+#     was not so the day the level was drawn: the jump was -15 and 21
+#     lines, the downhill gaps were four wide, and a walk made the first
+#     gap and no other. A play-test on Caprice32 could not make the
+#     second or the third at all, and the answer was both halves - a
+#     jump one game frame longer (P_JUMP -17, 28 lines, CLAUDE.md 8.14)
+#     and the downhill gaps a tile narrower. Measured, the same gaps on
+#     the old jump were 6/7, 5/6, 3/4 and 5/6 frames at a run and 3, 0,
+#     0 and 0 at a walk.
+#   * A THREE-TILE GAP DOWNHILL CAN BE CROSSED WITHOUT A PRESS: running
+#     off its edge lands her on the far roof at one stride phase in two.
+#     That is why it was four wide, and it is now a thing the level
+#     gives away - RUN_OFF says so and the suite measures it.
+#   * The window depends on the stride's phase by one frame: an odd byte
+#     column meets the lip a byte earlier.
+#   * The jump UP is still the tightest, by a frame at a run.
 #
 # The five roofs use three of them, and in an order:
 #
-#   G1   7 -> 7, three wide    level: level 1's own gap, 6 or 7 frames
-#   G2   7 -> 8, FOUR wide     downhill, and four BECAUSE it is: 5 or 6
+#   G1   7 -> 7, three wide    level: level 1's own gap, 7 or 8 frames
+#   G2   7 -> 8, three wide    downhill: 8 or 9, and 5 at a walk
 #   ...  two steps up a row each to the tallest roof, and a drop off it
-#   G3   8 -> 7, three wide    UP a row: 3 or 4 frames, the hard one
-#   G4   7 -> 8, FOUR wide     as G2, onto the key's roof
+#   G3   8 -> 7, three wide    UP a row: 6 or 7, and 3 at a walk
+#   G4   7 -> 8, three wide    as G2, onto the key's roof
 #
 # EVERY NUMBER ON THIS LEVEL IS A COMPOSITE LEVEL 1 ALREADY BAKED. The
 # props stand on far_fill, the lamps go on columns whose wall is the
@@ -535,29 +540,34 @@ from make_level import pack, read                    # noqa: E402
 # byte - which is what the editor's golden suite and test_painter.py
 # hold them to - and main() asserts it rather than hoping.
 # =====================================================================
-RUN_JUMPS = {(3, 0): (6, 7), (4, 1): (5, 6), (3, -1): (3, 4)}
-WALK_JUMPS = {(3, 0): 3}            # ... and walking, either phase
-# HOW HIGH SHE GOES IS 21 LINES AND NOT 36, and every roof here is
-# SOLID, so that is the number. .jump stores P_JUMP and falls into
-# .airborne, which adds P_GRAVITY BEFORE it moves her: the -15 is never
-# a step and the arc is 11 + 7 + 3, measured on the machine as 128 ->
-# 117 -> 110 -> 107. Thirty-six is what she reaches onto a PLATFORM,
-# because feet that fall INTO a platform's row are snapped onto its top
-# (21 + 15); a solid roof she cannot move over until her box has
+RUN_JUMPS = {(3, 0): (7, 8), (3, 1): (8, 9), (3, -1): (6, 7)}
+# ... and walking, AT LEAST: a walk's window measured a frame wider on a
+# machine that had driven to the gap than on one that had just arrived,
+# where a run's did not move at all, so for a walk the table is a floor.
+WALK_JUMPS = {(3, 0): 3, (3, 1): 5, (3, -1): 3}
+RUN_OFF = {(3, 1)}          # the shapes a run off the edge crosses at one
+                            # stride phase of the two, with no press
+# HOW HIGH SHE GOES IS 28 LINES, and every roof here is SOLID, so that
+# is the number. .jump stores P_JUMP and falls into .airborne, which
+# adds P_GRAVITY BEFORE it moves her: the -17 is never a step and the
+# arc is 13 + 9 + 5 + 1, measured on the machine as 128 -> 115 -> 106 ->
+# 101 -> 100. Forty-three is what she reaches onto a PLATFORM, because
+# feet that fall INTO a platform's row are snapped onto its top
+# (28 + 15); a solid roof she cannot move over until her box has
 # cleared it, so a step of two rows is a wall - which is what the first
 # version of this level found, standing under a tall roof it had put
-# in her way.
-JUMP_RISE = 21
+# in her way, when the jump was 21.
+JUMP_RISE = 28
 FALL_FREE = 96              # KARA_BOX_H * 1.5, and inclusive (8.4)
 
 L2_BUILDINGS = (            # (first column, last column, roof row)
     (0, 21, 7),             # the one she comes out of
-    (25, 46, 7),
+    (25, 47, 7),
     (51, 53, 8),            # four that stand shoulder to shoulder: two
     (54, 55, 7),            # steps of a row each up to the tallest -
     (56, 61, 6),            # which is as much as a solid roof allows -
     (62, 73, 8),            # and a drop of two rows off its far side
-    (77, 99, 7),            # the way out is at its foot
+    (77, 100, 7),           # the way out is at its foot
     (104, 127, 8),          # the key's - and not a ladder on it
 )
 L2_LADDERS = (19, 44, 71, 97)       # one on each building before a gap
@@ -708,8 +718,8 @@ def l2_checks(g, T, ents):
     be impossible - or be possible the wrong way."""
     gaps = l2_gaps()
     for x0, x1, r in L2_BUILDINGS:
-        # Six is level 1's roof, and a jump's apex 36 lines above it is
-        # as high as anything in this game has taken her; nine keeps her
+        # Six is level 1's roof, and a jump's apex 28 lines above it is
+        # as high as anything in this game takes her; nine keeps her
         # middle inside CAM_BOT, so every roof is framed at WORLD_CR 0.
         assert 6 <= r <= 9, f"the roof at {x0}..{x1} is on row {r}"
     for (_, a1, ra), (b0, _, rb) in zip(L2_BUILDINGS, L2_BUILDINGS[1:]):
@@ -723,9 +733,10 @@ def l2_checks(g, T, ents):
             f"the gap at {x} is {w} wide from row {near} to row {far}, "
             f"which no measured run-jump reaches")
         # A BARRICADE SHE CAN LAND ON IS ONE SHE CAN WALK OVER. Under a
-        # roof she can drift while she falls - measured, a missed jump
-        # comes down a tile and a half past the gap - so they stand
-        # well clear of every gap's two edges.
+        # roof she can drift while she falls - measured over every
+        # take-off at every gap, a missed jump comes down no further
+        # than the far roof's first column - so they stand well clear
+        # of every gap's two edges.
         for b in L2_BARRICADES:
             assert b <= x - 6 or b >= x + w + 5, (
                 f"the barricade at {b} is within six tiles of the gap at {x}")
