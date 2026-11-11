@@ -47,8 +47,8 @@ class City3(City):
     of a building: a crate standing on one is something on the roof, not
     the roof, so it is told apart by the tile's name."""
 
-    def __init__(self, sym, names, drones=False):
-        super().__init__(sym, drones=drones, level=LEVEL)
+    def __init__(self, sym, names, drones=False, level=LEVEL):
+        super().__init__(sym, drones=drones, level=level)
         self.names = names
 
     def name(self, x, y):
@@ -307,21 +307,18 @@ def main():
             break
     check("UP at the garage with the key opens it",
           c.byte("GAME_STATE") == GS_CLEAR, f"GAME_STATE {c.byte('GAME_STATE')}")
-    back = None
-    for f in range(1500):
+    hp, res = c.hp(), c.byte("AMMO_RESERVE")
+    on = None
+    for f in range(900):
         c.m.run_frames(1)
-        if c.byte("LEVEL_CUR") == 0 and c.byte("GAME_STATE") == 0:
-            back = f
+        if c.byte("LEVEL_CUR") == LEVEL and c.byte("GAME_STATE") == 0:
+            on = f
             break
-        if f > 200 and f % 30 == 0:             # the title waits for a press
-            c.m.joystick(JOY["fire"])
-            c.m.run_frames(2)
-            c.m.joystick(0)
-    check("... and level 4 is not painted, so the game starts over",
-          back is not None and c.hp() == 100
-          and c.byte("AMMO_RESERVE") == 28 and c.byte("KEYS_COUNT") == 0,
-          f"after {back} hardware frames and a title: HP {c.hp()}, reserve "
-          f"{c.byte('AMMO_RESERVE')}")
+    check("... and it leads to level 4, the City's last",
+          on is not None and c.byte("LEVEL_ENV") == 0 and c.hp() == hp
+          and c.byte("AMMO_RESERVE") == res and c.byte("KEYS_COUNT") == 0,
+          f"after {on} hardware frames: HP {c.hp()} and reserve "
+          f"{c.byte('AMMO_RESERVE')} came with her, the key did not")
     del c
 
     # ---- the other way down: walked off, and what it costs -----------

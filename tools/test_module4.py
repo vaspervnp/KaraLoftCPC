@@ -373,11 +373,11 @@ def load_blobs():
 
 def raster_safe(blobs, st):
     """Is this sample one where the beam cannot have overtaken her?"""
-    clip = kara_clip(blobs[st[7]], st[5], st[4])
+    clip = kara_clip(blobs[st[7]], st[5], st[4], st[3])
     return clip is not None and clip[0] >= KARA_RASTER_SAFE
 
 
-def kara_clip(blob, frame, kara_y):
+def kara_clip(blob, frame, kara_y, kara_x):
     """What KARA_SPAN_DRAW will draw: (first screen line, lines skipped
     off the top, lines drawn), or None when she is entirely off.
 
@@ -385,11 +385,21 @@ def kara_clip(blob, frame, kara_y):
     top plus the frame's y0 wraps at 256, and a result of 192-255 is the
     hidden band, which the engine reads as ABOVE the display rather than
     below it - the camera can only put her there by scrolling up.
+
+    AND HER BOTTOM IS THE HUD'S TOP LINE where her columns meet the
+    strip's (HUD_CLIP): her save-under holding the strip's pixels
+    is what left a copy of it one row up whenever a vertical latch fell
+    between her draw and her erase (CLAUDE.md 7.8).
     """
     y0, rows = blob[frame]
     top = (kara_y + y0) & 0xFF
+    bottom = (HUD_ROW * 8
+              if (kara_x + KARA_W) & 0xFF < HUD_STRIP_CELLS * 2 + KARA_W
+              else SCR_LINES)
     if top < SCR_LINES:
-        return top, 0, min(len(rows), SCR_LINES - top)
+        if top >= bottom:
+            return None
+        return top, 0, min(len(rows), bottom - top)
     above = 256 - top
     if above >= len(rows):
         return None
@@ -408,7 +418,7 @@ def overlay_kara(want, blobs, scroll, kara_x, kara_y, frame, facing):
     and each line starts at its own skip inside the box.
     """
     blob = blobs[facing]
-    clip = kara_clip(blob, frame, kara_y)
+    clip = kara_clip(blob, frame, kara_y, kara_x)
     if clip is None:
         return want                 # culled: entirely off the display
     first, nskip, ndraw = clip
@@ -509,7 +519,9 @@ INV_BASE = CLIPS_BASE + 1                       # ... and what she CARRIES,
 INV_CELLS = 6                                   # columns 14-19: an icon and
                                                 # a count for the key and for
                                                 # the coins (CLAUDE.md 7.8)
-CLIPS_N = 2                                     # AMMO_RESERVE is 28 at the
+HUD_ROW = SCR_CHAR_ROWS - 1                     # ... and she is not drawn
+HUD_STRIP_CELLS = INV_BASE + INV_CELLS - HUD_BASE   # into any of it: 20
+CLIPS_N = 2                                    # AMMO_RESERVE is 28 at the
                                                 # start of the level and a
                                                 # reload takes 14 (bullets.asm);
                                                 # nothing here fires or picks
@@ -1059,7 +1071,7 @@ def main():
         # It is split out rather than excluded, and BOUNDED rather than
         # tolerated: the unclipped samples still have to be exact, and
         # the clipped ones may not get worse than they are.
-        clip = kara_clip(blobs[st[7]], st[5], st[4])
+        clip = kara_clip(blobs[st[7]], st[5], st[4], st[3])
         whole = (clip is not None and clip[1] == 0
                  and clip[2] == len(blobs[st[7]][st[5]][1]))
         if whole:
@@ -1268,7 +1280,8 @@ def main():
                                     pen_to_hw, y0)
                     for k in (i - 1, i - 2, i - 3)
                     for v in (i, i - 1))
-            clip = kara_clip(blobs[hist[i - 1][7]], hist[i - 1][5], hist[i - 1][4])
+            clip = kara_clip(blobs[hist[i - 1][7]], hist[i - 1][5], hist[i - 1][4],
+                             hist[i - 1][3])
             if clip:
                 worst[clip[0]] = max(worst.get(clip[0], 0), n)
     lines = sorted(worst)
@@ -1413,7 +1426,7 @@ def main():
             # all - which is the "two Karas" this exists for.
             best = None
             for cand in (st, prev):
-                clip = kara_clip(blobs[cand[7]], cand[5], cand[4])
+                clip = kara_clip(blobs[cand[7]], cand[5], cand[4], cand[3])
                 # CULLED, OR PAST THE BOTTOM AND READ AS ABOVE THE TOP.
                 # KARA_Y is an unsigned screen line and 192-255 is the
                 # hidden band (CLAUDE.md 8.2), so a sample down there is
@@ -1465,19 +1478,23 @@ def main():
               seen and max(seen) - min(seen) <= 1 and -1 <= seen[0] <= 1,
               f"offsets seen {seen}, want them within one line of each other "
               f"and of zero - a character row apart is the fault")
-        # ... AND WHERE SHE RUNS PAST THE BOTTOM, THE RESIDUE IS BOUNDED
-        # AND MEASURED. This suite is the only place it shows, because
-        # only this driver takes her there. What was not written down is
-        # WHEN it starts: measured here, the engine puts her exactly
-        # where it says while 45 or more of her 61 drawn lines fit, and
-        # from 37 down it places her up to seven lines low. Module 6d
-        # is the X clip and does not touch this - the bound is what
-        # stops the OTHER axis quietly getting worse (CLAUDE.md 8.2).
-        check(f"... and the bottom clip's residue is at most a row, {name}",
-              all(abs(o) <= 8 for o in cut),
-              f"clipped offsets {cut}, against a character row of 8 - "
-              f"the bottom clip's residue, not the X clip's "
-              f"(CLAUDE.md 8.2)")
+        # ... AND WHERE SHE RUNS PAST THE BOTTOM SHE IS WHERE SHE SAYS
+        # TOO. This said "from 37 lines down it places her up to seven
+        # lines low" and bounded it at a character row, and none of that
+        # was the clip: RASTER_WAIT gated any line from 185 two ticks
+        # early, so with her first line at 152 or lower her erase ran
+        # before the second sweep showed her, and this sampled whichever
+        # sweep it caught - a sample with no heroine in it differs from
+        # the map nowhere and was simply dropped (CLAUDE.md 9). With the
+        # gate right the offsets are -1, 0 and 0: the one line
+        # first_opaque allows for, so that is the bound, and the old
+        # gate fails it at 13 to 29.
+        check(f"... and clipped at the bottom she is still where she "
+              f"says, {name}",
+              all(abs(o) <= 1 for o in cut),
+              f"clipped offsets {cut}, within a line - an erase that "
+              f"beats the beam to her shows up as a whole character row "
+              f"or more (CLAUDE.md 9)")
         # ... AND SHE REALLY TRAVELLED, which is this check's control:
         # parked off the display at the end of the view's travel every
         # sample reads the same nothing, and "one offset, and it is

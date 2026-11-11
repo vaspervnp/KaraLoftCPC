@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The City's maps, over the DRAWN 8x16 tiles: levels 1, 2 and 3.
+"""The City's maps, over the DRAWN 8x16 tiles: all four of them.
 
 Everything below down to LEVEL 2's own header is level 1, and it comes
 out byte for byte what it was before level 2 existed - that is the
@@ -502,11 +502,13 @@ from make_level import pack, read                    # noqa: E402
 # window in game frames, by the gap's width and the far roof's row less
 # the near one's, at each of the two phases a run's two-byte stride can
 # meet the lip in - measured on this level, on the machine, by pressing
-# UP at every byte column from sixteen before each gap to ten past it
-# (tools/test_city.py does it again). Four things fell out of that, and
-# the first two are why the level is the shape it is:
+# UP on every game frame of the run-up with the camera where play has
+# it (tools/test_city.py does it again). Four things fell out of that,
+# and the first two are why the level is the shape it is:
 #
-#   * EVERY GAP IS THREE WIDE, AND A WALK MAKES EVERY ONE OF THEM. It
+#   * EVERY GAP IS THREE WIDE, AND A WALK MAKES EVERY ONE OF THEM - the
+#     one that goes UP on a single frame, which is a run's gap and not a
+#     walk's (WALK_JUMPS, below). It
 #     was not so the day the level was drawn: the jump was -15 and 21
 #     lines, the downhill gaps were four wide, and a walk made the first
 #     gap and no other. A play-test on Caprice32 could not make the
@@ -526,9 +528,9 @@ from make_level import pack, read                    # noqa: E402
 # The five roofs use three of them, and in an order:
 #
 #   G1   7 -> 7, three wide    level: level 1's own gap, 7 or 8 frames
-#   G2   7 -> 8, three wide    downhill: 8 or 9, and 5 at a walk
+#   G2   7 -> 8, three wide    downhill: 8 or 9, and 6 at a walk
 #   ...  two steps up a row each to the tallest roof, and a drop off it
-#   G3   8 -> 7, three wide    UP a row: 6 or 7, and 3 at a walk
+#   G3   8 -> 7, three wide    UP a row: 6 or 7, and ONE at a walk
 #   G4   7 -> 8, three wide    as G2, onto the key's roof
 #
 # EVERY NUMBER ON THIS LEVEL IS A COMPOSITE LEVEL 1 ALREADY BAKED. The
@@ -541,10 +543,22 @@ from make_level import pack, read                    # noqa: E402
 # hold them to - and main() asserts it rather than hoping.
 # =====================================================================
 RUN_JUMPS = {(3, 0): (7, 8), (3, 1): (8, 9), (3, -1): (6, 7)}
-# ... and walking, AT LEAST: a walk's window measured a frame wider on a
-# machine that had driven to the gap than on one that had just arrived,
-# where a run's did not move at all, so for a walk the table is a floor.
-WALK_JUMPS = {(3, 0): 3, (3, 1): 5, (3, -1): 3}
+# A RUN'S WINDOW IS THE SHAPE'S; A WALK'S IS A FLOOR, AND IT IS SMALL
+# GOING UP. These were measured once with the camera parked at the
+# map's right-hand end and her hundreds of bytes off the screen - the
+# suite poked her to each run-up and PLAYER_SCREEN_X's modulo-256
+# difference sent the camera the wrong way - and with presses counted
+# by byte column and put in wherever step() happened to stop, which is
+# sometimes after the frame's INPUT_SCAN. Each table then read a frame
+# differently on two machines and was called a floor for it. Measured
+# with the camera following her and the press at the top of a game
+# frame (test_city.py's put() and tick()), every gap of a shape gives
+# the same run on both levels, exactly this table. A walk steps two
+# bytes on one frame in two in the push zone (CLAUDE.md 8.2), so which
+# frames of it reach the lip is the gap's own: the downhill window has
+# a frame of miss in it, and the jump UP is 1 frame on level 2's gap
+# and 2 on level 4's - at both stride phases.
+WALK_JUMPS = {(3, 0): 4, (3, 1): 6, (3, -1): 1}
 RUN_OFF = {(3, 1)}          # the shapes a run off the edge crosses at one
                             # stride phase of the two, with no press
 # HOW HIGH SHE GOES IS 28 LINES, and every roof here is SOLID, so that
@@ -1012,6 +1026,204 @@ def l3_checks(g, T, ents):
     return plazas, costs
 
 
+# =====================================================================
+# LEVEL 4: THE CITY'S LAST, AND THE WAY OUT OF IT
+#
+# Level 3's garage leads here and level 4 opens on it drawn OPEN. It is
+# the last of the City's four (8.1), so it is the two maps before it
+# put end to end - the rooftops' jumps and the street's climb and drop -
+# and its way out is the garage plan.md ends the City at, "είσοδος σε
+# υπόγειο γκαράζ", which leads to level 5: the forest, an ENVIRONMENT
+# away, so the door is a read of the forest's art and not one sector.
+#
+#   * THREE GAPS, ONE OF EVERY SHAPE LEVEL 2 MEASURED: level, UP onto
+#     the tallest roof, and DOWN onto the key's. Every one is three
+#     wide, so a walk makes every one (8.14), and each gap's pit has one
+#     ladder, back onto the roof she jumped FROM.
+#   * ONE PLAZA, EIGHT WIDE, off the tallest roof: walked off it is 32
+#     points and hung off the ledge it is free (8.15) - and on its far
+#     side a ladder up the next building, past a barricade.
+#   * THE KEY'S ROOF HAS NO LADDER, as level 2's had none: the last jump
+#     is the only way onto it, and walking off its near edge is
+#     FALL_FREE exactly, into the pit the way out is in. A miss there is
+#     never a softlock, because that pit's ladder goes back up to the
+#     roof the jump is made from.
+#   * A DRONE ON THE STREET, for the first time: the plaza is where she
+#     comes down, and down there it is her and it.
+# =====================================================================
+L4_BUILDINGS = (            # (first column, last column, roof row)
+    (0, 21, 7),             # the one she comes out of
+    (25, 40, 7),
+    (44, 59, 6),            # the tallest, and the plaza off its far side
+    (68, 87, 7),
+    (91, 127, 8),           # the key's - no ladder, and the way out under it
+)
+L4_LADDERS = (19, 38, 70, 85)       # A; B, from G2's pit; D from the
+                                    # plaza, and D again from G3's pit
+L4_BARRICADES = (30, 50, 76)
+L4_GARAGE_IN = 6                    # level 3's way out, drawn OPEN
+L4_GARAGE_OUT = 100                 # under the key's roof, shut
+L4_CRATES = ((2, 2), (3, 1))        # the coin's two steps, as before
+L4_ROOF_CRATES = (79,)              # one to hop on the roof before the end
+L4_LAMPS = (12, 36, 48, 72, 96, 108, 120)
+L4_PROPS = ((4, "ac_unit"), (13, "chimney"), (16, "antenna"),
+            (28, "chimney"), (35, "antenna"),
+            (47, "ac_unit"), (52, "chimney"), (57, "ac_unit"),
+            (73, "antenna"), (82, "chimney"),
+            (94, "chimney"), (110, "antenna"), (116, "ac_unit"),
+            (124, "chimney"))
+L4_TANKS = (56,)                    # on the tallest roof, over (57)
+L4_START = (84, 208)
+L4_PICKUPS = (                      # (column, base row, PU_*, p1)
+    (2, 12, PU_COIN, 5),            # on the crates, by the garage
+    (43, 14, PU_MEDKIT, 0),         # in the pit under the jump that goes UP
+    (53, 6, PU_AMMO, 14),           # on the tallest roof
+    (63, 14, PU_COIN, 5),           # in the plaza, under the drone
+    (120, 8, PU_KEY, 0),            # on the last roof
+)
+L4_DRONES = (                       # (column, row, patrol half-width)
+    (33, 5, 3),                     # over the second roof
+    (64, 12, 3),                    # in the plaza, on the street
+    (112, 6, 4),                    # over the key's roof
+)
+L4 = dict(buildings=L4_BUILDINGS, ladders=L4_LADDERS,
+          barricades=L4_BARRICADES,
+          garages=((L4_GARAGE_IN, False), (L4_GARAGE_OUT, True)),
+          crates=L4_CRATES, roof_crates=L4_ROOF_CRATES, props=L4_PROPS,
+          tanks=L4_TANKS, lamps=L4_LAMPS)
+PLAZA_MIN = 8               # level 3's, measured: no take-off lands across
+
+
+def l4_roof(x):
+    for x0, x1, r in L4_BUILDINGS:
+        if x0 <= x <= x1:
+            return r
+    return None
+
+
+def l4_building(x):
+    for i, (x0, x1, _) in enumerate(L4_BUILDINGS):
+        if x0 <= x <= x1:
+            return i
+    return None
+
+
+def l4_pit(x):
+    return sum(1 for b in L4_BARRICADES if b < x)
+
+
+def l4_openings():
+    """(first column, width, near roof, far roof) between buildings."""
+    B = L4_BUILDINGS
+    return [(a1 + 1, b0 - a1 - 1, ra, rb)
+            for (_, a1, ra), (b0, _, rb) in zip(B, B[1:])]
+
+
+def build_level_4(T, names):
+    return build_city(L4, T, names)
+
+
+def build_entities_4():
+    e = [entity_px(EK_PLAYER_START, *L4_START, EF_ACTIVE)]
+    for x, row, kind, amount in L4_PICKUPS:
+        e.append(entity(EK_PICKUP, x, row, EF_ACTIVE | EF_TOUCH, kind, amount))
+    e.append(entity(EK_DOOR, L4_GARAGE_OUT, ROW_PAVEMENT,
+                    EF_ACTIVE | EF_SOLID, 0, PU_KEY))
+    for x, row, half in L4_DRONES:
+        e.append(entity(EK_ENEMY, x, row, EF_ACTIVE, EN_DRONE, half))
+    return b"".join(e)
+
+
+def l4_checks(g, T, ents):
+    """Level 4's terms: level 2's for its gaps, level 3's for its plaza,
+    and the two that make it the City's last."""
+    B = L4_BUILDINGS
+    for x0, x1, r in B:
+        assert 6 <= r <= 9, f"the roof at {x0}..{x1} is on row {r}"
+    gaps = [o for o in l4_openings() if o[1] < PLAZA_MIN]
+    plazas = [o for o in l4_openings() if o[1] >= PLAZA_MIN]
+    assert len(gaps) + len(plazas) == len(B) - 1
+    last = len(B) - 1
+    for x, w, near, far in gaps:
+        assert (w, far - near) in RUN_JUMPS, (
+            f"the gap at {x} is {w} wide from row {near} to row {far}, "
+            f"which no measured run-jump reaches")
+        for b in L4_BARRICADES:
+            assert b <= x - 6 or b >= x + w + 5, (
+                f"the barricade at {b} is within six tiles of the gap at {x}")
+        # EVERY PIT HAS ONE WAY OUT, AND IT IS BACK UP TO WHERE SHE JUMPED.
+        pit = l4_pit(x)
+        assert all(l4_pit(c) == pit for c in range(x, x + w))
+        ups = [c for c in L4_LADDERS if l4_pit(c) == pit]
+        near_b = l4_building(x - 1)
+        assert any(l4_building(c) == near_b for c in ups), (
+            f"nothing in the pit under the gap at {x} leads back up to "
+            f"the roof she jumped from")
+        assert all(l4_building(c) <= near_b for c in ups), (
+            f"the pit under the gap at {x} has a ladder onto a roof past it")
+    for x, w, near, far in plazas:
+        # THE PLAZA IS LEVEL 3'S: down off the near roof, and up a
+        # ladder on the far building, past a barricade under it.
+        pit = l4_pit(x)
+        ups = [c for c in L4_LADDERS if l4_pit(c) == pit]
+        assert ups and all(l4_building(c) == l4_building(x + w) for c in ups), (
+            f"the plaza at {x}: its ladders {ups} are not on the building "
+            f"after it")
+        bars = [b for b in L4_BARRICADES if l4_building(b) == l4_building(x + w)]
+        assert bars and all(c < bars[0] for c in ups)
+        assert walk_off_cost(near) > 0, "the ledge is not worth finding"
+    for b in L4_BARRICADES:
+        assert l4_roof(b) is not None and l4_roof(b) < ROW_PAVEMENT - 6
+        assert all(g[y][b] == T["crate"]
+                   for y in range(ROW_PAVEMENT - 3, ROW_PAVEMENT))
+    assert 3 * 16 > JUMP_RISE + 15
+    for c in L4_LADDERS:
+        assert all(g[y][c] == T["ladder"]
+                   for y in range(l4_roof(c), ROW_PAVEMENT))
+    assert not any(l4_building(c) == last for c in L4_LADDERS), \
+        "the key's roof has a ladder, so the last jump is optional"
+    assert gaps[-1][0] + gaps[-1][1] == B[-1][0], "the last opening is a plaza"
+    key = next(p for p in L4_PICKUPS if p[2] == PU_KEY)
+    assert l4_building(key[0]) == last and key[1] == l4_roof(key[0])
+    assert l4_pit(L4_START[0] // 8) == 0 and l4_pit(L4_GARAGE_IN) == 0
+    assert l4_building(L4_GARAGE_OUT) == last
+    assert l4_pit(L4_GARAGE_OUT) == l4_pit(gaps[-1][0]), (
+        "the way out is not in the pit she lands in off the key's roof")
+    assert (ROW_PAVEMENT - B[-1][2]) * 16 <= FALL_FREE
+    hs = sorted(h for _, h in L4_CRATES)
+    assert hs[0] * 16 < JUMP_RISE and all(
+        (b - a) * 16 < JUMP_RISE for a, b in zip(hs, hs[1:]))
+    for x in L4_ROOF_CRATES:
+        assert l4_roof(x) is not None and x not in L4_LADDERS
+    for x, row, kind, _ in L4_PICKUPS:
+        assert row in (ROW_PAVEMENT, l4_roof(x),
+                       ROW_PAVEMENT - dict(L4_CRATES).get(x, 0)), \
+            f"pickup {kind} at {x} is standing on nothing"
+        assert x not in L4_LADDERS and x not in dict(L4_PROPS) \
+            and x not in L4_ROOF_CRATES, f"pickup {kind} at {x} shares its cell"
+    for x, name in L4_PROPS:
+        assert l4_roof(x) is not None and x not in L4_LADDERS \
+            and x not in L4_ROOF_CRATES, f"{name} at {x}"
+        assert all(x not in (x0, x1) for x0, x1, _ in B), \
+            f"{name} at {x} is on a roof's lip"
+    for x in L4_LAMPS:
+        assert l4_roof(x) is not None and x % 6 == 0
+        assert x not in L4_LADDERS and x not in L4_BARRICADES
+        assert not any(x0 <= x < x0 + 4
+                       for x0 in (L4_GARAGE_IN, L4_GARAGE_OUT))
+    # A drone hovers two rows above what she stands on there: a roof, or
+    # in a plaza the pavement - her muzzle's line either way (level 1).
+    for x, row, _ in L4_DRONES:
+        floor = l4_roof(x) if l4_roof(x) is not None else ROW_PAVEMENT
+        assert row == floor - 2, f"the drone at {x} is not at her muzzle"
+    beats = sorted((x - h, x + h) for x, _, h in L4_DRONES)
+    for (_, a_hi), (b_lo, _) in zip(beats, beats[1:]):
+        assert b_lo - a_hi > SCREEN_TILES, (
+            f"two drones can be on screen at once: {a_hi} and {b_lo}")
+    assert len(ents) % 8 == 0 and len(ents) // 8 <= ENT_MAX
+    return gaps, plazas
+
+
 def main():
     T, names = tile_names()
     side = os.path.join(ROOT, "build", "levels", "level1_city",
@@ -1035,8 +1247,11 @@ def main():
     g3 = build_level_3(T, names)
     ents3 = build_entities_3()
     plazas3, costs3 = l3_checks(g3, T, ents3)
+    g4 = build_level_4(T, names)
+    ents4 = build_entities_4()
+    gaps4, plazas4 = l4_checks(g4, T, ents4)
     assert BAKED == level_1_pairs, (
-        f"level 2 or 3 placed overlay pairs level 1 never baked: "
+        f"levels 2-4 placed overlay pairs level 1 never baked: "
         f"{sorted(set(BAKED) - set(level_1_pairs))}. They would bake after "
         f"level 1's and level 1 would not move - but citytiles.bin, its flag "
         f"table and city_baked.json would, and the editor's golden suite and "
@@ -1047,7 +1262,7 @@ def main():
     # and the frame pays nothing. See the note by put_overlay().
     extra_bytes, extra_names, remap, flat = bake_overlays(
         CITY_ART, CITY_SHEET, names, BAKED)
-    for row in g + g2 + g3:             # the provisional ids become the
+    for row in g + g2 + g3 + g4:        # the provisional ids become the
         for x in range(MAP_W):          # real ones, or the overlay again
             if row[x] in remap:
                 row[x] = remap[row[x]]
@@ -1176,6 +1391,24 @@ def main():
     for (x, w), c in zip(plazas3, costs3):
         print(f"   plaza at {x:3d}, {w} wide: walking off the roof before it "
               f"costs {c}, the ledge nothing")
+
+    # ---- level 4, the City's last ------------------------------------
+    blob4 = bytes(b for row in g4 for b in row)
+    assert len(blob4) == MAP_W * MAP_H and max(blob4) < len(names)
+    lvl4 = pack(level_id=4, tileset_id=1, width=MAP_W, height=MAP_H,
+                map_bytes=blob4, entities=ents4)
+    open(os.path.join(ROOT, "build", "level_4.lvl"), "wb").write(lvl4)
+    back = read(lvl4)
+    assert back["map"] == blob4 and back["entities"] == len(ents4) // 8
+    print(f"-> level_4.lvl     {len(lvl4)} bytes: {MAP_W}x{MAP_H}, "
+          f"{back['entities']} entities, tileset 1, and not one new pair")
+    for x, w, near, far in gaps4:
+        print(f"   gap at {x:3d}, {w} wide, row {near} -> {far}: "
+              f"{'/'.join(map(str, RUN_JUMPS[w, far - near]))} frames at a "
+              f"run, a miss costs {miss_cost(near)}")
+    for x, w, near, far in plazas4:
+        print(f"   plaza at {x:3d}, {w} wide: walked off {walk_off_cost(near)}, "
+              f"the ledge nothing")
 
 
 if __name__ == "__main__":

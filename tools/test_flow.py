@@ -276,14 +276,14 @@ def restart_checks(sym):
     for n in ("PLAYER_HP", "KEYS_COUNT", "COINS_COUNT", "STATUES_HELD",
               "CURRENT_BOOK_ID", "AMMO_RESERVE", "MAG_LEFT", "MAG_RIGHT",
               "RELOAD_TIMER", "HURT_FLASH", "BUL_LIVE", "BUL_TOP",
-              "ENT_RESULT", "V_REQUEST", "VIEW_STEP", "H_PENDING"):
+              "ENT_RESULT", "V_REQUEST", "H_PENDING"):
         if fresh.peek(sym[n]) != m.peek(sym[n]):
             check(f"{n} came back", False,
                   f"fresh {fresh.peek(sym[n])}, restarted {m.peek(sym[n])}")
             break
     else:
         check("and every byte of what she carries, her guns and the "
-              "frame's pending work", True, "16 of them, named")
+              "frame's pending work", True, "15 of them, named")
     return m
 
 
@@ -309,10 +309,16 @@ FREE = {"FRAME_COUNT", "IRQ_TICKS", "IRQ_LAST", "FRAME_TICK0",
 # is what makes them dead and what makes this line honest. The sweep is
 # where it showed: the view stopped panning at a level start
 # (CLAUDE.md 8.1), and the pan had been rewriting them.
+#
+# AND EN_K*, EN_HERMID AND EN_TGT are ENEMY_SLOT's and ENEMY_FOLLOW's own
+# working bytes - her box as she was drawn, her middle and the place the
+# drone is making for - each written at the top of its routine before
+# anything reads it, on every frame either runs (CLAUDE.md 8.7).
 DEAD = ("SPAN_", "CX_", "HUD_STEP", "HUD_V_", "HUD_BANK", "HUD_A_",
         "FADE_PAL", "FADE_STEP", "ENT_HIT", "ENT_RP_WC", "ENT_RP_WR",
         "ENT_RP_WORD", "CELL_WORD", "CELL_WC", "CELL_WR", "CELL_COUNT",
-        "COL_", "ROW_")
+        "COL_", "ROW_", "EN_KX", "EN_KY", "EN_KH", "EN_KW", "EN_HERMID",
+        "EN_TGT")
 
 
 def sweep(sym, ra, rb):

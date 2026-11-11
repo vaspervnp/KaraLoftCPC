@@ -207,6 +207,61 @@ HUD_SERVICE:    ld   hl,(SCROLL)            ; the view just latched
                 ret
 
 ; ---------------------------------------------------------------------
+; HUD_CLIP - a sprite stops at the strip's top line, not at the bottom
+; of the picture, wherever its columns meet the strip's.
+;
+; NOTHING WITH A SAVE-UNDER MAY BE DRAWN OVER THE STRIP, and a play-
+; test is what said so: "when I fall into a gap between buildings I
+; leave a copy of the hud behind". A save-under is replayed by ABSOLUTE
+; address (spanblit.asm), which is right for every pixel the CRTC
+; scrolls and wrong for the one run that stays put on the glass: a fall
+; outruns the camera, her last lines went down over the strip and her
+; save-under took its pixels; the vertical latch at the top of the
+; second sweep moved the view a row, HUD_VACATE put the tilemap back on
+; what is now row 22 and the strip went down on the new row 23 - and
+; then her erase put the OLD strip straight back on row 22, after the
+; vacate, where nothing would ever repaint it. Traced on the machine,
+; level 4, walking off the first roof into its gap: 28 bytes over three
+; cells of row 22, every one the strip's byte at that address one frame
+; earlier, written by SPAN_ERASE_AT (CLAUDE.md 7.8).
+;
+; THE DRONE IS THE SAME SPRITE ONE PERSISTENCE ALONG, and it called this
+; too while level 4's street drone could be drawn down to line 190. It
+; does not any more, because a stronger rule holds for it: its whole
+; box has to end above row 22 to be drawn at all (EN_YB, enemy.asm),
+; since its refresh now runs before the strip's vacate in the same
+; sweep and a box on row 22 would save the old strip as its background.
+;
+; The rest of row 23 is playfield and a sprite is drawn into it as
+; before. A box straddling the strip's right edge is cut whole, because
+; the blitter drops LINES and a line is one span.
+;
+; IN : A = the first line drawn, C = lines - SPAN_CLIP_V's answer
+;      D = the sprite's left byte column, SIGNED; E = its width in bytes
+; OUT: A unchanged, C cut so that A + C <= the strip's first line
+;      destroys B, D, F
+; ---------------------------------------------------------------------
+HUD_CLIP:       ld   b,a                    ; the first line
+                ld   a,d
+                add  a,e
+                ld   d,a                    ; one past its right edge: a box
+                ld   a,HUD_STRIP_CELLS * 2  ; hanging off the LEFT comes out
+                add  a,e                    ; 0..w-1, which is small, and the
+                cp   d                      ; strip's edge in the same terms
+                ld   a,b                    ; is 40 + w
+                ret  c                      ; right of the strip: as drawn
+                ret  z                      ; ... and touching its edge
+                ld   a,HUD_ROW * 8
+                sub  b                      ; lines above the strip
+                jr   nc,.above
+                xor  a                      ; it starts inside it: nothing
+.above:         cp   c
+                jr   nc,.fits
+                ld   c,a
+.fits:          ld   a,b
+                ret
+
+; ---------------------------------------------------------------------
 ; HUD_DISOWN - say that nothing owns the strip's layout any more.
 ;
 ; WHAT A REPAINT HAS TO UNDO IS THE LAYOUT AND NOT THE NUMBERS. Every

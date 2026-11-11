@@ -134,6 +134,11 @@ gen python3 "$ROOT/tools/pack.py" city_map.bin overscan.bin
 # before the tile exporter and quietly shipped the PREVIOUS build's tiles.
 
 
+# RASM 3.2.5 DROPS A UNARY MINUS IN FRONT OF AN EQU IT HAS NOT SEEN YET:
+# `ld bc,-TILE_H` before tilemap.asm is included assembles as `ld bc,16`,
+# and nothing says so. Refused here, by name - CLAUDE.md 10.
+python3 "$ROOT/tools/check_unary_minus.py"
+
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
      -ob "$BUILD/game.bin" \
      -s -sa -os "$BUILD/game.sym"

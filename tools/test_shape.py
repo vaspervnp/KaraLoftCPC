@@ -595,6 +595,13 @@ def main():
         # heroine that the repaint does not own.
         nonlocal m
         m = boot(sym, scroll=True)
+        # AND IT IS HELD WHERE ITS RECORD PUT IT. Once it has been drawn
+        # it follows her (CLAUDE.md 8.7) and climbs to her chest four
+        # lines a game frame - which is tools/test_enemies.py's question.
+        # This one is where a 16-bit ES_Y PUTS it, so ENEMY_MOVE returns
+        # at once: it is still engaged, still redrawn every frame, still
+        # carried by the latch, and nothing but the record says where.
+        m.poke(sym["ENEMY_MOVE"], 0xC9)     # RET
         if byte_y:
             m.write_ram(sym["ENEMY_Y_HI"],
                         bytes([0xDD, 0x36, sym["ES_Y"] + 1, 0, 0, 0]))
@@ -605,8 +612,8 @@ def main():
                                enemies=[(80 + 40 * 2, drone_base,
                                          sym["EN_DRONE"], 0)]))
         enter_level(m, sym)
-        for _ in range(30):                 # the entry draw waits for a frame
-            M4.next_frame_top(m, sym)       # with room - EN_DEFER_MAX of them
+        for _ in range(30):                 # the view comes to her and the
+            M4.next_frame_top(m, sym)       # drone is drawn on its first frame
         M4.settle(m, sym)
         M4.MAP_W, M4.MAP_H = 32, 64
         st = M4.state(m, sym)
@@ -620,12 +627,11 @@ def main():
         """Which screen lines the bytes that are not the map are on.
 
         THE CHECK IS THE LINE AND NOT THE COLUMN, because the column is
-        a different axis's question and it has an answer of its own:
-        the pixels go down at ENEMY_SX, which ENEMY_PICK worked out at
-        the TOP of the frame, and the drone has patrolled since - so on
-        a frame the refresh holds, its pixels are a byte behind where
-        its slot says it is. That is CLAUDE.md 8.7's persistent sprite
-        working as designed, and it is not what a 16-bit ES_Y is about.
+        a different axis's question and not what a 16-bit ES_Y is about.
+        (It used to have an answer of its own as well - the pixels went
+        down at an ENEMY_SX worked out at the top of the frame, a byte
+        behind a patrol that had stepped since. The refresh places the
+        box itself now, out of the slot as it stands - CLAUDE.md 8.7.)
         """
         scroll = st[0]
         where = {}

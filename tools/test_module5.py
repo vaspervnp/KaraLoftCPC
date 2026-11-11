@@ -471,12 +471,18 @@ def firing_costs_her_nothing(sym):
     # The T-state bench above is the control now - that is why it was
     # written - and this stays as the in-play corroboration it can
     # honestly be.
-    check("... and in play it still costs her frames",
-          stuck < fired,
+    #
+    # AND NOW IT COSTS NO FRAMES EITHER. Two of the four walks -
+    # UPDATE_BULLETS and ENEMY_SHOT_CHECK - went into the second sweep's
+    # wait for its head gate with the drone's own logic (CLAUDE.md 8.7),
+    # where a walk of fourteen slots is paid out of time the sweep would
+    # have spent doing nothing. What is left to say in play is that the
+    # dead slots cannot make the loop FASTER, and the bench says the rest.
+    check("... and in play it costs her nothing it should not",
+          stuck <= fired,
           f"{stuck} loops against {fired} on the SAME tap pattern, and "
-          f"{stuck_x} bytes against {fired_x} - the ground no longer moves, "
-          f"because 5,408 T of overrun fits in a 25 Hz frame where it did "
-          f"not fit in a 50 Hz one")
+          f"{stuck_x} bytes against {fired_x} - half of the 5,408 T is in "
+          f"the second sweep's idle wait now, and the other half fits")
 
 
 if __name__ == "__main__":

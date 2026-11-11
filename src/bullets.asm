@@ -303,7 +303,12 @@ BUL_DRAW:       ld   a,(BUL_LIVE)
                 inc  hl
                 ld   c,(hl)             ; x
                 inc  hl
-                ld   a,(hl)             ; y
+                ld   a,(ZONE_XW)        ; too close to the drone to be drawn
+                or   a                  ; this frame (ENEMY_ZONE)? The zone
+                ld   a,(hl)             ; y        is 0 wide when no drone
+                call nz,ROUND_HIDDEN    ; is near, and that is 34 T a round
+                jr   c,.hidden          ; on a path with 800 to give, where
+                                        ; the call alone was 145
                 push de                 ; SCR_ADDR clobbers DE (and B, which
                 call SCR_ADDR           ; is already pushed); C = x survives
                 pop  de                 ; DE = its save entry
@@ -333,6 +338,8 @@ BUL_DRAW:       ld   a,(BUL_LIVE)
                 pop  bc
                 jr   .step
 
+.hidden:        pop  hl                 ; not drawn, so nothing to erase
+                pop  bc
 .none:          xor  a                  ; a zero address means "nothing drawn"
                 ld   (de),a
                 inc  de

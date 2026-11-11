@@ -117,12 +117,6 @@ SCR_CHAR_ROWS   equ 24                      ; R6 - see EDGE 2 above
 SCR_LINES       equ SCR_CHAR_ROWS * 8       ; 192 displayed scanlines
 SCR_WORDS       equ SCR_CHARS * SCR_CHAR_ROWS
 CRTC_PAGE       equ &30                     ; MA bits 12-13: page &C000
-VIEW_STEP_HOLD  equ 3                       ; a step is requested one frame,
-                                            ; painted in that one and the
-                                            ; next, and the camera fires
-                                            ; every other frame at a walk -
-                                            ; so 3 keeps the flag up for the
-                                            ; whole of a continuous scroll
 
 CRTC_R1         equ 1
 CRTC_R6         equ 6
@@ -1013,15 +1007,6 @@ H_REQUEST_LEFT: ld   a,(WORLD_X)
                 dec  hl                     ; 16-bit wrap, then masked:
                 xor  a                      ; 0 - 1 -> 1023.  Incoming
 H_REQUEST:      ld   (H_COL),a              ; column: the far left
-                ; THE PICTURE IS MOVING, AND STAYS MOVING FOR A COUPLE
-                ; OF FRAMES: this step's H_HEAD runs later in this one
-                ; and its H_TAIL in the next. src/enemy.asm reads it to
-                ; decide whether the frame can afford to redraw an
-                ; enemy - and while the picture moves it does not have
-                ; to, because the CRTC carries a world-fixed sprite for
-                ; nothing.
-                ld   a,VIEW_STEP_HOLD
-                ld   (VIEW_STEP),a
                 ld   a,h
                 and  3
                 ld   h,a
@@ -1335,4 +1320,3 @@ V_WCR:          db 0
 V_ROW:          db 0
 V_PHASE:        db 0
 V_REQUEST:      db 0
-VIEW_STEP:      db 0            ; frames left of "the picture is moving"

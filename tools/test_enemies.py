@@ -89,10 +89,19 @@ def word(m, addr):
     return m.peek(addr) | (m.peek(addr + 1) << 8)
 
 
-# The cull window is 2 .. 80 - w - 2 byte columns (ENEMY_PICK), so these
-# stop her with the drone a good margin inside it rather than balanced on
-# its edge.
+# The window is EN_XL .. 80 - w - EN_XL byte columns (ENEMY_PLACE), so
+# these stop her with the drone a good margin inside it rather than
+# balanced on its edge.
 DRONE_IN_LO, DRONE_IN_HI = 12, 56
+
+
+def game_frame(m, sym):
+    """ONE game frame, top of the loop to top of the loop (CLAUDE.md 10:
+    a count of game frames is phase-sensitive and has to be anchored)."""
+    f0 = m.peek(sym["FRAME_COUNT"])
+    while m.peek(sym["FRAME_COUNT"]) == f0:
+        m.run_us(64)
+    sync(m, sym, half=0)
 
 
 def to_drone(sym, frames=400):
@@ -202,26 +211,134 @@ def main():
     check("no two of them can share a screen", all(g > 20 for g in gaps),
           f"tile gaps {gaps}, the screen is 20 tiles")
 
-    # ---- patrol, facing, sight -------------------------------------
-    print("\n  one of them, driven in the running game:")
-    m = to_drone(sym)
-    check("the first drone came into view and is drawable",
-          m.peek(sym["ENEMY_VIS"]) == 1 and word(m, sym["ENEMY_CUR"]) != 0,
-          f"sx={m.peek(sym['ENEMY_SX'])} sy={word(m, sym['ENEMY_SY'])}")
+    # ---- before anybody has seen it: a beat ---------------------------
+    # She stands at the start of level 1; the first drone is inside
+    # EN_NEAR of the view and well outside the window, so it is the one
+    # awake and nobody can see it. That is the only time a beat means
+    # anything now (ENEMY_PICK).
+    print("\n  before it has been seen, it patrols a beat:")
+    m = boot(sym, scroll=True)
+    sync(m, sym, half=0)
     home = word(m, sym["ENEMIES"] + ES["HOME"])
     span = slot(m, sym, 0, "SPAN")
-    xs, cels, faces, dirs = set(), set(), set(), set()
-    for _ in range(200):
-        m.run_frames(1)
+    xs, dirs, drew, curs = set(), set(), set(), set()
+    for _ in range(100):
+        game_frame(m, sym)
         xs.add(word(m, sym["ENEMIES"] + ES["X"]))
-        cels.add(slot(m, sym, 0, "CEL"))
-        faces.add(slot(m, sym, 0, "FACE"))
         dirs.add(slot(m, sym, 0, "DIR"))
+        drew.add(m.peek(sym["ENEMY_DREW"]) != 0)
+        curs.add(word(m, sym["ENEMY_CUR"]))
     lo, hi = min(xs), max(xs)
+    check("standing at the start, the first drone is the one awake - and "
+          "off the screen", curs == {sym["ENEMIES"]} and drew == {False},
+          f"ENEMY_CUR {sorted(hex(c) for c in curs)}, drawn {sorted(drew)}")
     check("it patrols, and stays inside its beat",
           home - span - 2 <= lo and hi <= home + span + 2,
           f"{lo}..{hi} around home {home} +/- {span}")
-    check("it turns at both ends", dirs == {0, 1}, f"directions seen {sorted(dirs)}")
+    check("it turns at both ends", dirs == {0, 1},
+          f"directions seen {sorted(dirs)}")
+
+    # ---- AND FROM THE MOMENT IT IS ON THE SCREEN, IT FOLLOWS HER --------
+    # A play-test: "the drones jump from one place to another, disappear
+    # and come back. From the moment they appear they should move fast but
+    # not abruptly, and not leave the screen until you kill them or they
+    # kill you." What it was is in CLAUDE.md 8.7: drawn on one game frame
+    # in two and not at all while the picture moved, so a walk froze it
+    # for up to 34 bytes of its patrol and then showed all of them at
+    # once; and culled at a hard edge the camera walked it across. So:
+    # drawn once, it is ENGAGED - it keeps to her, on its side, at her
+    # chest, inside the window - and it is redrawn on every game frame.
+    print("\n  and from the moment it is on the screen, it follows her:")
+
+    def follow(quiet=None):
+        mm = to_drone(sym)
+        if quiet:
+            mm.poke(sym[quiet], 0xC9)        # RET
+        w = mm.peek(sym["ENEMY_W"])
+        h = mm.peek(sym["ENEMY_H"])
+        out = []
+        for joy, n in ((JOY_RIGHT, 150), (JOY_LEFT, 150), (0, 60)):
+            mm.joystick(joy)
+            for _ in range(n):
+                mm.poke(sym["PLAYER_HP"], 100)
+                game_frame(mm, sym)
+                out.append(dict(
+                    joy=joy, drew=mm.peek(sym["ENEMY_DREW"]) != 0,
+                    sx=mm.peek(sym["ENEMY_SX"]), sy=word(mm, sym["ENEMY_SY"]),
+                    dwx=word(mm, sym["ENEMY_DREW_WX"]),
+                    kmid=word(mm, sym["KARA_WX"]) + sym["KARA_BOX_W"] // 2,
+                    ey=word(mm, sym["ENEMIES"] + ES["Y"]),
+                    ky=word(mm, sym["KARA_WY"])))
+        mm.joystick(0)
+        return mm, out, w, h
+
+    m, run, w, h = follow()
+    eng = word(m, sym["ENEMY_ENG"])
+    check("drawn once, it is the one following her",
+          eng == sym["ENEMIES"] and word(m, sym["ENEMY_CUR"]) == eng,
+          f"ENEMY_ENG &{eng:04X}, the first slot &{sym['ENEMIES']:04X}")
+    xl, yb = sym["EN_XL"], sym["EN_YB"]
+    off = [i for i, r in enumerate(run) if not r["drew"]]
+    check("it is on the screen on every game frame of a walk away from it, "
+          "back past it and standing", not off,
+          f"{len(run)} frames, {len(off)} without it"
+          + (f", the first {off[:6]}" if off else ""))
+    out_w = [i for i, r in enumerate(run)
+             if r["drew"] and not (xl <= r["sx"] <= 80 - xl - w
+                                   and r["sy"] + h <= yb)]
+    check("... always inside its window: two characters clear of both "
+          "edges and above the strip's rows", not out_w,
+          f"columns {xl}..{80 - xl - w}, its box ending by line {yb}"
+          + (f"; outside at {out_w[:6]}" if out_w else ""))
+    steps = [r2["dwx"] - r1["dwx"] for r1, r2 in zip(run, run[1:])]
+    check("... moving a byte or two a game frame and never more",
+          max(abs(d) for d in steps) <= 2,
+          f"steps seen {sorted(set(steps))} - EN_CHASE is two bytes, her run")
+    # A HOLD IS A TURN OR IT IS A FRAME IT WAS NOT REDRAWN ON. Standing,
+    # it sways, and it holds one frame at each end - which end is where
+    # its sway runs out or where the window's clamp turns it round, so the
+    # NUMBER of holds is the sway's width and not a property: measured,
+    # with her at CAM_LEAD it sways four bytes against the right-hand
+    # clamp and holds one frame in five. What a drawing that skipped
+    # frames leaves is a hold BETWEEN two steps the same way.
+    still = [r["dwx"] for r in run if r["joy"] == 0][10:]
+    def sign(v): return (v > 0) - (v < 0)
+    holds = [i for i in range(1, len(still) - 2) if still[i] == still[i + 1]]
+    mid_run = [i for i in holds
+               if not (sign(still[i] - still[i - 1]) and
+                       sign(still[i] - still[i - 1]) == -sign(still[i + 2] - still[i + 1]))]
+    check("... and redrawn on every one: standing, it holds only where it "
+          "turns round", holds and not mid_run,
+          f"{len(holds)} holds in {len(still) - 1} frames, {len(mid_run)} of "
+          f"them between two steps the same way"
+          + (f" at {mid_run[:6]}" if mid_run else "")
+          + " - redrawn on one frame in two, as it was, is every other frame")
+    gaps = sorted(abs(r["dwx"] + w // 2 - r["kmid"]) for r in run[10:])
+    med = gaps[len(gaps) // 2]
+    check("it keeps to her, EN_DIST off, give or take its sway",
+          gaps[0] >= sym["EN_MIN"] and abs(med - sym["EN_DIST"]) <= 6,
+          f"middle to middle {gaps[0]}..{gaps[-1]} bytes, {med} typically; "
+          f"EN_DIST {sym['EN_DIST']}, never under EN_MIN {sym['EN_MIN']}")
+    chest = [r["ey"] - r["ky"] for r in run[10:]]
+    check("... at her chest", all(abs(d - sym["EN_DY"]) <= sym["EN_VY"]
+                                  for d in chest),
+          f"its top {min(chest)}..{max(chest)} lines below hers, "
+          f"EN_DY {sym['EN_DY']}")
+    _, run_q, w, _ = follow("ENEMY_MOVE")
+    off_q = sum(1 for r in run_q if not r["drew"])
+    check("CONTROL: ENEMY_MOVE = RET, and the walk away leaves it behind",
+          off_q > 50,
+          f"{off_q} of {len(run_q)} frames without it - the following is "
+          f"what keeps it on the screen, not the window")
+
+    # ---- its cels, and its fire ---------------------------------------
+    m = to_drone(sym)
+    cels, faces = set(), set()
+    for _ in range(200):
+        m.run_frames(1)
+        m.poke(sym["PLAYER_HP"], 100)
+        cels.add(slot(m, sym, 0, "CEL"))
+        faces.add(slot(m, sym, 0, "FACE"))
     mv_f = m.peek(T + EN_T_STRIDE + EN_T["MOVE_F"])
     mv_n = m.peek(T + EN_T_STRIDE + EN_T["MOVE_N"])
     fr_f = m.peek(T + EN_T_STRIDE + EN_T["FIRE_F"])
@@ -263,10 +380,20 @@ def main():
     print("\n  and it shoots only once the player can see it:")
     m = to_drone(sym)
     m.poke(sym["PLAYER_HP"], 100)
+    # ITS PIXELS ARE HELD OFF BY HOLDING THE REFRESH OFF, not by poking
+    # ENEMY_DREW alone: its sight and its gun run in the second sweep now,
+    # AFTER the refresh (ENEMY_THINK, CLAUDE.md 8.7), so a poke between
+    # frames is written over by the refresh before the gun ever reads it.
+    held = {n: m.peek(sym[n]) for n in ("ENEMY_REFRESH_EARLY",
+                                        "ENEMY_REFRESH_LATE")}
+    for n in held:
+        m.poke(sym[n], 0xC9)            # RET
     for _ in range(260):                # its pixels held off the screen
         m.poke(sym["ENEMY_DREW"], 0)
         m.run_frames(1)
         m.poke(sym["PLAYER_HP"], 100)
+    for n, v in held.items():
+        m.poke(sym[n], v)
     check("nothing leaves its gun while its pixels are not up",
           m.peek(sym["EBUL_LIVE"]) == 0 and m.peek(sym["PLAYER_HP"]) == 100,
           f"EBUL_LIVE {m.peek(sym['EBUL_LIVE'])}, her HP "
@@ -277,7 +404,7 @@ def main():
         m.poke(sym["PLAYER_HP"], 100)
         fired = max(fired, m.peek(sym["EBUL_LIVE"]))
     check("... and it does the moment they are", fired > 0,
-          f"{fired} of its rounds in the air once ENEMY_DREW is left alone - "
+          f"{fired} of its rounds in the air once the refresh is let go - "
           f"so the check above is the gate and not a dead gun")
 
     m = to_drone(sym)
@@ -334,27 +461,26 @@ def main():
           f"&{word(m, sym['ENEMY_CUR']):04X}, its pixels lifted off")
 
     # ---- the persistent sprite -------------------------------------
-    print("\n  it is a PERSISTENT sprite, not a per-frame one:")
+    # Its pixels stay on the screen from one refresh to the next and the
+    # refresh is the only thing that lifts them off (ENEMY_REFRESH). What
+    # used to be checked here was that they SURVIVED a frame the refresh
+    # was put off on - and putting it off was the bug. What is left to
+    # check is the other half: one refresh, one image, nothing left of
+    # the last one. The picture outside its box is checked against the
+    # map in tools/test_city4.py, on the street drone, all the way along.
+    print("\n  it is a PERSISTENT sprite, lifted off by its own refresh:")
     m = to_drone(sym)
-    for _ in range(6):                  # settle, so it is definitely drawn
-        m.run_frames(1)
-    sync(m, sym)
-    drew = m.peek(sym["ENEMY_DREW"])
-    script = bytes(m.read_ram(sym["ENEMY_SCRIPT"], 8))
-    before = bytes(m.read_ram(0xC000, 0x4000))
-    # A frame the redraw cannot afford: hold VIEW_STEP up, which is what
-    # a scrolling frame does.
-    m.poke(sym["VIEW_STEP"], 8)
-    m.run_frames(1)
-    sync(m, sym)
-    after = bytes(m.read_ram(0xC000, 0x4000))
-    check("its pixels are still on the screen after a skipped frame",
-          drew != 0 and m.peek(sym["ENEMY_DREW"]) == drew
-          and bytes(m.read_ram(sym["ENEMY_SCRIPT"], 8)) == script,
-          f"ENEMY_DREW {drew}, the script is untouched")
-    check("... and the screen under it did not move either",
-          sum(1 for a, b in zip(before, after) if a != b) < 400,
-          "a skipped frame redraws nothing, so only Kara's own box changes")
+    for _ in range(6):
+        game_frame(m, sym)
+    script = bytes(m.read_ram(sym["ENEMY_SCRIPT"], 3))
+    game_frame(m, sym)
+    check("it was drawn, and its erase script is a real one",
+          m.peek(sym["ENEMY_DREW"]) != 0 and script[0] != 0xFF,
+          f"ENEMY_DREW {m.peek(sym['ENEMY_DREW'])}, script starts "
+          f"{script.hex()}")
+    check("... and it is the top of the second sweep that redraws it, "
+          "in the border", m.peek(sym["ENEMY_EARLY"]) == 1,
+          "ENEMY_SLOT found nothing it could meet")
 
     # ---- and the frame still closes --------------------------------
     # WHAT THE FRAMES THAT ARE ALLOWED TO OVERRUN ARE, AND WHY. Two per

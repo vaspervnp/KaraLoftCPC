@@ -214,6 +214,11 @@ def main():
 
     art = cells_from_inc()
     m = boot(sym, scroll=True)
+    # NOTHING TO SHOOT AT, because a drone that has seen her follows her
+    # and fires (CLAUDE.md 8.7): ninety frames of walking is three of its
+    # rounds and a cell of bar, which is the bar working and not the bar
+    # staying put. The strip's own question is asked without it.
+    m.poke(sym["ENEMY_LIVE"], 0)
     m.run_frames(20)
     steps = list(m.read_ram(sym["HUD_STEPS"], CELLS))
     hwpen = [v & 0x1F for v in m.read_ram(sym["PALETTE_DATA"], 16)]
@@ -280,7 +285,8 @@ def main():
     # which walks the start address 40 words at a time.
     worst, rows = 0, set()
     m5 = boot(sym, scroll=True)             # a fresh one: the walk above
-    m5.run_frames(20)                       # has carried her off the ladder
+    m5.poke(sym["ENEMY_LIVE"], 0)           # has carried her off the ladder
+    m5.run_frames(20)
     m5.joystick(0x02)                       # DOWN
     for _ in range(240):
         m5.run_frames(1)

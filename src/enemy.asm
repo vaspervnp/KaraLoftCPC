@@ -215,6 +215,20 @@ ENEMY_SPAWN:    ld   hl,ENEMY_SCRIPT
                 ld   (ENEMY_DREW_W),a
                 ld   (ENEMY_DREW_WX),a
                 ld   (ENEMY_DREW_WX + 1),a
+                ; ... and the one that was following her is following
+                ; nobody: the level is a new one, or the same one again.
+                ld   (ENEMY_ENG),a
+                ld   (ENEMY_ENG + 1),a
+                ld   (ENEMY_SIDE),a
+                ld   (ENEMY_DREW_H),a
+                ld   (ENEMY_DREW_WY),a
+                ld   (ENEMY_DREW_WY + 1),a
+                ; ... and the rounds' keep-out, which ZONE_XW gates
+                ; exactly as ENEMY_DREW gates the draw's record above.
+                ld   (ZONE_X0),a
+                ld   (ZONE_XW),a
+                ld   (ZONE_Y0),a
+                ld   (ZONE_YH),a
                 ld   hl,ENEMIES
                 ld   de,ENEMIES + 1
                 ld   bc,ENEMY_MAX * ES_STRIDE - 1
@@ -343,123 +357,189 @@ ENEMY_TYPE_AT:  add  a,a
 ; ENEMY_PICK - which one is near enough to be alive, and where.
 ;
 ; OUT: (ENEMY_CUR) = its slot, or 0 for none
-;      (ENEMY_SX)  = screen byte column of its box
+;      (ENEMY_TYP) = its type's row, (ENEMY_W) and (ENEMY_H) its box
+;      (ENEMY_SX)  = screen byte column of its box, and (ENEMY_SXH)
+;                    the high byte of that: only 0 is a column of this
+;                    view
 ;      (ENEMY_SY)  = screen line of its top, a SIGNED WORD: only a
 ;                    high byte of 0 is a line of this picture
-;      (ENEMY_TYP) = its type's row
 ;      (ENEMY_VIS) = 1 if it can actually be DRAWN there
+;      ... and the rounds' keep-out round it (ENEMY_ZONE)
+;
+; THE ONE FOLLOWING HER COMES FIRST, AND IT IS THE ONLY ONE THERE IS
+; UNTIL IT IS DEAD. A drone that has been on the screen is ENGAGED
+; (ENEMY_REFRESH) and does not patrol a beat any more: it keeps to her,
+; on its own side of her, and never leaves the view (ENEMY_FOLLOW). A
+; play-test reported the drones "jumping from one place to another,
+; disappearing and coming back" - which was a redraw this engine could
+; afford on one frame in two and on no frame the picture moved, a cull
+; at a hard edge, and a beat the camera walked away from - and asked
+; for this instead: from the moment one appears, fast but not abrupt,
+; and on the screen until she kills it or it kills her. So the scan
+; below is only ever for the NEXT one, once the last has finished
+; falling.
 ;
 ; LIVE AND DRAWABLE ARE DIFFERENT QUESTIONS, and conflating them froze
 ; a drone at the edge of the picture: it patrolled its beat until its
 ; box no longer fitted, was culled, and - because the same test decided
 ; whether to update it - stopped moving, so it could never walk back
-; into view. It is live within a screen either side of the view and
-; drawable only when its whole box fits with a character to spare at
-; both ends.
-;
-; AND IT STAYS THAT WAY NOW THAT THERE IS AN X CLIP, which is a
-; decision rather than an oversight. SPAN_DRAW_CX would cut this box at
-; the edge like Kara's (CLAUDE.md 8.2, module 6d) - but this is a
-; PERSISTENT sprite: its pixels are left on the screen between
-; refreshes and the incoming column is the one thing that would disturb
-; them, so the character of clearance is load-bearing and not a
-; rounding (CLAUDE.md 8.7). Giving it the lane is a separate change
-; with its own measurement.
+; into view. It is live within EN_NEAR either side of the view, and
+; drawable only inside the window ENEMY_PLACE says.
 ;
 ; IT TAKES THE FIRST ONE NEAR, DRAWABLE OR NOT, and that is a level
-; constraint and not an engine one. The near zone is EN_NEAR either side
-; of an 80-byte view - 52 tiles - so two enemies can be near at once
-; with only one of them drawable, and this would then keep the wrong
-; one. Scanning strict first and falling back was written and measured:
-; it is a second pass over the table on every frame with nothing
-; drawable, and it takes this routine from 764 T to 2,656. Over a walk
-; the length of level 1's roof it never once changed the answer, because
-; the drones are 40 tiles apart
-; and a 20-tile screen cannot have one just off its left and another
-; drawable at the same time. tools/make_city_map.py asserts the spacing;
-; a level built to the minimum that assert allows would need the second
-; pass back.
+; constraint and not an engine one: tools/make_city_map.py spaces their
+; beats more than a screen apart and asserts it. A strict pass first
+; and a fallback was written and measured - 764 T to 2,656 on every
+; frame with nothing drawable - and over a walk the length of level
+; 1's roof it never once changed the answer.
 ;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
 EN_NEAR         equ 64          ; bytes outside the view it stays awake for
-EN_DRAW_TICK    equ 5           ; the latest interrupt tick the frame can be
-                                ; at and still have room to DRAW one: at 5 it
-                                ; has 14,600 T left and at 6 it has 5,300,
-                                ; against a 4,752 T draw - measured, see
-                                ; ENEMY_REFRESH
-EN_DEFER_MAX    equ 5           ; ... and how many frames it may wait for one
-                                ; before it is drawn anyway
-EN_HYST         equ 4           ; ... and how far inside the drawable window
-                                ; it has to come before it is drawn at all.
-                                ; A drone patrols 1 byte at a time against a
-                                ; 2-byte camera step, so a hard edge is a
-                                ; draw, an erase and a draw in three frames -
-                                ; see the window test below
+
+; WHERE ONE MAY BE DRAWN - and an ENGAGED one never leaves it (below).
+EN_XL           equ 4           ; bytes clear of the left and right edges:
+                                ; TWO characters, not one. The incoming
+                                ; column's head is painted into the
+                                ; screen's outer column on the frame
+                                ; before a step and its next one into the
+                                ; column inside that on a run, and a
+                                ; refresh whose erase lands after either
+                                ; puts stale tiles back into it (ENEMY_SLOT)
+EN_YB           equ 176         ; ... and the line its box must end above:
+                                ; rows 22 and 23 are the strip's and the
+                                ; strip's vacate (CLAUDE.md 7.8), and a
+                                ; persistent save-under is what put a copy
+                                ; of the HUD on the wall last time
+
+; WHAT AN ENGAGED ONE DOES. Every distance is from her, and every speed
+; is a GAME frame's - 25 Hz (src/main.asm).
+EN_DIST         equ 22          ; bytes, her middle to its middle: twelve
+                                ; bytes of air between the two sprites
+EN_SWAY         equ 8           ; world pixels either side of that it drifts
+EN_CHASE        equ 4           ; world pixels a frame, catching up: two
+                                ; bytes, which is her run - so it keeps up
+EN_MIN          equ 10          ; bytes, middle to middle, that are closer
+                                ; than the two boxes allow: (12 + 8) / 2.
+                                ; A place on its side that close to her is
+                                ; no place, and it changes sides
+EN_DY           equ 12          ; lines below her top it hovers at: its box
+                                ; is then across her muzzle's line, which
+                                ; is where every map in the City put it
+EN_VY           equ 4           ; lines a frame it climbs or sinks to her
+EN_XSTEP        equ 2           ; bytes: the view can scroll a character
+                                ; between its move and its draw
+EN_VTOP         equ 8           ; lines it keeps inside the view's top and
+EN_VBOT         equ EN_YB - 8   ; ... above this bottom, at its own logic:
+                                ; the vertical latch is between that and
+                                ; the draw and moves the view a row
 
 ENEMY_PICK:     xor  a
                 ld   (ENEMY_CUR),a
                 ld   (ENEMY_CUR + 1),a
                 ld   (ENEMY_VIS),a
+                ld   (ZONE_XW),a            ; no keep-out until one is near
                 ld   a,(ENEMY_LIVE)
                 or   a
                 ret  z
+
+                ld   hl,(ENEMY_ENG)         ; the one following her, for as
+                ld   a,h                    ; long as it is alive or still
+                or   l                      ; falling
+                jr   z,.scan
+                push hl
+                pop  ix
+                ld   a,(ix + ES_HP)
+                or   (ix + ES_DIE)
+                jr   nz,.take
+                ld   (ENEMY_ENG),a          ; dead and down: let go (A = 0)
+                ld   (ENEMY_ENG + 1),a
+
+.scan:          ld   a,(ENEMY_LIVE)
                 ld   b,a
                 ld   ix,ENEMIES
 .next:          push bc
                 ld   a,(ix + ES_HP)
                 or   (ix + ES_DIE)          ; dead AND done falling. One that
-                jp   z,.skip                ; is still coming down is live
-
-                ld   c,(ix + ES_X)
-                ld   b,(ix + ES_X + 1)
-                srl  b
-                rr   c                      ; its world byte
-                ; THE VIEW'S LEFT EDGE IS A 16-BIT NUMBER AND ADD A,A
-                ; IS NOT. WORLD_X is in characters and reaches 216, so
-                ; doubling it in the accumulator alone throws the carry
-                ; away from character 128 on - the left edge came back as
-                ; 0 instead of 256, every enemy's screen column was wrong
-                ; by 256, and the drone she was looking at read as 112
-                ; bytes off the left of the picture. What that looks like
-                ; is a drone drawn and then erased, halfway along the
-                ; level, and it is what was reported.
-                ld   a,(WORLD_X)
-                ld   h,0
-                add  a,a                    ; the view's left edge, in bytes
-                rl   h                      ; ... and its ninth bit
-                ld   l,a
-                ld   d,b
-                ld   e,c
-                ex   de,hl
-                or   a
-                sbc  hl,de                  ; HL = signed screen byte column
+                jr   z,.skip                ; is still coming down is live
+                call ENEMY_COLUMN           ; HL = its signed screen column
                 ld   a,h
                 or   a
                 jr   z,.plus
                 inc  a
-                jp   nz,.skip               ; more than 255 to the left. JP,
-                                            ; not JR: the body below grew
+                jr   nz,.skip               ; more than 255 to the left
                 ld   a,l
                 cp   256 - EN_NEAR
-                jp   c,.skip                ; ... or more than EN_NEAR
+                jr   c,.skip                ; ... or more than EN_NEAR
                 jr   .near
 .plus:          ld   a,l
                 cp   SCR_CHARS * 2 + EN_NEAR
-                jp   nc,.skip               ; too far to the right
+                jr   nc,.skip               ; too far to the right
                 ; ITS TYPE IS LOOKED UP ONLY ONCE IT IS NEAR. The row,
                 ; the box and both facings' banks are 150 T to fetch and
                 ; the near test needs none of them - it is ES_X against
-                ; the view and nothing else. With three enemies in the
-                ; level and one of them usually in range, that is 330 T
-                ; a frame spent describing enemies that are twenty tiles
-                ; away. The same reject ENT_OVERLAP got in CLAUDE.md 9,
-                ; for the same reason.
-.near:          ld   a,l
-                ld   (ENEMY_SX),a
-                push hl
+                ; the view and nothing else. The same reject ENT_OVERLAP
+                ; got in CLAUDE.md 9, for the same reason.
+.near:          pop  bc
+.take:          ld   (ENEMY_CUR),ix
                 ld   a,(ix + ES_TYPE)
                 call ENEMY_TYPE_AT
                 ld   (ENEMY_TYP),hl
+                call ENEMY_PLACE
+                jp   ENEMY_ZONE             ; the FIRST one near, and only
+                                            ; that one - see the header
+.skip:          ld   bc,ES_STRIDE
+                add  ix,bc
+                pop  bc
+                djnz .next
+                ret
+
+; ---------------------------------------------------------------------
+; ENEMY_COLUMN - IX = a slot -> HL = its box's screen byte column, a
+; SIGNED WORD.                    destroys AF,DE,HL
+;
+; THE VIEW'S LEFT EDGE IS A 16-BIT NUMBER AND ADD A,A IS NOT. WORLD_X
+; is in characters and reaches 216, so doubling it in the accumulator
+; alone throws the carry away from character 128 on - the left edge came
+; back as 0 instead of 256, every enemy's screen column was wrong by
+; 256, and the drone she was looking at read as 112 bytes off the left
+; of the picture. What that looked like was a drone drawn and then
+; erased, halfway along the level, and it is what was reported.
+; ---------------------------------------------------------------------
+ENEMY_COLUMN:   ld   l,(ix + ES_X)
+                ld   h,(ix + ES_X + 1)
+                srl  h
+                rr   l                      ; its world byte
+                ld   a,(WORLD_X)
+                ld   d,0
+                add  a,a                    ; the view's left edge, in bytes
+                rl   d                      ; ... and its ninth bit
+                ld   e,a
+                or   a
+                sbc  hl,de
+                ret
+
+; ---------------------------------------------------------------------
+; ENEMY_PLACE - IX = the slot, (ENEMY_TYP) its row. Where it is on the
+; screen under the view as it stands NOW, and whether it can be drawn.
+;
+; IT IS CALLED TWICE A FRAME AND THE SECOND IS THE ONE THAT DRAWS. The
+; first is ENEMY_PICK's, at the top of the frame, for the logic: the
+; shot check and the gun both work in screen units. The second is
+; ENEMY_REFRESH's, in the second sweep - after the patrol has moved it
+; and after the VERTICAL latch has moved the view, both of which used
+; to land between the number and the pixels: it was drawn at a column
+; the patrol had already left (CLAUDE.md 8.7's "66..73 against 65 or
+; 67"), and on a frame the view stepped a row, eight lines from where
+; it was.
+;
+; THE WINDOW IS EN_XL CLEAR OF BOTH EDGES AND ENDS AT EN_YB, and an
+; engaged one is held inside it by ENEMY_FOLLOW, so for one that is
+; following her the answer is always yes.
+;
+; OUT: (ENEMY_W), (ENEMY_H), (ENEMY_SX), (ENEMY_SXH), (ENEMY_SY),
+;      (ENEMY_VIS)                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+ENEMY_PLACE:    ld   hl,(ENEMY_TYP)
                 ld   de,EN_T_W
                 add  hl,de
                 ld   a,(hl)
@@ -467,15 +547,15 @@ ENEMY_PICK:     xor  a
                 inc  hl
                 ld   a,(hl)
                 ld   (ENEMY_H),a
-                pop  hl
-
+                call ENEMY_COLUMN
+                ld   a,l
+                ld   (ENEMY_SX),a
+                ld   a,h
+                ld   (ENEMY_SXH),a
                 ; AND THE VIEW'S TOP IS A 16-BIT NUMBER FOR THE SAME
                 ; REASON ITS LEFT EDGE IS. WORLD_CR reaches V_CR_MAX,
                 ; which is 104 on a 32x64 map, so WORLD_CR * 8 is 832 and
-                ; three ADD A,A in the accumulator throw the carry away -
-                ; the bug above, one field along. HL is holding the
-                ; signed screen COLUMN here and the window test below
-                ; still wants it, so the row goes through DE.
+                ; three ADD A,A in the accumulator throw the carry away.
                 ld   a,(WORLD_CR)
                 ld   d,0
                 add  a,a
@@ -488,100 +568,146 @@ ENEMY_PICK:     xor  a
                 ld   a,(ix + ES_Y)
                 sub  e
                 ld   (ENEMY_SY),a
+                ld   c,a
                 ld   a,(ix + ES_Y + 1)
                 sbc  a,d
                 ld   (ENEMY_SY + 1),a       ; signed: 0 is the only drawable
-                ld   (ENEMY_CUR),ix         ; high byte, and 255 is above
-
+                                            ; high byte, and 255 is above
                 ; ... and can its whole box be put down there?
                 ;
-                ; THE BOUND IS NOT THE SAME COMING IN AS GOING OUT, and
-                ; the reason is that a hard edge here costs FRAMES. A
-                ; drone patrols a byte at a time while the camera steps
-                ; two, so its screen column crosses the threshold and
-                ; comes back: measured walking up to the first drone, it
-                ; read 70, 71, 69 on three consecutive frames and the
-                ; refresh drew it, lifted it off and drew it again. Each
-                ; of those draws is 4,752 T on a frame with 5,300 to
-                ; spare, so two of the three overran - and an overrun
-                ; frame is one where Kara was erased at her raster gate
-                ; and not redrawn until the vblank after next. SHE
-                ; BLINKS, which is how it was reported: "when a drone
-                ; appears the player flickers".
-                ;
-                ; So coming in it has to clear the edge by EN_HYST bytes
-                ; and going out only by the strict fit, which is the
-                ; safety limit the incoming column sets and is not
-                ; relaxed. ENEMY_DREW is which side of that we are on.
-                ld   a,(ENEMY_DREW)
-                or   a
-                ld   a,EN_HYST
-                jr   z,.margin
-                xor  a                      ; already up there: strict
-.margin:        ld   c,a
-                ld   a,h
-                or   a
-                jr   nz,.hidden             ; off the left edge
+                ; ES_Y IS A WORD, so "above" is not the only way to be off
+                ; the picture by more than a byte: on a 64-row map a
+                ; drone 300 lines BELOW the view has a low byte of 44,
+                ; which is a line in the middle of the picture. The two
+                ; high bytes are the whole of that test.
+                ld   b,0                    ; B = the answer, no until yes
+                or   h
+                jr   nz,.out                ; off the left or right by more
+                                            ; than a byte, or above or below
                 ld   a,l
-                sub  2
-                jr   c,.hidden              ; the left edge's incoming column
-                cp   c
-                jr   c,.hidden              ; ... and the margin, coming in
+                cp   EN_XL
+                jr   c,.out                 ; inside the left edge's two
                 ld   a,(ENEMY_W)
-                add  a,2                    ; ... and the right edge's
-                add  a,c
+                add  a,EN_XL
                 neg
-                add  a,SCR_CHARS * 2        ; the last column it fits at
-                cp   l
-                jr   c,.hidden
+                add  a,SCR_CHARS * 2        ; the last column it may start
+                cp   l                      ; at, clear of the right edge's
+                jr   c,.out                 ; two
+                ld   a,(ENEMY_H)
+                add  a,c
+                jr   c,.out                 ; wrapped: it is above the view
+                cp   EN_YB + 1
+                jr   nc,.out                ; ... or into the strip's rows
+                inc  b
+.out:           ld   a,b
+                ld   (ENEMY_VIS),a
+                ret
 
-                ; ... AND VERTICALLY, which did not matter until the city
-                ; had a street under it. ENEMY_SY is unsigned, so a drone
-                ; left up on the roof while she is at the bottom of the
-                ; ladder reads as 236 rather than -20, and drawn there its
-                ; lines run through the off-screen margin and fold back
-                ; over the top of the picture - the same fault KARA_DRAW
-                ; is culled for in CLAUDE.md 8.2.
-                ;
-                ; AND ES_Y IS A WORD NOW, so "above" is no longer the
-                ; only way to be off the picture by more than a byte: on
-                ; a 64-row map a drone 300 lines BELOW the view has a low
-                ; byte of 44, which is a screen line in the middle of the
-                ; picture. The high byte is the whole test and the two
-                ; below are what is left of it.
+; ---------------------------------------------------------------------
+; ENEMY_ZONE - the rounds' keep-out round the one ENEMY_PICK found.
+;
+; THE REFRESH RUNS BEFORE THE ROUNDS COME OFF NOW (ENEMY_SLOT), and a
+; round drawn over the drone's box breaks it either way round: the
+; round's save-under holds the drone's pixels and its erase puts them
+; back after the drone has moved on - a piece of the old drone left on
+; the wall - or the drone saves the round as its background and puts a
+; stray round back a frame later. A round that close to it is a frame
+; from hitting it or a frame out of its gun, so it is not DRAWN: EN_ZX
+; bytes and EN_ZY lines round its box, which is what one frame of its
+; own movement, a scroll step and a row step can take it. Hers still
+; hits it and its own still flies - nothing about either is changed
+; but whether the beam shows it for that frame or two.
+;                                destroys AF,BC
+; ---------------------------------------------------------------------
+EN_ZX           equ 6           ; bytes: its chase, and a scroll step
+EN_ZY           equ 20          ; lines: its climb or its fall, and a row
+
+ENEMY_ZONE:     ld   a,(ENEMY_SXH)
+                ld   b,a
                 ld   a,(ENEMY_SY + 1)
-                or   a
-                jr   nz,.hidden             ; more than a byte above or below
+                or   b
+                ret  nz                     ; not in this picture: no zone
+                ld   a,(ENEMY_SX)
+                cp   SCR_CHARS * 2
+                ret  nc
+                ld   a,(ENEMY_SY)
+                cp   SCR_LINES
+                ret  nc
+                ld   a,(ENEMY_SX)
+                sub  EN_ZX
+                jr   nc,.x0
+                xor  a
+.x0:            ld   (ZONE_X0),a
+                ld   b,a
+                ld   a,(ENEMY_SX)
+                ld   c,a
+                ld   a,(ENEMY_W)
+                add  a,c
+                add  a,EN_ZX                ; one past its last column, and
+                sub  b                      ; the margin
+                ld   (ZONE_XW),a
+                ld   a,(ENEMY_SY)
+                sub  EN_ZY + 1              ; a round is two lines tall
+                jr   nc,.y0
+                xor  a
+.y0:            ld   (ZONE_Y0),a
+                ld   b,a
                 ld   a,(ENEMY_SY)
                 ld   c,a
                 ld   a,(ENEMY_H)
                 add  a,c
-                jr   c,.hidden              ; wrapped: it is above the view
-                cp   SCR_CHAR_ROWS * 8 + 1
-                jr   nc,.hidden             ; ... or past the bottom of it
+                jr   c,.ycap                ; an agent's 64 lines can carry
+                add  a,EN_ZY
+                jr   nc,.yok
+.ycap:          ld   a,255
+.yok:           sub  b
+                ld   (ZONE_YH),a
+                ret
 
-                ld   a,1
-                ld   (ENEMY_VIS),a
-.hidden:        pop  bc
-                ret                         ; the FIRST one near, and only
-                                            ; that one - see the header
-.skip:          ld   bc,ES_STRIDE
-                add  ix,bc
-                pop  bc
-                dec  b
-                jp   nz,.next               ; JP, not JR: the loop body grew
-                ret                         ; past a relative jump's reach
+; ---------------------------------------------------------------------
+; ROUND_HIDDEN - C = a round's screen column, A = its line. Carry set if
+; it is inside ENEMY_ZONE's keep-out and must not be drawn this frame.
+; Called by BUL_DRAW and EBUL_DRAW.  destroys F only
+; ---------------------------------------------------------------------
+ROUND_HIDDEN:   push hl
+                ld   l,a
+                ld   a,(ZONE_X0)
+                ld   h,a
+                ld   a,c
+                sub  h
+                ld   h,a                    ; x - X0, unsigned
+                ld   a,(ZONE_XW)
+                cp   h
+                jr   c,.out
+                jr   z,.out                 ; one past the zone
+                ld   a,(ZONE_Y0)
+                ld   h,a
+                ld   a,l
+                sub  h
+                ld   h,a
+                ld   a,(ZONE_YH)
+                cp   h
+                jr   c,.out
+                jr   z,.out
+                ld   a,l
+                pop  hl
+                scf
+                ret
+.out:           ld   a,l
+                pop  hl
+                or   a
+                ret
 
 ; ---------------------------------------------------------------------
 ; ENEMY_UPDATE - one frame of the one that is on screen, and of every
 ; shot in the air.
 ;
-; Call after ENT_UPDATE, so her box is where the physics left it. IT
-; DOES NOT PICK: the loop calls ENEMY_PICK at the top of the frame,
-; straight after H_COMMIT, because that is the only moment WORLD_X and
-; the CRTC agree - picking down here would give the NEXT frame's draw a
-; screen column computed under the last frame's start address, and the
-; enemy would jitter a character every time the screen scrolled.
+; Call through ENEMY_THINK, in the second sweep: her box is where the
+; first sweep's physics left it, and the screen units its gun works in
+; are the view as latched. IT DOES NOT PICK: the loop calls ENEMY_PICK
+; at the top of the frame, straight after H_COMMIT. Where it is DRAWN
+; is worked out again when it is drawn (ENEMY_PLACE), after this has
+; moved it.
 ;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
 ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
@@ -596,8 +722,17 @@ ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
                 or   a
                 jp   nz,ENEMY_DYING
 
+                ; ---- one that is following her moves elsewhere -----
+                ; ENEMY_MOVE, at the END of the second sweep: the first
+                ; one carries her draw, the column's tail, the strip and
+                ; all of the logic, and on a run with the gun it has
+                ; under a thousand T to give (CLAUDE.md 9). The patrol
+                ; below is cheap and stays.
+                call ENEMY_IS_ENG
+                jr   z,.walked
+
                 ; ---- patrol ----------------------------------------
-                ld   hl,(ENEMY_TYP)
+.patrol:        ld   hl,(ENEMY_TYP)
                 ld   de,EN_T_SPEED
                 add  hl,de
                 ld   c,(hl)                 ; C = speed
@@ -650,9 +785,9 @@ ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
                 ; whoever it is shooting at. They are different things
                 ; and the sprite follows the gun.
                 ; IT HAS TO BE ON THE SCREEN BEFORE IT CAN SHOOT.
-                ; Being LIVE and being DRAWN are a few frames apart now:
-                ; a drone has to clear the drawable edge by EN_HYST and
-                ; then wait for a frame with room for its draw, so it
+                ; Being LIVE and being DRAWN are different things: a
+                ; drone is live within EN_NEAR of the view and drawn
+                ; only once its whole box is inside the window, so it
                 ; could open fire from a screen the player cannot see it
                 ; on. Rounds arriving out of nowhere are not a difficulty
                 ; setting. ENEMY_DREW is the honest test - its pixels are
@@ -684,6 +819,327 @@ ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
 .armed:
                 call ENEMY_ANIMATE
                 jp   EBUL_UPDATE
+
+; ---------------------------------------------------------------------
+; ENEMY_IS_ENG - Z if the one in ENEMY_CUR is the one following her.
+;                                destroys AF,DE,HL
+; ---------------------------------------------------------------------
+ENEMY_IS_ENG:   ld   hl,(ENEMY_ENG)
+                ld   a,h
+                or   l
+                jr   z,.no
+                ld   de,(ENEMY_CUR)
+                or   a
+                sbc  hl,de
+                ret                         ; Z: the same slot
+.no:            or   1                      ; NZ: nobody is following her
+                ret
+
+; ---------------------------------------------------------------------
+; ENEMY_MOVE - the one following her, one frame on. Called at the END
+; of the second sweep, after its refresh, so the place it works out is
+; the one the NEXT frame's logic aims with and the next frame's refresh
+; draws - the two agree, and neither waits on the other.
+;
+; THE VIEW IT CLAMPS AGAINST MOVES ONCE MORE BEFORE THAT DRAW: the next
+; frame's H_COMMIT can step it a character either way, and its
+; SCROLL_VBLANK a row. So the wall is a scroll step and a row inside the
+; window ENEMY_PLACE draws in (EN_CLAMP_X, EN_VTOP, EN_VBOT).
+;                                destroys AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+ENEMY_MOVE:     ld   a,(ENEMY_EARLY)
+                cp   EN_HOLD
+                ret  z                      ; held this frame (ENEMY_SLOT)
+                call ENEMY_IS_ENG
+                ret  nz
+                ld   ix,(ENEMY_ENG)
+                ld   a,(ix + ES_HP)
+                or   a
+                ret  z                      ; dead: ENEMY_DYING has it
+                ld   a,(ix + ES_DIE)
+                or   a
+                ret  nz
+                ; falls into ENEMY_FOLLOW
+
+; ---------------------------------------------------------------------
+; ENEMY_FOLLOW - one frame of the one that is following her. IX = it.
+;
+; ACROSS: it keeps EN_DIST bytes from her, on its own side, drifting
+; EN_SWAY either side of that at its own speed and catching up at
+; EN_CHASE - which is her run, so nothing she does leaves it behind.
+; Where its side has no room - she is at the screen's edge, which only
+; the ends of a map allow - it goes to the other side.
+;
+; DOWN: it climbs or sinks EN_VY lines a frame to her chest, EN_DY below
+; her top, so it is always across the line she fires along and the
+; line its own sight test wants her on.
+;
+; AND THE VIEW IS A WALL. Whatever those two say, it is put back inside
+; EN_XL of both edges and EN_VTOP..EN_VBOT of the top - here, at the
+; logic, before the latch that can still move the view a row, which is
+; what the eight lines of margin are for - so the window ENEMY_PLACE
+; draws in is one it never leaves. That is the whole of "it does not
+; disappear": nothing takes it off the screen but her gun.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+ENEMY_FOLLOW:   ld   hl,(KARA_WX)
+                ld   de,KARA_BOX_W / 2
+                add  hl,de
+                ld   (EN_HERMID),hl         ; her middle, world bytes
+                ld   b,2                    ; its side, and then the other
+.side:          push bc
+                ld   hl,(EN_HERMID)
+                ld   de,EN_DIST
+                ld   a,(ENEMY_SIDE)
+                or   a
+                jr   z,.right
+                ld   de,-EN_DIST
+.right:         add  hl,de                  ; the middle it wants
+                call EN_HALF_W
+                or   a
+                sbc  hl,de                  ; ... as its box's left edge
+                call EN_CLAMP_X             ; ... inside the view
+                ld   (EN_TGT),hl
+                call EN_HALF_W
+                add  hl,de                  ; the middle it can have
+                ld   de,(EN_HERMID)
+                or   a
+                sbc  hl,de                  ; ... less hers: + is her right
+                ld   a,(ENEMY_SIDE)
+                or   a
+                jr   z,.gap
+                ex   de,hl                  ; on her left the gap is -d
+                ld   hl,0
+                or   a
+                sbc  hl,de
+.gap:           ld   de,EN_MIN
+                or   a
+                sbc  hl,de                  ; the gap less the least it may be
+                pop  bc
+                bit  7,h
+                jr   z,.placed              ; room on its side
+                ld   a,(ENEMY_SIDE)
+                xor  1
+                ld   (ENEMY_SIDE),a
+                djnz .side                  ; none: try the other side
+
+.placed:        ld   hl,(EN_TGT)
+                add  hl,hl                  ; the place, in world pixels
+                ld   (EN_TGT),hl
+                call EN_FROM_TGT            ; HL = how far, A = which way
+                ld   c,a
+                ld   a,h
+                or   a
+                jr   nz,.chase
+                ld   a,l
+                cp   EN_SWAY + 1
+                jr   c,.drift
+.chase:         ld   (ix + ES_DIR),c        ; out of its sway: straight there
+                ld   c,EN_CHASE
+                call EN_STEP
+                jr   .across
+.drift:         ld   hl,(ENEMY_TYP)         ; inside it: on at its own speed,
+                ld   de,EN_T_SPEED          ; and where that would take it
+                add  hl,de                  ; out, it holds for a frame and
+                ld   c,(hl)                 ; turns round - a hover at each
+                call EN_STEP                ; end, the patrol's own turn
+                call EN_FROM_TGT
+                ld   a,h
+                or   a
+                jr   nz,.turn
+                ld   a,l
+                cp   EN_SWAY + 1
+                jr   c,.across
+.turn:          ld   a,(ix + ES_DIR)
+                xor  1
+                ld   (ix + ES_DIR),a
+                call EN_STEP                ; ... back where it was
+.across:        ld   l,(ix + ES_X)          ; and the view is a wall: the
+                ld   h,(ix + ES_X + 1)      ; camera can have stepped under
+                srl  h                      ; it since the place was chosen
+                rr   l
+                call EN_CLAMP_X
+                add  hl,hl
+                ld   (ix + ES_X),l
+                ld   (ix + ES_X + 1),h
+                ; ... and a wall it is turned round by, like the end of
+                ; its sway. Without that, a place of its own on the wall -
+                ; she is near the screen's edge on its side - is a drift
+                ; INTO the wall for ever, and measured standing there it
+                ; did not move a byte in 49 frames.
+                or   a
+                jr   z,.level_x             ; it was inside
+                dec  a                      ; 1: put at the left edge, so it
+                ld   (ix + ES_DIR),a        ; goes right (0); 2: at the right
+.level_x:
+
+                ; ---- down: to her chest, EN_VY lines a frame --------
+                ld   hl,(KARA_WY)
+                ld   de,EN_DY
+                add  hl,de                  ; where its top wants to be
+                ld   e,(ix + ES_Y)
+                ld   d,(ix + ES_Y + 1)
+                or   a
+                sbc  hl,de                  ; ... less where it is
+                jr   z,.level
+                jr   c,.rise
+                ld   a,h                    ; below it: sink
+                or   a
+                jr   nz,.smax
+                ld   a,l
+                cp   EN_VY
+                jr   c,.sby
+.smax:          ld   a,EN_VY
+.sby:           add  a,e
+                ld   e,a
+                jr   nc,.vput
+                inc  d
+                jr   .vput
+.rise:          ld   a,h                    ; above it: climb, by the size
+                cpl                         ; of the difference negated
+                ld   h,a
+                ld   a,l
+                cpl
+                ld   l,a
+                inc  hl
+                ld   a,h
+                or   a
+                jr   nz,.rmax
+                ld   a,l
+                cp   EN_VY
+                jr   c,.rby
+.rmax:          ld   a,EN_VY
+.rby:           ld   c,a
+                ld   a,e
+                sub  c
+                ld   e,a
+                jr   nc,.vput
+                dec  d
+.vput:          ld   (ix + ES_Y),e
+                ld   (ix + ES_Y + 1),d
+
+.level:         ; ... and the view is a wall top and bottom too
+                ld   a,(WORLD_CR)
+                ld   l,a
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; the view's top, world lines
+                ld   de,EN_VTOP
+                add  hl,de                  ; HL = the highest it may be
+                ld   e,(ix + ES_Y)
+                ld   d,(ix + ES_Y + 1)
+                ex   de,hl                  ; HL = its top, DE = that
+                or   a
+                sbc  hl,de
+                jr   c,.to_de               ; above it
+                add  hl,de                  ; its top again
+                push hl
+                ld   a,(ENEMY_H)
+                neg
+                add  a,EN_VBOT - EN_VTOP
+                ld   l,a
+                ld   h,0
+                add  hl,de
+                ex   de,hl                  ; DE = the lowest its top may be
+                pop  hl
+                push hl
+                or   a
+                sbc  hl,de
+                pop  hl
+                ret  c                      ; above that: it is in
+                ret  z
+.to_de:         ld   (ix + ES_Y),e
+                ld   (ix + ES_Y + 1),d
+                ret
+
+; EN_HALF_W - DE = half the box's width, in bytes.   destroys AF
+EN_HALF_W:      ld   a,(ENEMY_W)
+                srl  a
+                ld   e,a
+                ld   d,0
+                ret
+
+; EN_FROM_TGT - IX = a slot -> HL = |(EN_TGT) - its x|, in world pixels,
+; and A = the way to EN_TGT: 0 right, 1 left.        destroys DE
+EN_FROM_TGT:    ld   hl,(EN_TGT)
+                ld   e,(ix + ES_X)
+                ld   d,(ix + ES_X + 1)
+                or   a
+                sbc  hl,de                  ; the place less where it is
+                ld   a,0                    ; (LD leaves the carry alone)
+                ret  nc                     ; at it, or to its right
+                ex   de,hl
+                ld   hl,0
+                or   a
+                sbc  hl,de
+                ld   a,1
+                ret
+
+; EN_STEP - IX = a slot: x += C world pixels, the way ES_DIR says.
+;                                destroys AF,B,HL
+EN_STEP:        ld   l,(ix + ES_X)
+                ld   h,(ix + ES_X + 1)
+                ld   b,0
+                ld   a,(ix + ES_DIR)
+                or   a
+                jr   z,.add
+                sbc  hl,bc                  ; OR A above cleared the carry
+                jr   .put
+.add:           add  hl,bc
+.put:           ld   (ix + ES_X),l
+                ld   (ix + ES_X + 1),h
+                ret
+
+; ---------------------------------------------------------------------
+; EN_CLAMP_X - HL = a box's left edge in world bytes -> HL inside the
+; drawable window of the view showing now, a scroll step in from it:
+; EN_XL + EN_XSTEP clear of both edges, for a box (ENEMY_W) wide. A
+; negative HL - a place worked out past the map's own left end - is put
+; at the window's left edge, which is what an unsigned compare would get
+; backwards. A = 0 if it was inside, 1 if it was put at the left edge,
+; 2 at the right.
+;                                destroys AF,DE
+; ---------------------------------------------------------------------
+EN_CLAMP_X:     push hl
+                ld   a,(WORLD_X)
+                ld   h,0
+                add  a,a
+                rl   h
+                ld   l,a
+                ld   de,EN_XL + EN_XSTEP
+                add  hl,de
+                ex   de,hl                  ; DE = the leftmost it may be
+                pop  hl
+                bit  7,h
+                jr   nz,.to_lo              ; negative: the left edge
+                push hl
+                or   a
+                sbc  hl,de
+                pop  hl
+                jr   c,.to_lo               ; left of it
+                push hl
+                ld   a,(ENEMY_W)
+                neg
+                add  a,SCR_CHARS * 2 - (EN_XL + EN_XSTEP) * 2
+                ld   l,a
+                ld   h,0
+                add  hl,de
+                ex   de,hl                  ; DE = the rightmost it may be
+                pop  hl
+                push hl
+                or   a
+                sbc  hl,de
+                pop  hl
+                ld   a,0                    ; (LD leaves the flags alone)
+                ret  c                      ; left of that: it is in
+                ret  z
+                ld   a,2
+                ex   de,hl
+                ret
+.to_lo:         ld   a,1
+                ex   de,hl
+                ret
 
 ; ---------------------------------------------------------------------
 ; ENEMY_SEES - is she in front of it and close enough to shoot?
@@ -1276,228 +1732,46 @@ ENEMY_DYING:    ld   a,(ix + ES_DIE)
 
 ; ---------------------------------------------------------------------
 ; ENEMY_REFRESH - lift the enemy off the screen and put it back down
-; where it is now. ONE CALL, AT THE END OF THE FRAME, AFTER HERS.
+; where it is now. ONCE EVERY GAME FRAME, IN THE SLOT ENEMY_SLOT CHOSE:
+; the top of the second sweep, or its end.
 ;
-; THE ENEMY IS A PERSISTENT SPRITE AND SHE IS NOT, and that is what
-; makes it affordable. Hers is drawn and erased inside one frame,
-; because she moves every frame. The enemy's pixels are LEFT ON THE
-; SCREEN between refreshes:
+; THE ENEMY IS A PERSISTENT SPRITE AND SHE IS NOT. Hers is drawn and
+; erased inside one game frame; the enemy's pixels are LEFT ON THE
+; SCREEN from one refresh to the next, and are lifted off by the
+; refresh that replaces them and by nothing else:
 ;
 ;   * while the picture scrolls they stay right for nothing, because
 ;     the CRTC moves every pixel on the screen and a world-fixed sprite
 ;     is supposed to move exactly that far;
 ;   * Kara's save-under captures them where she walks over it and her
-;     erase puts them back, and the two bullet pools do the same, so
-;     nothing else on the screen disturbs them;
-;   * the incoming column is the one thing that would, and ENEMY_PICK
-;     keeps the whole box a character clear of both edges so it cannot.
+;     erase puts them back, so a refresh that comes after her erase
+;     needs nothing from her;
+;   * the incoming column is the one thing that would disturb them, and
+;     the window keeps the box two characters clear of both edges.
 ;
-; So a frame that cannot afford 17,968 T of enemy simply does not spend
-; it, and nothing flickers - which is the whole difference between this
-; and skipping a draw-and-erase pair.
-;
-; WHY IT IS LAST. It cannot go before her draw: she is 560 T a line
-; against the raster's 256 and the top border is her entire lead, so
-; 18,000 T in front of her tears her from screen line 38 down. It
-; cannot go between her draw and her erase either: she would save the
-; enemy's new pixels and then her erase would paint background over
-; them. After her erase, both problems are gone and the beam is past
-; the lines it writes.
+; AND IT IS REDRAWN ON EVERY GAME FRAME NOW, WHICH IT NEVER WAS. At the
+; end of the sweep, after her erase, there was not room for a 19,000 T
+; refresh on a frame the incoming column was painted in - measured,
+; 82,000 to 84,500 T against 79,872 - so it was put off while the
+; picture moved and taken on one game frame in two when it did not.
+; What that looked like was the play-test's report: standing still, two
+; bytes on one frame in two; walking, frozen for up to 34 bytes of its
+; patrol and then all of them at once. Its first slot is the TOP of the
+; sweep instead, in the border, ahead of the beam and in the 40,000 T
+; the sweep used to spend waiting for interrupt tick 4 (ENEMY_SLOT).
 ;
 ; OUT: (ENEMY_LAST_CNT) lines drawn, 0 if none
 ;      (ENEMY_LAST_BOT) the lowest line it reached
 ;      (ENEMY_DREW)     non-zero while its pixels are on the screen
+;      (ENEMY_ENG)      the one that is following her, from the first
+;                       frame it was drawn
 ;      destroys AF,BC,DE,HL,IX,B',C'
 ; ---------------------------------------------------------------------
-; ---------------------------------------------------------------------
-; ENEMY_ROOM - Z if this frame can afford to DRAW one, NZ if not.
-;
-; AND AT 25 Hz THE ANSWER IS ALWAYS YES, WHICH IS MOST OF WHAT THE
-; SECOND VSYNC BOUGHT. A citydrone's draw is 15,520 T. At 50 Hz a frame
-; with the incoming column in it had between 5,300 and 14,600 left by
-; the time the refresh was reached, so this asked two questions - the
-; interrupt tick (5 on the roomy frames, 6 on the tight ones, with
-; nothing in between) and whether ENT_UPDATE had swept the pickups,
-; worth 2,800 T - and the entry draw waited for a frame that answered
-; well, up to EN_DEFER_MAX of them. A game frame is 159,744 T now
-; against a pessimistic sum of 87,328 (CLAUDE.md 9): there is no tight
-; frame left to tell from a roomy one.
-;
-; WHAT THAT GIVES BACK IS NOT T-STATES, IT IS THE DRONE'S OWN FRAME
-; RATE. It was redrawn on one frame in two at best and not at all while
-; the picture scrolled; now it is redrawn on every game frame it can
-; be, which is what a patrolling sprite should look like.
-;
-; AND THE TICK GATE STAYS, FOR A DIFFERENT REASON THAN IT WAS WRITTEN
-; FOR - the one that cost a whole play-test to learn. A GAME FRAME IS
-; 159,744 T BUT EACH HALF OF IT IS STILL A HARDWARE FRAME WITH 79,872,
-; and this runs in the second half, after H_HEAD and after her erase.
-; Anything that has to finish before the next VSYNC still has the old
-; ceiling. Taken out entirely, the refresh's 17,968 T pushed the end of
-; that half into the VSYNC pulse; WAIT_VSYNC tests the level, so the
-; next frame started late, and every 320 T of late start is a line off
-; the top border - which is her whole lead. Measured on the rendered
-; picture: the line she can be drawn from intact went from 43 to about
-; 148, which is BELOW anything the camera can produce, and
-; tools/test_module4.py reported her torn at thirteen of its twenty
-; sample lines on a sprite that is pixel-perfect in RAM.
-;
-; So the question is no longer "can the game frame afford it" - it can,
-; twice over - but "will it be finished before the beam comes back".
-; The erase is what makes that tight, and the erase's own gate is her Y.
-;                                                destroys AF,HL
-; ---------------------------------------------------------------------
-ENEMY_ROOM:     ld   a,(IRQ_TICKS)
-                ld   hl,FRAME_TICK0
-                sub  (hl)
-                cp   EN_DRAW_TICK + 1
-                jr   nc,.no
-                xor  a                      ; Z: there is room
-                ret
-.no:            or   1
-                ret
-
-ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
-                ; The budget gate below may postpone the sprite's
-                ; ANIMATION and its patrol. Whether it is on the screen
-                ; at all is not negotiable, and getting that wrong
-                ; showed up twice on real hardware:
-                ;
-                ;   * a drone she WALKED past was never drawn, because a
-                ;     walk keeps VIEW_STEP up for as long as it lasts;
-                ;   * one that had been drawn was never lifted off, so
-                ;     the scroll carried its pixels out of the picture
-                ;     and the 1024-word ring brought them back at the
-                ;     opposite edge a character row up - copies of
-                ;     itself, trailing behind it.
-                ;
-                ; So two frames an encounter pay whatever it costs: the
-                ; one it comes into view on and the one it leaves on.
-                ld   a,(ENEMY_DREW)
-                or   a
-                jr   z,.absent
-
-                ; ---- its pixels are up there. Do they still belong? --
-                ; NOT "is the enemy visible" - where its PIXELS are. The
-                ; two drift apart because it keeps patrolling while the
-                ; refresh is postponed, by up to its whole beat, and it
-                ; is the pixels the incoming column is about to recycle.
-                call ENEMY_PIX_SAFE
-                jr   nc,.afford
-                ld   hl,(ENEMY_CUR)
-                ld   a,h
-                or   l
-                jr   z,.afford              ; it died, or left the level's
-                ld   a,(ENEMY_VIS)          ; near zone
-                or   a
-                jr   z,.afford
-                ; A DYING ONE IS FALLING, so its pixels are wrong every
-                ; frame and .optional's "the screen is already right"
-                ; does not hold. It takes the budget gate instead: as
-                ; often as the frame can afford, which is about 25 Hz
-                ; while she walks and every frame while she does not.
-                ld   hl,(ENEMY_CUR)
-                push hl
-                pop  ix
-                ld   a,(ix + ES_DIE)
-                or   a
-                jr   nz,.budget
-                jr   .optional
-
-                ; ---- NOTHING ON THE SCREEN: SHOULD THERE BE? -------
-                ; This is the one path that can add 4,752 T to a frame
-                ; that did not have it a frame ago, and the frame has
-                ; between 5,300 and 14,600 T left when the refresh is
-                ; reached - measured, over a walk past a drone, and which
-                ; of the two it is alternates with the incoming column.
-                ; Landing on the wrong one drops the frame, and a dropped
-                ; frame is Kara erased at her raster gate and not redrawn
-                ; until the vblank after next: SHE BLINKS.
-                ;
-                ; THE TICK IS THE CLOCK AND IT IS EXACT ENOUGH. The
-                ; refresh is reached at tick 5 on the roomy frames and
-                ; tick 6 on the tight ones, with nothing in between, so
-                ; "tick 5 or earlier" is 14,600 T of room for a 4,752 T
-                ; draw and "tick 6" is not. Deferring costs the drone one
-                ; or two frames of NOT being on screen, at the very edge
-                ; of the picture, where the alternative was a hole in the
-                ; middle of it where the heroine should be.
-                ;
-                ; IT IS BOUNDED, because a level whose every frame is
-                ; tight must still show its enemies: after EN_DEFER_MAX
-                ; frames it is drawn wherever the beam is. Only THIS path
-                ; waits - lifting stale pixels off is 1,600 T and cannot,
-                ; because the incoming column is about to recycle them.
-.absent:        ld   hl,(ENEMY_CUR)
-                ld   a,h
-                or   l
-                jr   z,.settle
-                ld   a,(ENEMY_VIS)
-                or   a
-                jr   z,.settle
-                ; AND NOT ON THE FRAME ENT_UPDATE SWEEPS THE PICKUPS
-                ; EITHER, which is the same alternation .optional below
-                ; uses and worth 2,800 T of the 15,520 this draw costs.
-                ; The two conditions together are what make it fit: a
-                ; tick-5 frame with no sweep in it has about 18,000 T
-                ; left where the draw needs 15,520, and the best frame
-                ; WITH the sweep has 15,280 - 240 short, which is a
-                ; dropped frame for the sake of a quarter of a
-                ; scanline.
-.budget:        call ENEMY_ROOM
-                jr   z,.settle              ; room for it: draw it now
-                ld   hl,ENEMY_DEFER
-                inc  (hl)
-                ld   a,(hl)
-                cp   EN_DEFER_MAX
-                ret  c                      ; wait for a frame with room in it
-
-                ; either there is room, or there is nothing to draw, or
-                ; it has waited long enough - and the count starts again
-.settle:        xor  a
-                ld   (ENEMY_DEFER),a
-                ld   hl,(ENEMY_CUR)
-                ld   a,h
-                or   l
-                ret  z
-                ld   a,(ENEMY_VIS)
-                or   a
-                ret  z
-                jr   .afford
-
-                ; ---- the screen is already right, so only the cel and
-                ; the patrol are waiting - and those can wait.
-                ;
-                ; WHILE THE PICTURE IS MOVING IT DOES NOT HAVE TO BE
-                ; REDRAWN, and that is not a compromise, it is the CRTC
-                ; doing the work: a world-fixed sprite has to move left
-                ; when the camera pans right, and every pixel on the
-                ; screen does exactly that when R12/R13 step.
-                ;
-                ; AND NOT ON THE FRAME ENT_UPDATE SWEEPS THE PICKUPS.
-                ; Measured, the frame that pays for both is 80,248 T of
-                ; 79,872 - over by 376 - so they take alternate frames.
-                ; She cannot cross a 4-byte pickup in the byte a frame
-                ; she can travel, and ENT_UPDATE's INTERACT pass still
-                ; runs every frame because a keypress lasts one.
-.optional:      ld   a,(FRAME_COUNT)
-                rra
-                jr   c,.hold                ; odd: the sweep is here
-                ld   hl,VIEW_STEP
-                ld   a,(hl)
-                or   a
-                jr   z,.afford
-                dec  (hl)
-.hold:          ld   a,(ENEMY_LAST_CNT)
-                ret
-
-.afford:        ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
-                ; A persistent sprite is erased by the refresh that
-                ; replaces it and by nothing else, so this is the ONLY
-                ; place its pixels ever come off the screen. Without it
-                ; every refresh left the last image where it was and
-                ; drew another one beside it - the enemy trailing copies
-                ; of itself across the roof.
+ENEMY_REFRESH:  ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
+                ; This is the ONLY place its pixels ever come off the
+                ; screen. Without it every refresh left the last image
+                ; where it was and drew another one beside it - the enemy
+                ; trailing copies of itself across the roof.
                 ld   a,(ENEMY_DREW)
                 or   a
                 jr   z,.gone
@@ -1515,6 +1789,8 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 ret  z
                 push hl
                 pop  ix
+                call ENEMY_PLACE            ; where it is NOW: after its move
+                                            ; and after the vertical latch
                 ld   a,(ix + ES_HP)
                 or   a
                 jr   nz,.living
@@ -1525,18 +1801,52 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 ld   a,(ix + ES_DIE)
                 and  4
                 ret  z
+                jr   .shown
 .living:        ld   a,(ENEMY_VIS)
                 or   a
                 ret  z                      ; near, but its box does not fit
+                ; THE FIRST FRAME IT IS ON THE SCREEN IT STARTS TO FOLLOW
+                ; HER, on the side of her it came in on, and from then on
+                ; it is the one ENEMY_PICK takes until it is dead.
+                ld   hl,(ENEMY_ENG)
+                ld   a,h
+                or   l
+                jr   nz,.shown
+                ld   (ENEMY_ENG),ix
+                ld   l,(ix + ES_X)
+                ld   h,(ix + ES_X + 1)
+                srl  h
+                rr   l
+                call EN_HALF_W
+                add  hl,de                  ; its middle, world bytes
+                ld   de,(KARA_WX)
+                or   a
+                sbc  hl,de
+                ld   de,KARA_BOX_W / 2
+                or   a
+                sbc  hl,de                  ; ... less hers
+                ld   a,h
+                rlca
+                and  1                      ; negative: it is on her left
+                ld   (ENEMY_SIDE),a
+
+.shown:         ld   a,(ENEMY_VIS)
+                or   a
+                ret  z                      ; a dying one that has left it
                 inc  a
                 ld   (ENEMY_DREW),a         ; its pixels are on the screen now
-                ld   a,(ENEMY_W)
-                ld   (ENEMY_DREW_W),a       ; ... this wide, and at THIS world
-                ld   l,(ix + ES_X)          ; byte, which is what
-                ld   h,(ix + ES_X + 1)      ; ENEMY_PIX_SAFE watches - not
-                srl  h                      ; where it has patrolled to since
+                ld   a,(ENEMY_W)            ; ... in this box, which is what
+                ld   (ENEMY_DREW_W),a       ; ENEMY_SLOT tests her against
+                ld   a,(ENEMY_H)            ; next frame
+                ld   (ENEMY_DREW_H),a
+                ld   l,(ix + ES_X)
+                ld   h,(ix + ES_X + 1)
+                srl  h
                 rr   l
                 ld   (ENEMY_DREW_WX),hl
+                ld   l,(ix + ES_Y)
+                ld   h,(ix + ES_Y + 1)
+                ld   (ENEMY_DREW_WY),hl
 
                 ld   hl,(ENEMY_TYP)
                 ld   a,(ix + ES_FACE)
@@ -1568,6 +1878,10 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
 
                 ld   a,(ENEMY_SY)
                 call SPAN_CLIP_V            ; -> HL groups, A top, C lines
+                                            ; (no HUD_CLIP: EN_YB keeps the
+                                            ; whole box above the strip's
+                                            ; rows, which is the stronger
+                                            ; rule - see ENEMY_PLACE)
                 ld   b,a                    ; B = its first drawn line
                 ld   a,c
                 ld   (ENEMY_LAST_CNT),a
@@ -1591,35 +1905,335 @@ ENEMY_REFRESH:  ; ---- WHAT THE SCREEN SHOWS MUST MATCH THE STATE ----
                 jp   BANK_RESTORE           ; script would put back old bytes
 
 ; ---------------------------------------------------------------------
-; ENEMY_PIX_SAFE - are the pixels that ARE on the screen still a
-; character clear of both edges, under the view showing now?
+; ENEMY_SLOT - which slot of the second sweep ENEMY_REFRESH goes in.
+; Call at the TOP of the second sweep, BEFORE SCROLL_VBLANK: every box
+; it compares is in the view the first sweep drew in.
 ;
-; OUT: carry set if they are.        destroys AF,DE,HL
+; THE TOP IS THE BORDER AND IT IS FREE. The sweep waits for interrupt
+; tick 4 - 40,468 T - before the incoming column's head may go down
+; (src/main.asm), and a refresh started straight after the latch is
+; ahead of the beam for any box whose top is EN_EARLY_TOP or lower:
+; the erase is a run of LDIs that outruns the beam, and the draw is
+; about 650 T a line against the beam's 256, which the 60 lines of
+; border above the picture pay for. Each place is then shown for this
+; sweep and the next, exactly as her own is shown for the first and
+; this one.
+;
+; BUT ANYTHING ON THE SCREEN THAT IS LIFTED OFF OR REPAINTED LATER IN
+; THE SWEEP MUST NOT MEET IT, because a save-under taken before the
+; drone moved is replayed after it: her own, over the drone's old box or
+; its new one, and a taken pickup's cell, which is under her. Either
+; puts it in the old slot, the END of the sweep, after both - where a
+; frame that also paints the incoming column can run 2,000 to 4,600 T
+; past the vblank and cost a hardware frame. An engaged one keeps
+; EN_DIST from her give or take its sway, and never comes nearer than
+; EN_MIN, which is exactly where the two boxes stop meeting
+; (ENEMY_FOLLOW) - so for her that is the frames it is crossing to her
+; other side and no others. The rounds cannot meet it at all:
+; ENEMY_ZONE keeps them off it.
+;
+; AND ON A FRAME THE VIEW STEPS A ROW DOWN IT IS NEITHER: IT HOLDS. That
+; frame's strip vacates the whole of row 22 - 35,000 T of HUD_SERVICE,
+; the dearest thing it does (CLAUDE.md 7.8) - and with the refresh's
+; 19,200 in front of it her erase's RASTER_WAIT is reached AFTER the
+; tick it waits for. It cannot tell how far into that tick it is, so it
+; waits the whole of the delay again from where it stands: measured down
+; level 1's fall, her erase put off from 60,784 T to 72,232, the sweep
+; ended at 85,132 of 79,872, and the game frame was three hardware ones.
+; A drone that does not move needs no refresh - it is world-fixed and
+; the latch carries its pixels exactly as far as the world goes - so on
+; those frames it is not redrawn and ENEMY_MOVE does not move it: a
+; game frame of standing still, at most one in three and only while the
+; camera is going down, and nothing owed for the next draw to show at
+; once. Its window keeps EN_VTOP and EN_VBOT of room for exactly one
+; latch between where it was put and where it is drawn (ENEMY_FOLLOW).
+;
+; OUT: (ENEMY_EARLY) 1 for the top of the sweep, 0 for its end, EN_HOLD
+;      for neither
+;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
-ENEMY_PIX_SAFE: ld   hl,(ENEMY_DREW_WX)     ; the world byte they were put at
-                ld   a,(WORLD_X)            ; 16 bits, and for the reason in
-                ld   d,0                    ; ENEMY_PICK: ADD A,A alone loses
-                add  a,a                    ; the carry from character 128 on
-                rl   d
-                ld   e,a
+EN_EARLY_TOP    equ 24          ; lines, in the view before the latch:
+                                ; the refresh is done by about 22,500 T
+                                ; and the beam reaches a drone's last line
+                                ; at 15,376 + 256 * (top + 19) on the
+                                ; emulator's model - the earlier of the
+                                ; two - so its top has to be 9 or lower
+                                ; on the screen, and the latch can still
+                                ; take it up a row
+
+EN_HOLD         equ 2           ; ENEMY_EARLY: not redrawn, not moved
+
+ENEMY_SLOT:     ld   a,(V_PHASE)            ; does SCROLL_VBLANK latch a row
+                cp   V_PARTS                ; step this sweep ...
+                jr   nz,.slot
+                ld   a,(WORLD_CR)
+                ld   b,a
+                ld   a,(V_WCR)
+                cp   b
+                jr   z,.slot
+                jr   c,.slot                ; ... DOWN?
+                ld   a,EN_HOLD
+                ld   (ENEMY_EARLY),a
+                ret
+.slot:          xor  a
+                ld   (ENEMY_EARLY),a        ; the end, unless all of it says
+                                            ; the top
+                ; HER BOX, AS SHE WAS DRAWN, in world units
+                ld   a,KARA_W_BYTES
+                ld   (EN_KW),a
+                ld   a,(KARA_LAST_CNT)
+                ld   (EN_KH),a
                 or   a
-                sbc  hl,de                  ; -> their screen byte column
+                jr   z,.new                 ; she was not drawn: nothing
+                                            ; of hers to meet
+                ld   a,(KARA_X)             ; SIGNED: the clipped lane's
+                ld   l,a
+                rlca
+                sbc  a,a
+                ld   h,a
+                ld   a,(WORLD_X)
+                ld   e,a
+                ld   d,0
+                add  hl,de
+                add  hl,de                  ; + the view's left edge, bytes
+                ld   (EN_KX),hl
+                ld   a,(WORLD_CR)
+                ld   l,a
+                ld   h,0
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl
+                ld   a,(KARA_LAST_TOP)
+                ld   e,a
+                ld   d,0
+                add  hl,de
+                ld   (EN_KY),hl
+.new:           ; THE BOX IT WILL BE DRAWN IN
+                ld   hl,(ENEMY_CUR)
+                ld   a,h
+                or   l
+                jr   z,.old
+                push hl
+                pop  ix
+                ld   a,(WORLD_CR)           ; is it low enough to be drawn
+                ld   e,a                    ; ahead of the beam?
+                ld   d,0
+                ex   de,hl
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl
+                ex   de,hl                  ; DE = the view's top
+                ld   l,(ix + ES_Y)
+                ld   h,(ix + ES_Y + 1)
+                or   a
+                sbc  hl,de                  ; its top, on the screen
                 ld   a,h
                 or   a
-                jr   nz,.unsafe             ; off the left edge entirely
+                jr   nz,.meet               ; off the picture: nothing to race
                 ld   a,l
-                cp   2
-                jr   c,.unsafe              ; inside the left incoming column
+                cp   EN_EARLY_TOP
+                ret  c                      ; too high: the end of the sweep
+.meet:          ld   l,(ix + ES_X)
+                ld   h,(ix + ES_X + 1)
+                srl  h
+                rr   l
+                ld   a,(ENEMY_W)
+                ld   b,a
+                ld   e,(ix + ES_Y)
+                ld   d,(ix + ES_Y + 1)
+                ld   a,(ENEMY_H)
+                ld   c,a
+                call EN_MEETS
+                ret  c
+.old:           ld   a,(ENEMY_DREW)         ; ... and the box it is in now
+                or   a
+                jr   z,.early
+                ld   hl,(ENEMY_DREW_WX)
                 ld   a,(ENEMY_DREW_W)
-                add  a,2
-                neg
-                add  a,SCR_CHARS * 2        ; the last column it fits clear at
-                cp   l
-                jr   c,.unsafe
-                scf
+                ld   b,a
+                ld   de,(ENEMY_DREW_WY)
+                ld   a,(ENEMY_DREW_H)
+                ld   c,a
+                call EN_MEETS
+                ret  c
+.early:         ld   a,1
+                ld   (ENEMY_EARLY),a
                 ret
-.unsafe:        or   a
+
+; EN_MEETS - HL = a box's left in world bytes, B its width, DE its top
+; in world lines, C its height. Carry set if it meets her box as she was
+; drawn (ENEMY_SLOT worked that out) or the cell a taken pickup left
+; behind, if one is due: that is repainted at the end of the sweep, so a
+; drone drawn over it now would save the pickup as its background.
+;
+; THE CELL AND NOT HER BOX GROWN BY A TILE, WHICH IS WHAT IT WAS. She
+; has just touched it, so her box grown a tile either way holds it - and
+; also holds the bytes a drone keeping EN_DIST from her sways through,
+; which put the refresh at the end of the sweep on the frame after every
+; pickup: measured on test_enemies' walk past the roof's key, 91,840 T
+; of a 79,872 T sweep, and one hardware frame with no heroine in it.
+; ENT_SETTLE writes the cell's box beside ENT_RP_DUE (src/entity.asm).
+;                                destroys AF,BC,DE,HL
+EN_MEETS:       push hl
+                push de
+                push bc
+                call EN_MEETS_HER
+                pop  bc
+                pop  de
+                pop  hl
+                ret  c
+                push hl
+                ld   hl,(ENT_RP_DUE)
+                ld   a,h
+                or   l                      ; clears the carry
+                pop  hl
+                ret  z                      ; no cell is due
+                push bc
+                push de
+                ld   de,(ENT_RP_X)
+                ld   c,TILE_W_BYTES
+                call MEETS                  ; across
+                pop  hl                     ; HL = its top
+                pop  bc                     ; C = its height
+                ret  nc
+                ld   b,c
+                ld   de,(ENT_RP_Y)
+                ld   c,TILE_H
+                jp   MEETS                  ; and down
+
+; EN_MEETS_HER - the half of that which is her own box.
+;                                destroys AF,BC,DE,HL
+EN_MEETS_HER:   ld   a,(EN_KH)
+                or   a
+                ret  z                      ; she was not drawn: carry clear
+                push de
+                push bc
+                ld   de,(EN_KX)
+                ld   a,(EN_KW)
+                ld   c,a
+                call MEETS                  ; across
+                pop  bc
+                pop  de
+                ret  nc
+                ex   de,hl                  ; HL = its top
+                ld   de,(EN_KY)
+                ld   b,c                    ; B = its height
+                ld   a,(EN_KH)
+                ld   c,a                    ; C = hers
+                jp   MEETS                  ; and down
+
+; ---------------------------------------------------------------------
+; MEETS - do [HL, HL + B) and [DE, DE + C) share anything? Sixteen-bit
+; starts, byte lengths. Carry set if they do.   destroys AF,HL
+; ---------------------------------------------------------------------
+MEETS:          push de
+                push hl
+                ld   a,e                    ; DE = the second's end
+                add  a,c
+                ld   e,a
+                jr   nc,.b
+                inc  d
+.b:             or   a
+                sbc  hl,de                  ; the first's start less that:
+                pop  hl                     ; it has to be negative
+                pop  de
+                ret  nc                     ; apart, carry clear
+                push de
+                ld   a,l                    ; HL = the first's end
+                add  a,b
+                ld   l,a
+                jr   nc,.a
+                inc  h
+.a:             ex   de,hl                  ; HL = the second's start
+                or   a
+                sbc  hl,de                  ; ... less the first's end:
+                pop  de                     ; negative is a meeting
                 ret
+
+ENEMY_REFRESH_EARLY:
+                ld   a,(ENEMY_EARLY)
+                dec  a
+                ret  nz                     ; the end of the sweep, or held
+                jp   ENEMY_REFRESH
+
+ENEMY_REFRESH_LATE:
+                ld   a,(ENEMY_EARLY)
+                or   a
+                ret  nz
+                jp   ENEMY_REFRESH
+
+; ---------------------------------------------------------------------
+; ENEMY_PICK_NEXT - ENEMY_PICK for the NEXT game frame, in the second
+; sweep of this one (src/main.asm), in the view that frame will be drawn
+; in.
+;
+; IT WAS THE TOP OF THE FIRST SWEEP, AND 1,372 T THERE IS WHAT THAT
+; SWEEP HAS NOT GOT. Running left with a drone behind her - the run's
+; heaviest cel, the strip's step LEFT and its rounds in the air - the
+; first sweep measured 79,780 T of 79,872 with ENEMY_THINK already gone
+; to the second (above): a frame that holds by 92 T is a frame that
+; does not, the day anything moves. It is in the second sweep's wait
+; for its head gate, straight after the follow has moved the drone -
+; and NOT at that sweep's end, which was tried first: on the street her
+; erase ends at 76,400 T and this took the sweep past the vblank.
+;
+; AND THE VIEW IS THE ONE H_COMMIT IS ABOUT TO LATCH, so nothing it
+; leaves is a frame out. The vertical latch is already behind it, at the
+; top of this sweep; a horizontal step that is pending is swapped in
+; around the call, exactly as H_HEAD swaps it in around its paint
+; (src/tilemap.asm). Every number it leaves - the slot, its screen box,
+; the rounds' keep-out - is the one ENEMY_PICK worked out straight after
+; H_COMMIT when it was called there.
+;                                destroys AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+ENEMY_PICK_NEXT:
+                ld   a,(H_PENDING)
+                or   a
+                jp   z,ENEMY_PICK
+                ld   a,(WORLD_X)
+                push af
+                ld   a,(H_WX)
+                ld   (WORLD_X),a
+                call ENEMY_PICK
+                pop  af
+                ld   (WORLD_X),a
+                ret
+
+; ---------------------------------------------------------------------
+; ENEMY_THINK - ENEMY_UPDATE, in the time the second sweep spends
+; waiting for its head gate (src/main.asm).
+;
+; IT WAS THE FIRST SWEEP'S LOGIC AND THAT SWEEP HAD NOTHING TO SPARE FOR
+; IT. A drone that follows her is always near and always firing, so its
+; sight, its gun, its cels and the flight of its rounds are paid on
+; every frame of the level now - and the first sweep is where her
+; heaviest cel, the strip's step LEFT and its own rounds already are.
+; Measured running left with one behind her: 82,092 T of a 79,872 T
+; sweep, six game frames in 150 that took three hardware frames, and
+; none at all with the level's drones off. Here it is about 2,300 T of
+; the 16,000 the sweep would otherwise spend doing nothing.
+;
+; NOTHING IT TOUCHES IS STILL IN USE BY THEN. Its rounds come off the
+; screen by the addresses their draw saved (EBUL_ERASE), so moving them
+; before the erase moves nothing that is lifted off; and its gun spawns
+; a round at ENEMY_SX/ENEMY_SY, which the refresh has just placed in the
+; view as latched - and which, on a frame the refresh is put off to the
+; end of the sweep or held (ENEMY_SLOT), are placed here instead, so
+; that a row step between ENEMY_PICK and this is not a round eight lines
+; from the muzzle.
+;                                destroys AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+ENEMY_THINK:    ld   a,(ENEMY_EARLY)
+                dec  a
+                jp   z,ENEMY_UPDATE         ; placed by the refresh already
+                ld   hl,(ENEMY_CUR)
+                ld   a,h
+                or   l
+                jp   z,ENEMY_UPDATE
+                push hl
+                pop  ix
+                call ENEMY_PLACE
+                jp   ENEMY_UPDATE
 
 ; ---------------------------------------------------------------------
 ; EBUL_DRAW / EBUL_ERASE - one byte wide, two lines tall, exactly like
@@ -1642,7 +2256,11 @@ EBUL_DRAW:      ld   a,(EBUL_LIVE)
                 inc  hl
                 ld   c,(hl)
                 inc  hl
-                ld   a,(hl)
+                ld   a,(ZONE_XW)            ; out of its own gun, and not
+                or   a                      ; yet clear of its box - and as
+                ld   a,(hl)                 ; cheap as BUL_DRAW's when there
+                call nz,ROUND_HIDDEN        ; is no zone
+                jr   c,.hidden
                 push de
                 call SCR_ADDR               ; C = x survives it
                 pop  de
@@ -1666,6 +2284,8 @@ EBUL_DRAW:      ld   a,(EBUL_LIVE)
                 pop  hl
                 pop  bc
                 jr   .step
+.hidden:        pop  hl
+                pop  bc
 .none:          xor  a
                 ld   (de),a
                 inc  de
@@ -1710,6 +2330,7 @@ ENEMY_LIVE:     db 0            ; slots in use
 ENEMY_CUR:      dw 0            ; the one on screen, 0 for none
 ENEMY_TYP:      dw 0            ; ... and its row of ENEMY_TYPES
 ENEMY_SX:       db 0
+ENEMY_SXH:      db 0            ; ... and its high byte: 0 is this view
 ENEMY_SY:       dw 0            ; signed: see ENEMY_PICK
 ENEMY_W:        db 0
 ENEMY_H:        db 0
@@ -1722,6 +2343,21 @@ ENEMY_LAST_BOT: db 0
 ENEMY_DREW:     db 0            ; its pixels are on the screen
 ENEMY_DREW_WX:  dw 0            ; ... at this world byte, this wide
 ENEMY_DREW_W:   db 0
-ENEMY_DEFER:    db 0            ; frames the entry draw has waited for room
+ENEMY_DREW_WY:  dw 0            ; ... at this world line, this tall
+ENEMY_DREW_H:   db 0
+ENEMY_ENG:      dw 0            ; the one following her, 0 for none
+ENEMY_SIDE:     db 0            ; ... and which side of her: 0 right, 1 left
+ENEMY_EARLY:    db 0            ; 1: refreshed at the top of the second
+                                ; sweep, 0: at its end (ENEMY_SLOT)
+ZONE_X0:        db 0            ; where a round may not be drawn: the
+ZONE_XW:        db 0            ; columns X0 .. X0 + XW - 1, 0 wide for
+ZONE_Y0:        db 0            ; none, and the lines Y0 .. Y0 + YH - 1
+ZONE_YH:        db 0            ; (ENEMY_ZONE)
+EN_KX:          dw 0            ; her box as she was drawn, world bytes
+EN_KY:          dw 0            ; ... and world lines,
+EN_KH:          db 0            ; ... this tall, 0 if she was not,
+EN_KW:          db 0            ; ... and this wide
+EN_HERMID:      dw 0            ; ENEMY_FOLLOW's: her middle, and the place
+EN_TGT:         dw 0            ; it is making for
 ENEMIES:        ds ENEMY_MAX * ES_STRIDE
 EBULLETS:       ds EBUL_MAX * EBUL_STRIDE

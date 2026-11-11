@@ -286,9 +286,11 @@ to take off in at a run and none at all at a walk. So **the jump is a
 game frame longer** — `P_JUMP` −15 → −17, 28 lines and eight frames in
 the air, the least that buys a frame, and still under the 32 of two
 rows, so no level can reach anything it could not — and every gap is
-three wide: **7/8, 8/9, 6/7 and 8/9 frames at a run, and a walk makes
-every one of them.** The medkit is in the pit under the one that goes
-up. Not one composite level 1 did not already bake, so the City's tile
+three wide: **7/8, 8/9, 6/7 and 8/9 frames at a run — and 4, 6, ONE and
+6 at a walk, so the jump UP is a run's.** That last number was 3 until
+the suite's own camera was found parked at the far end of the map with
+her off the screen (§8.14). The medkit is in the pit under the one that
+goes up. Not one composite level 1 did not already bake, so the City's tile
 blob, flags and bake record are byte for byte what they were (§8.14).
 
 **AND THE CITY HAS THREE MAPS, AND THE THIRD IS THE OTHER HALF OF IT:
@@ -308,6 +310,43 @@ control. Walking off all three is 80 of her 100 points and survivable,
 with a medkit in the second plaza; the key is on the last roof, which
 has a ladder, because every barricade is one-way (§8.15).
 
+**AND THE CITY IS FOUR MAPS, AND THE LAST ONE LEADS OUT OF IT.** Level
+4 is the two before it end to end — three gaps, one of every shape
+level 2 measured, then a plaza off the tallest roof, down by the ledge
+and up the next building's ladder past a barricade — and its way out is
+the garage plan.md ends the City at. **That garage leads to level 5,
+the forest**: an environment away, so the door reads the forest's art,
+**144 hardware frames**, with her health, her reserve and her coins.
+**So the game plays straight through from level 1 to level 6** — the
+City's four maps and the forest's two, every door a measured
+transition — and `tools/test_flow.py` walks the whole chain with seven
+coins in her pocket before the seventh level, unpainted, sends it back
+to the title. The drive found something that is not the map: **a game
+frame that takes three hardware frames, three times in 340** — at a
+run's first step, at a running take-off and once in a fall — and level
+2's "lock" was one of them all along (§8.16).
+
+**AND A FALL LEFT A COPY OF THE HUD ON THE WALL, WHICH WAS HER
+SAVE-UNDER AND NOT THE STRIP.** A play-test on Caprice32, falling into
+a gap of level 4: the fall outran the camera, her last lines went down
+over the bottom row, and her save-under — which is replayed by
+absolute address — put the strip's pixels back one row up after the
+vertical latch had moved the view. Traced to the byte (§7.8), and the
+level's street drone does the same from its own refresh. **Nothing
+with a save-under is drawn over the strip now** — `HUD_CLIP` for her,
+measured 73 samples of 80 → 0, and for the drone a copy that stays on
+the wall → none, first by the same clip and now because a drone never
+goes below line 176 at all (§8.7). **Chasing it found two more things, and neither
+was the HUD.** Her erase was gated two ticks EARLY for any line from
+185 — `RASTER_WAIT`'s overflow fix said `ld c,3` for tick 5 — so at the
+bottom of the picture she was on the screen in one sweep of two (§9).
+And **the City's take-off windows had been measured with nobody on the
+screen**: the suites poked her to each run-up and the camera, reading a
+modulo-256 difference, parked at the map's far end. Measured with the
+camera following her, a run is exactly `RUN_JUMPS` on every level, and
+**a walk makes the jump UP on one frame** — the table said three
+(§8.14).
+
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
 `collide.asm` and **read by nothing** — one use in the engine and it
@@ -320,6 +359,26 @@ tile pays 24 T a frame for this and the forest pays 792** — against the
 800 the tightest path in the game has, which is the entry to re-measure
 the day a level wants spikes and an enemy at once. `TA_DEADLY` and
 `EK_HAZARD` are still where `TA_HAZARD` was.
+
+**AND A DRONE THAT HAS BEEN ON THE SCREEN STAYS ON IT UNTIL ONE OF THEM
+IS DEAD.** A play-test: the drones *"jump from one place to another,
+disappear and come back"* — and it was three things, one of them the
+claim in §9 that a drone is redrawn every game frame, which over level
+1's walk east was **134 frames of 449**. A drone that has been drawn
+is ENGAGED now: it follows her on its own side, 22 bytes off at her
+chest, closing at her run's two bytes a game frame and never faster,
+inside a window two characters clear of both edges and above the
+strip's rows — and it is redrawn on **every** game frame, at the top of
+the second sweep, in the border, in time that sweep had always spent
+waiting, except a frame the camera steps a row down, where it stands
+still for one. **404 frames of the same 449, and no disappearance on any
+level of the City.** The frame found three things on the way (§8.7):
+a pickup's repaint that was putting it at the end of the sweep, a run
+left with it behind her that was 82,092 T of a 79,872 T sweep — its
+logic and her rounds' flight went into the second sweep's idle wait —
+and **an assembler that drops a minus sign**: RASM assembles
+`ld bc,-TILE_H` before `TILE_H` is defined as `ld bc,16`, silently, and
+the build refuses it now (§10).
 
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
@@ -469,7 +528,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-eight pass**, the editor's own among them. Eighteen checks in
+twenty-nine pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -557,7 +616,8 @@ src/action.asm    her action state machine and the cel timer (8.4)
 src/entity.asm    the entity table, the AABB, the five interaction
                   handlers, and the pickup bake (8.6)
 src/enemy.asm     the level's characters: patrol, sight, fire, damage,
-                  and the persistent sprite that pays for them (8.7)
+                  the persistent sprite that pays for them, and the
+                  drone that follows her once it has been seen (8.7)
 disc/disc.bas     ASCII BASIC loader - straight into the game, and what
                   every suite runs
 build/kara.bas    ... and the PLAYER's one, generated: the label screen
@@ -605,10 +665,11 @@ tools/make_fade.py         one step toward black for every hardware
                            colour, out of the cube the palette is (6.6)
 tools/make_loader.py       the label screen's palette note -> kara.bas,
                            the disc's front door (7.9)
-tools/make_city_map.py     the City's maps - levels 1, 2 AND 3, 128x16,
-                           over the DRAWN tiles - and the build-time bake
-                           of their overlays, which they share and levels
-                           2 and 3 add nothing to (8.14, 8.15)
+tools/make_city_map.py     the City's maps - ALL FOUR, 128x16, over the
+                           DRAWN tiles, out of one build_city() and a
+                           layout each - and the build-time bake of their
+                           overlays, which they share and levels 2-4 add
+                           nothing to (8.14 - 8.16)
 tools/make_level.py        that map + the entity table -> level_1.lvl,
                            the reference implementation of editor.md 9.2
 tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
@@ -626,6 +687,9 @@ tools/tilebake.py          the overlay bake, once: the City's own baker,
                            lifted so the cave could use it (7.3)
 tools/blender_title.py     the title scene and its CPC render settings
 tools/bench.py             T-states by calling a routine from a DI stub
+tools/check_unary_minus.py  a unary minus on a forward equ, which RASM
+                           assembles without the minus - refused in
+                           the build, by name (10)
 tools/test_climb.py        the ladder, the street and the vertical camera
 tools/test_intro.py        the title screen, its palette and the press
 tools/test_hud.py          the energy bar, and that it STAYS put
@@ -656,6 +720,13 @@ tools/test_city3.py        level 3 on the machine: over every barricade
                            by its ladder and down every roof by the
                            ledge, walked off instead for what that costs,
                            no jump across a plaza, and the way out (8.15)
+tools/test_city4.py        level 4 on the machine: the City's last - its
+                           three jumps, its plaza and its ledge, the
+                           medkit under the jump UP, the way out, which
+                           is the way into the forest (8.16), a fall
+                           that leaves nothing of the HUD behind (7.8),
+                           the street drone following her down, and the
+                           drive under fire, which shoots back (8.7)
 tools/test_forest.py       levels 5 and 6 on the machine: out of the
                            City into the forest, the bands as the
                            engine reads them, she walks each end to
@@ -674,7 +745,7 @@ tools/test_cave.py         levels 9 to 12 on the machine: the first
                            a hole costs her and what a missed step and
                            a broken ladder do not; and her action cels
                            per environment (8.13)
-tools/test_*.py            acceptance suites, twenty-eight of them
+tools/test_*.py            acceptance suites, twenty-nine of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -777,6 +848,11 @@ the engine**:
 3. Select RAM config `&C0` so the window is in a known state.
 4. `LDIR` the core engine image down to `&0040` (source and destination do not
    overlap) and `JP` into it. There is no way back to BASIC after this.
+   **A second `LDIR` first puts the HIGH image at `&AA00`**: data the
+   core has no room for — the title's two prompt strips, today — stored
+   in the file after the core and assembled for base RAM between
+   `TILE_ATTR` and `LEVEL_IMAGE`, which `main.asm` asserts (§8.7 has why
+   the core ran out).
 5. The core rewrites `&0038` with `JP IRQ_HANDLER` before the first `EI`, since
    the firmware's handler went out with the lower ROM.
 
@@ -829,7 +905,8 @@ mid-scanline skews the bands.
 &0040-&3FFF  Core engine, scrolling engine, sound driver      (never banked out)
 &4000-&7FFF  Level logic, collision data, entity management   (BANKED WINDOW)
 &8000-&BFFF  Sprite buffers, background restore buffers, temp (never banked out)
-             ... &A000 the map, &A800 the entity table, &B000 the
+             ... &A000 the map, &A800 the entity table, &A900 the
+             tile flags, &AA00 the HIGH image (4), &B000 the
              pristine LEVEL_IMAGE the bootstrap lands there (10)
 &C000-&FFFF  Primary video RAM
 ```
@@ -2375,6 +2452,76 @@ catches up with her on the street", "the street is on screen with her"
 and "the view had to scroll the whole way to follow her" all pass now,
 and the one left is the 25 Hz coyote budget in the test itself.
 
+#### AND A FALL STILL LEFT A COPY OF IT ON THE WALL, WHICH WAS HER SAVE-UNDER AND NOT THE STRIP
+
+**The next play-test, on Caprice32, after the latch had moved**:
+*"when I fall into a gap between buildings I leave a copy of the hud
+behind"*. Not a ghost for one sweep this time: measured at the half=0
+sync, walking off level 4's first roof into its gap, **three cells of
+row 22 were wrong on the frame after she landed and stayed wrong**,
+climbing the picture a row at a time with the wall they were on. **All
+28 wrong bytes were the strip's own bytes at the same absolute address
+one frame earlier.** A watch on those addresses, four microseconds at a
+time, named every writer in order:
+
+| sweep | who writes those words | |
+|---|---|---|
+| A | `SPAN_DRAW`, her last lines | the fall has outrun the camera, so her box reaches line 191 — **into row 23, over the strip**, and her save-under takes the strip's pixels |
+| B | `SCROLL_VBLANK` | the view steps down a row: those words are row 22 now |
+| B | `HUD_VACATE`'s `DRAW_ROW` | row 22 put back from the tilemap — **correct** |
+| B | `HUD_RUN12`, `HUD_CELL_BLIT` | the strip on the new row 23 — **correct** |
+| B | **`SPAN_ERASE`** | her save-under replayed by ABSOLUTE address: **the old strip, back on row 22, after the vacate**, where nothing will repaint it |
+
+**The strip is screen-fixed and her save-under is world-fixed**, and the
+two can only share words while the view stands still. The erase
+replaying absolute addresses is exactly what makes the latch safe to
+move (above) — for every pixel of the picture except the strip's.
+"She never overlaps it" was true of the camera's band and false of a
+fall, which outruns the band by design (§8.8).
+
+**SO NOTHING WITH A SAVE-UNDER IS DRAWN THERE.** `HUD_CLIP`, straight
+after `SPAN_CLIP_V`, stops a sprite at line 184 wherever its columns
+meet the strip's — the rest of row 23 is playfield and it is drawn into
+it as before; a box straddling column 20 is cut whole, because the
+blitter drops LINES. **She and the drone both called it**, because the
+drone is the same sprite one persistence along: its erase is its own
+next refresh, in the sweep the latch is in, and level 4's street drone
+goes down to **line 190** while she is on the tallest roof — measured
+over the whole drive under fire, at bytes 57-65 there and at byte 35,
+over the strip, when its patrol and her standing at the lip agree. Two
+copies of the rule is how one sprite ends up clipped and the other not,
+which is `SPAN_CLIP_V`'s own argument. It is **96 T** on the strip's
+columns, which is every frame of the City, and 40 right of them
+(benched from a DI stub), plus the call and the caller's four loads,
+against §9's 800 on the tightest path.
+
+| | samples with a wrong cell, `HUD_CLIP` = `RET` | as shipped |
+|---|---:|---:|
+| level 4, walked off the first roof (row 7) into its gap, 80 frames | **73**, row 22 columns 15-17 first | **0** |
+| ... off the third (row 6) | **73**, row 22 columns 16-17 first | **0** |
+| the street drone over the strip, she hangs off the tallest roof and drops, 70 frames | **57**, and two cells that stay on the wall to the end | **7**, and **none** that stay |
+
+The drone's row is judged outside its own box, and that box moves
+under the pan the drop starts, so a persistent sprite's own pixels read
+as a wrong cell for a frame or two: those seven samples are frames 4-9
+and 15, **the same cells on both builds**, and what the control adds is
+a pair of cells that climbs the picture with the wall and is still
+there at frame 51. `tools/test_city4.py` drives both with their
+controls — the drone's over the last twenty of forty frames — and `tools/test_kara.py`'s v-model learned
+the rule: 34 of its 296 placements run into the strip's row and stop at
+its top line, 0 bytes wrong.
+
+**THE DRONE DOES NOT CALL IT ANY MORE, AND NOT BECAUSE THE RULE
+CHANGED.** A drone that has been on the screen follows her now and is
+held inside a window whose box ends by `EN_YB` = line 176 (§8.7) —
+above row 22, where the strip's vacate writes as well as row 23 — so
+there is nothing of it for the clip to cut. `HUD_CLIP` is hers, and the
+rule above is still the rule for anything else with a save-under.
+`tools/test_city4.py`'s street-drone check is that drone following her
+off the tallest roof now: drawn on every frame, its box ending above
+the strip's rows, nothing of it left on the wall, and `ENEMY_MOVE` =
+`RET` as the control.
+
 #### AND THE WHOLE OF THE VERTICAL COST IS THE ERASE, MEASURED
 
 A downward row step is 23,856 T and that is about 10,000 more than the
@@ -2504,9 +2651,10 @@ within 90 frames of walking.
 Three more things about it are load-bearing:
 
 * **It is drawn LAST**, with `ENT_REPAINT_DUE` and `ENEMY_REFRESH`,
-  because it is BACKGROUND. She never overlaps it — the camera keeps her
-  middle between 64 and 112 (§8.8), so her box ends at line 144 at the
-  very lowest and the strip starts at 184 — but `ENT_REPAINT_DUE` can
+  because it is BACKGROUND. She never overlaps it — **by construction
+  now, not by the camera**: the camera keeps her box above line 144, a
+  fall outruns it, and `HUD_CLIP` is what stops her at the
+  strip's line 184 (the copy a fall left on the wall, above) — but `ENT_REPAINT_DUE` can
   paint over it, and `entity.asm` forces it to be written again on the
   next frame so the damage is never displayed. **Forcing it is
   disowning the LAYOUT, not the health**: `HUD_HP = &FF` on its own
@@ -2603,11 +2751,11 @@ image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the nine maps that exist | **277** |
-| **spare** | **20** |
-| ... staying inside a standard 40-track disc | **2** |
+| the art, the title and the ten maps that exist | **278** |
+| **spare** | **19** |
+| ... staying inside a standard 40-track disc | **1** |
 
-Twenty-four maps is fifteen more of those, so four levels an
+Twenty-four maps is fourteen more of those, so four levels an
 environment fits with five to spare **and needs the extended pair of
 tracks**,
 which is what the image already carries and what many drives will not
@@ -2742,8 +2890,8 @@ is somewhere to go now, and the line was not the interesting part —
 So **several levels share an environment's art**, and a transition
 between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
 is **4**, which is six environments of four levels: 24 maps, 24
-sectors — nine of them on the disc now, and 20 spare for the other
-fifteen (§7.9).
+sectors — ten of them on the disc now, and 19 spare for the other
+fourteen (§7.9).
 
 **`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
 
@@ -3105,12 +3253,18 @@ as the control — 21 of the 33 then stray into the wrong character row.
 **WHAT IS LEFT IS THE OTHER AXIS, and it is small and bounded rather
 than absent.** A sprite partly off the BOTTOM is clipped by
 `SPAN_CLIP_V`, but the deepest samples still leave a residue: measured
-in `tools/test_module4.py`, **18 bytes of playfield after her erase**
-at the worst clipped sample, and she is placed up to one character row
-high (offsets −8, −1, 0). Only that suite's vertical driver reaches it
-— it pokes `V_REQUEST` on every frame with no player behind it, and the
-camera never does (§8.8) — and the suite bounds both numbers rather
-than excluding them, so it cannot quietly get worse.
+in `tools/test_module4.py`, **39 bytes of playfield after her erase**
+at the worst clipped sample. Only that suite's vertical driver reaches
+it — it pokes `V_REQUEST` on every frame with no player behind it, and
+the camera never does (§8.8) — and the suite bounds it rather than
+excluding it, so it cannot quietly get worse. **She was also "placed up
+to one character row high" (offsets −8, −1, 0), and that was not a
+residue at all**: it was her erase running two ticks early whenever
+her first line was 152 or lower, which put her on the screen in one
+sweep of two and left the suite measuring whichever sweep it caught
+(§9's fourth wiring bug, put right). With the gate fixed the offsets
+are **−1, 0 going down and 0 going up**: the one line `first_opaque`
+already allows for.
 
 ### 8.3 The level format, and the editor that writes it
 
@@ -3831,7 +3985,11 @@ gave 2,200 T back, the same fault measured a third as large and the
 threshold failed. **What the mark does is take work off the frame, so
 `tools/test_module5.py` times the work** — the two `BUL_TOP` depths
 benched from a DI stub — and keeps the in-play comparison only as
-"still fewer loops and less ground".
+"still fewer loops and less ground". **And then not even that**: two of
+the four walks, `UPDATE_BULLETS` and `ENEMY_SHOT_CHECK`, went into the
+second sweep's idle wait with the drone's own logic (§8.7), so the dead
+slots cost no frame in play at all now, and what the suite says in play
+is only that they cannot make the loop faster.
 
 **THE TEST THAT MISSED THIS HELD THE TRIGGER.** The gun is
 draw-hold-RELEASE (§8.4), so `JOY_FIRE` held down for 200 frames is
@@ -4170,7 +4328,9 @@ froze a drone at the edge of the picture: it patrolled until its box no
 longer fitted, was culled, and — because the same test decided whether
 to *update* it — stopped moving, so it could never walk back in. It is
 live within a screen either side of the view and drawable only when its
-whole box fits with a character to spare at both ends.
+whole box fits with a character to spare at both ends — **two
+characters now, `EN_XL`, and only above the strip's rows**, and once it
+has been drawn it never leaves that window (the engaged drone, below).
 
 **IT TAKES THE FIRST ONE NEAR, DRAWABLE OR NOT, and that is a LEVEL
 constraint.** The near zone is `EN_NEAR` = 64 bytes either side of an
@@ -4207,7 +4367,9 @@ nothing. Measured: the second drone was on screen for 8 frames instead
 of 47, and the fault began on the exact frame `WORLD_X` reached 128.
 
 `ENEMY_PIX_SAFE` had the same line and the same bug. Both now double in
-16 bits (`ADD A,A` then `RL H`, 8 T).
+16 bits (`ADD A,A` then `RL H`, 8 T) — and `ENEMY_PIX_SAFE` has since
+gone with the drawable window it served: `ENEMY_COLUMN` is the one
+place the doubling is written now.
 
 **`PLAYER_SCREEN_X` does the same doubling and is CORRECT**, which is
 why this was not obvious by inspection: it computes
@@ -4289,6 +4451,8 @@ stepped. Measured over twelve consecutive frames with a drone patrolling
 on the spot, the drawn columns were **66..73 on every one of them** while
 the record said 65 or 67 by turns. It is one byte inside `EN_HYST`'s
 four and nothing has ever shown it; it is a different axis's tidy-up.
+**Tidied up**: the refresh places the box itself now, out of the slot
+as it stands at the draw (the engaged drone, below).
 
 #### And the table has a third row now, and it is not the city's
 
@@ -4380,6 +4544,12 @@ two doubled frames three frames apart. `tools/test_enemies.py` reports
 **200 loop iterations in 200 hardware frames on all five input paths**;
 two of them were 199 and are the transients §9 used to name.
 
+**`EN_HYST`, `EN_DRAW_TICK` and `EN_DEFER_MAX` are gone, with
+`ENEMY_ROOM`**, and what replaced them is the opposite answer to the
+same two questions: a drone that has been drawn never comes near the
+edge again, and it is drawn at the top of the second sweep, in time the
+frame had always spent waiting (the engaged drone, below).
+
 #### A drone that is killed falls out of the sky, flashing
 
 It used to vanish on the frame the last round landed, which reads as a
@@ -4401,10 +4571,11 @@ counter in the slot's spare byte and `ENEMY_WOUND` sets it to
 * at zero the slot goes quiet and the next refresh lifts it off.
 
 Measured from the kill: it falls from world y 98 to 229 over 40 frames,
-drawn four frames on and four off, and is gone. The draws go through
-`ENEMY_ROOM` (below) like the entry draw does, so the death animates at
-about 25 Hz while she walks and every frame while she does not, and
-never on a frame that cannot pay for it.
+drawn four frames on and four off, and is gone. The draws went through
+`ENEMY_ROOM` (below) like the entry draw did, so the death animated at
+about 25 Hz while she walked and every frame while she did not; it is
+every game frame now, like every other draw of it (the engaged drone,
+below).
 
 #### What an enemy costs, and how it is paid for
 
@@ -4436,7 +4607,11 @@ pixels are *left on the screen* between refreshes:
 
 A frame that cannot afford 17,968 T of enemy therefore does not spend
 it, and **nothing flickers** — which is the whole difference between
-this and skipping a draw-and-erase pair. Two frames do not pay:
+this and skipping a draw-and-erase pair. Two frames did not pay —
+**and neither row is true any more**: a play-test saw what "it stays
+put and stays correct" looks like while the patrol goes on, which is a
+drone that jumps, and it is redrawn on every game frame now, at the top
+of the second sweep (the engaged drone, below):
 
 | | |
 |---|---|
@@ -4457,8 +4632,10 @@ tables and the play-test that asked for them.
 over the roof's key, with the gate slowed to one frame in 64 as the
 control.
 
-**The refresh is the LAST thing in the frame**, after every sprite has
-been erased. It cannot go before her draw: she is 560 T a line against
+**The refresh was the LAST thing in the frame**, after every sprite had
+been erased — and it still is on the frames `ENEMY_SLOT` says it must
+be; on every other it is at the top of the second sweep, in the border,
+where nothing it could meet is lifted off after it (below). It cannot go before her draw: she is 560 T a line against
 the raster's 256 and the top border is her entire lead, so 18,000 T in
 front of her tears her from screen line 38 down. It cannot go between
 her draw and her erase either — she would save the enemy's new pixels
@@ -4469,9 +4646,10 @@ the logic phase it put the new tiles down and her erase put the pickup
 straight back over the twelve bytes she overlapped.
 
 **AND IT HAS TO BE ON THE SCREEN BEFORE IT CAN SHOOT.** Live and drawn
-are a few frames apart now — it has to clear the drawable edge by
+were a few frames apart — it had to clear the drawable edge by
 `EN_HYST` and then wait for a frame with room for its draw — so it
-could open fire from a screen the player cannot see it on. Rounds
+could open fire from a screen the player cannot see it on. (They are
+one window apart now: it is drawn on its first frame inside `EN_XL`.) Rounds
 arriving out of nowhere are not a difficulty setting: `ENEMY_DREW` is
 the honest test, and the sight test is what it costs.
 `tools/test_enemies.py` holds its pixels off the screen for 260 frames
@@ -4491,6 +4669,198 @@ level does not put it back on its feet.
 `build/levels/spawns.inc`; the drone sheet has none and its shot leaves
 the nose of its box. A left-facing sprite mirrors the x to
 `frame_width - 1 - x`, one subtraction against storing the table twice.
+
+#### AND FROM THE MOMENT IT IS ON THE SCREEN IT IS HER DRONE: IT FOLLOWS HER, AND IT IS ON THE SCREEN ON EVERY GAME FRAME
+
+The next play-test was about the drones themselves: *"they appear but
+jump from one place to another, disappear and come back. From the
+moment they appear they should move fast but not abruptly, and not
+leave the screen until you kill them or they kill you."* Three things
+were doing it, and §9's bullet that the drone "is redrawn every game
+frame" at 25 Hz was true of none of them:
+
+| | what it was | level 1 walked east, 449 game frames |
+|---|---|---|
+| a redraw it could not afford | the refresh was the last thing in the frame, after her erase, where a frame that also paints the incoming column ran to 82,000-84,500 T of 79,872 — so `VIEW_STEP` held it off whenever the picture moved and `ENEMY_ROOM` took it on one frame in two at best. Its patrol went on while its pixels stood still, and the next draw showed all of it at once: **the jump** | drawn on **134** |
+| a hard edge | culled the frame its box left the drawable window, drawn again when it came back: **the disappearing** | **2** disappearances while alive — level 2's drive 2, level 4's 1 |
+| a beat | it patrolled a place in the world, and the camera walked her away from it | |
+
+**SO A DRONE THAT HAS BEEN DRAWN IS ENGAGED, AND THAT IS A STATE AND
+NOT A DISTANCE.** `ENEMY_ENG` is its slot. `ENEMY_PICK` takes it first
+for as long as it is alive or still falling and scans for the next only
+once it is down, so it is the only enemy there is until she kills it.
+It does not patrol: `ENEMY_FOLLOW`, in the second sweep's wait for
+its head gate, keeps it on its own side of her —
+
+| | | |
+|---|---:|---|
+| `EN_DIST` | 22 bytes | her middle to its middle: twelve bytes of air between the sprites |
+| `EN_SWAY` | 8 pixels | either side of that, so it is never still on the screen |
+| `EN_CHASE` | 2 bytes a game frame | closing in, which is her run: it keeps up, and it never steps further than that |
+| `EN_MIN` | 10 bytes | (12 + 8) / 2, where her box and its own stop meeting: a place on its side that near her is no place, and it changes sides |
+| `EN_DY` / `EN_VY` | 12 lines / 4 a frame | below her top, which is across her muzzle's line, and how fast it gets there |
+
+— **inside a window that is the incoming column's and the strip's.**
+`EN_XL` = 4 bytes, TWO characters clear of both edges and not one: on
+a run the head of the incoming column goes into the outer column on one
+frame and the one inside it on the next, and a persistent sprite there
+gets stale tiles back. Its box ends by `EN_YB` = line 176, above row
+22, so it is never under the strip's vacate and never has to be cut by
+`HUD_CLIP` (§7.8). It is clamped at `EN_XL + EN_XSTEP`, because the
+view can scroll a character between its move and its draw, and one
+that reaches the clamp turns round there instead of standing on it.
+
+**AND IT IS REDRAWN AT THE TOP OF THE SECOND SWEEP, IN THE BORDER.**
+That sweep waits 40,468 T for its head gate (§9). The refresh — erase
+and draw, about 19,200 T — goes between the vertical latch and the
+strip: from ~1,800 T to ~21,000 T after the `WAIT_VSYNC` exit, ahead of
+the beam for any box whose top is `EN_EARLY_TOP` = 24 lines down or
+lower. `ENEMY_SLOT` decides first, before the latch and in the view she
+was drawn in, whether anything lifted off later in that sweep could
+meet it — her box as she was drawn, against the drone's old box or its
+new one, and the cell a taken pickup leaves — and if so it goes in the
+old place at the end (`ENEMY_REFRESH_LATE`). One that keeps `EN_MIN`
+from her only meets her on the frames it changes sides. And on a frame
+the view steps a row DOWN it is neither: it holds where it is, for the
+reason item 5 below gives.
+
+**HER ROUNDS AND ITS OWN CANNOT MEET IT AT ALL.** A round drawn over
+its box breaks it either way round: the round's save-under holds the
+drone and puts a piece of it back after it has moved, or the drone
+saves the round and puts a stray round back a frame later. So
+`ENEMY_ZONE` is a keep-out of `EN_ZX` = 6 bytes and `EN_ZY` = 20 lines
+round its box — a frame of its own movement, a scroll step and a row
+step — and neither pool DRAWS a round inside it (`ROUND_HIDDEN`). It
+still flies and still hits; only the beam does not show it for the
+frame or two it is that close.
+
+**AND THE PLACE IT IS DRAWN IS WORKED OUT WHEN IT IS DRAWN.**
+`ENEMY_PLACE` runs for the logic, and again inside `ENEMY_REFRESH`,
+after the follow has moved it and after the vertical latch has moved
+the view — both of which used to land between the number and the
+pixels: the 16-bit section's "66..73 against 65 or 67", and eight lines
+on a frame the view stepped a row.
+
+Measured with the same drives on both builds, the City's levels from
+the joystick with the drones on:
+
+| | before | **now** |
+|---|---|---|
+| level 1 walked east: game frames it is drawn on | 134 of 449 | **404** |
+| ... disappearances while it is alive | 2 | **0** |
+| level 2 across the rooftops | 90 of 324, 2 | **193**, **0** |
+| level 4, the City's last | 14 of 189, 1 | **61**, **0** |
+| game frames of three hardware frames, the three drives | 1, 1, **at least 4** and one of FIVE | **1, 1, 1** — level 1's at the fall's first row step and level 2's at its first running take-off, both in the baseline (§8.16) |
+| how far its pixels stood from where it really was | up to **34 bytes** — a held patrol | **2** — one frame of its own move, which comes after its draw |
+| the largest step between two draws | 5 bytes, and 34 at the next draw after a hold | **2 bytes** — `EN_CHASE`, and only while she runs |
+
+`tools/test_enemies.py` drives it on level 1: walk away from it, back
+past it and stand, 360 game frames, and it is drawn on **every one**,
+inside its window, stepping −2..2 bytes, 16..27 bytes from her middle
+(19 typically) at exactly `EN_DY` — and standing, it holds only where
+it turns round. The control is `ENEMY_MOVE` = `RET`: the same walk
+leaves it behind on **247 of the 360**, which is what says the
+following keeps it on the screen and not the window.
+`tools/test_city4.py` has the street drone follow her off the tallest
+roof by the ledge, on the screen and above the strip's rows on every
+frame and nothing of it left on the wall, with the same control.
+
+#### AND THE FRAME FOUND FIVE THINGS, AND THE SECOND WAS THE ASSEMBLER
+
+A drone that follows her is always near and always firing, so what it
+costs is paid on every frame of a level now and not for the second or
+two it used to be in view.
+
+1. **The pickup's cell.** The first version moved the refresh to the
+   end of the sweep whenever a pickup's repaint was due, by growing her
+   box a tile either way — and that box also holds the bytes a drone
+   keeping `EN_DIST` from her sways through. The frame after the roof's
+   key: **91,840 T of a 79,872 T sweep**, a hardware frame with no
+   heroine in it, and the walking count 99 of 200. `ENT_SETTLE` writes
+   the cell's own box beside `ENT_RP_DUE` now (`ENT_RP_X`, `ENT_RP_Y`)
+   and `EN_MEETS` tests that: the walk is 100 again.
+2. **And writing that box found RASM dropping a sign.** `ld bc,-TILE_H`,
+   with `TILE_H` an `equ` in a later include, assembled as `ld bc,16`:
+   the key at byte 96, line 80 came out at byte **0**, line **16**. §10
+   has the rule, and `tools/check_unary_minus.py` refuses it in the
+   build. **It had already happened once and nobody could see it**: the
+   grown box of item 1 was written `-TILE_W_BYTES` and `-TILE_H`, so it
+   grew right and down instead of either way.
+3. **Running left with it behind her.** The run's heaviest cel, the
+   strip's step LEFT — 10,660 T, the dearer of its two across — and its rounds in the
+   air: the first sweep measured **82,092 T**, and six game frames in
+   150 took three hardware frames, none with the level's drones off.
+   Its sight, its gun, its cels and its rounds' flight (`ENEMY_THINK`),
+   and her rounds' flight and whether one landed, went into the second
+   sweep's wait for its head gate, where they cost nothing; and
+   `ENEMY_PICK` went into the second sweep for the next frame
+   (`ENEMY_PICK_NEXT`), in the view `H_COMMIT` is about to latch — the
+   pending step swapped in around the call exactly as `H_HEAD` swaps it
+   in around its paint, so every number it leaves is the one it worked
+   out at the top of the frame. The same frame is **78,012 T** and the
+   same run has no long frame at all:
+
+| run left past it, 510 game frames | game frames that took three hardware frames |
+|---|---:|
+| as first written | **6** |
+| the drones off | 0 |
+| **now** | **0** |
+
+4. **And the street, where the next frame's pick was put first.** It
+   went to the END of the second sweep to begin with — twelve thousand
+   T to spare there, measured on the run — and down on level 1's street
+   that is wrong: her erase's gate is HER first line, she is low in the
+   picture, and the erase ends at **76,400 T**; the follow and the pick
+   after it took the sweep to **81,432**, and the walk east had **nine
+   game frames of four hardware frames** with nothing else wrong. Both
+   went into the wait for the head gate with the rest: the same sweep is
+   **76,996 T**, and the follow reads nothing the end of the sweep
+   writes — her position in the world and the view as latched, which is
+   the same view from the top of that sweep to the bottom.
+5. **And the fall, where the refresh itself was the thing too many.**
+   A frame on which the view steps a row DOWN vacates the whole of row
+   22 — 35,000 T of `HUD_SERVICE`, the strip's dearest step — and with
+   the refresh's 19,200 in front of it, her erase's `RASTER_WAIT` is
+   reached after the tick it is waiting for. It has no clock finer than
+   a tick, so it cannot tell how far into that tick it is and waits the
+   whole of its delay again from where it stands: down level 1's fall
+   her erase went from **60,784 T to 72,232**, the sweep ended at
+   **85,132**, and a game frame was three hardware ones that the
+   baseline did not have. **So on those frames the drone HOLDS** —
+   `ENEMY_SLOT` returns `EN_HOLD`, nothing redraws it and `ENEMY_MOVE`
+   does not move it. It needs no refresh, because a drone that does not
+   move is world-fixed and the latch carries its pixels exactly as far
+   as the world goes; its window was already sized for one latch between
+   where it is put and where it is drawn (`EN_VTOP`, `EN_VBOT`). It is a
+   game frame of standing still, at most one in three and only while the
+   camera is going down, and it owes the next draw nothing: what made
+   the old drone JUMP was a patrol that went on while its pixels did
+   not. The same sweep is **73,644 T**.
+
+**And the core image did not have room for it**: `CORE_END` went to
+`&4167`, 359 bytes into the banked window, which `main.asm`'s assert
+said. The title's two prompt strips — data, read once, at the title —
+went up into base RAM at `&AA00` (`HIGH_IMAGE`, §4, §6.1), and the core
+ends at `&3D5C`.
+
+**What is NOT done**, both deliberately:
+
+* **one enemy at a time is still the frame budget.** A second drone
+  whose beat she walks into while the first is following her is not
+  drawn and does nothing — 76 game frames of level 1's walk — until
+  the first is down, and then `ENEMY_PICK` finds it;
+* **the late slot has no deadline.** A frame that must put the refresh
+  at the end of the sweep — the frames it changes sides — on a frame
+  that is already heavy can still run over. Measured over every drive
+  here it never has: level 1's walk puts it there on **0** frames,
+  levels 2 and 4 on 12 each, every one while the drone is still off
+  the drawable window and has nothing to draw, and none of them long.
+* **`RASTER_WAIT` still has no clock finer than a tick.** Reached after
+  the tick it waits for, it waits its whole delay again — which is what
+  item 5 above holds the drone to avoid, and what anything else put in
+  front of her erase on a frame the strip steps a row will find. The
+  lever is a gate that knows where in its tick it is, and nothing on
+  this machine counts below a tick.
 
 ### 8.8 The ladder, the street, and the vertical camera
 
@@ -4816,8 +5186,8 @@ thing that scrolls it.
 level is a map (§8.1): the forest is environment 2 and its block is
 levels 5-8, so this is `level_5.lvl` with tileset 2 in its header.
 Walking out of level 1's garage goes to level 2, the City's second
-map (§8.14); the forest is three doors further on, and two of those
-doors are levels nobody has painted yet.
+map (§8.14); the forest is three doors further on, through levels 3
+and 4, and level 4's garage is the door into it (§8.16).
 
 **What the flags are, and the one rule they are all an instance of**:
 
@@ -5529,24 +5899,47 @@ take off in — and nothing at all at a walk. The answer was both halves:
   checks that a run off the edge crosses the two downhill gaps at one
   phase each and the other two never.
 
-**WHAT A JUMP CAN BE IS MEASURED, AND AT BOTH PHASES.** Pressing UP at
-every byte column from sixteen before each gap to ten past it, on the
-level itself, game frames of take-off window — and a press that clears
-the far roof and comes down on the step beyond it counts as made,
-which the first suite did not and which is why gap 48 once read a
-frame short of gap 101's identical shape:
+**WHAT A JUMP CAN BE IS MEASURED, AND AT BOTH PHASES.** Pressing UP on
+every game frame of a run-up that starts 24 bytes before each gap, on
+the level itself, with the camera where play has it — and a press
+counts only if it STARTED a jump and that jump's first landing is past
+the gap, so a coyote press is a take-off and a run off the edge with a
+useless press in the air is not:
 
-| gap | wide | roof rows | running, even / odd byte | walking | before the play-test |
+| gap | wide | roof rows | running, even / odd byte | walking, even / odd | before the play-test |
 |---|---:|---|---|---:|---|
-| 22 | 3 | 7 → 7 | 7 / 8 | 3 | 6 / 7, walk 3 |
-| 48 | 3 | 7 → 8 | 8 / 9 | 5 | 4 wide: 5 / 6, walk **0** |
-| 74 | 3 | 8 → 7, **UP** | 6 / 7 | 3 | **3 / 4**, walk **0** |
-| 101 | 3 | 7 → 8 | 8 / 9 | 5 | 4 wide: 5 / 6, walk **0** |
+| 22 | 3 | 7 → 7 | 7 / 8 | 4 / 4 | 6 / 7, walk 3 |
+| 48 | 3 | 7 → 8 | 8 / 9 | 6 / 6 | 4 wide: 5 / 6, walk **0** |
+| 74 | 3 | 8 → 7, **UP** | 6 / 7 | **1 / 1** | **3 / 4**, walk **0** |
+| 101 | 3 | 7 → 8 | 8 / 9 | 6 / 6 | 4 wide: 5 / 6, walk **0** |
 
-**A run's window is exact and a walk's is a floor**: the walk at gap 22
-measured 3 on a machine that had just arrived and 4 on one that had
-driven there, where a run's did not move. **The phase is worth a frame
-at a run**: an odd byte column meets the lip a byte earlier. Two shapes
+**THE FIRST MEASUREMENT OF THIS TABLE WAS TAKEN WITH NOBODY ON THE
+SCREEN, AND IT SAID THE WALK MADE THE JUMP UP IN THREE FRAMES.** The
+suite poked her to each run-up, and a poke hundreds of bytes from the
+view is a state no player can reach: `PLAYER_SCREEN_X` takes the
+difference modulo 256 (§8.10), the camera read her as far to the
+RIGHT, chased the map's right-hand end and parked there — `WORLD_X` 216
+at every try of level 4's windows, her `KARA_X` 141 and 217. Parked,
+the camera never pushes, and in the push zone a walk is two bytes on
+one frame in two (§8.2) — not the walk a player makes. Two more things
+were wrong with the instrument and they compounded: the press was
+counted by byte column, which is a frame only at a byte a frame; and
+it went in wherever `step()` happened to stop, which after a game frame
+that took three hardware frames is PAST that frame's `INPUT_SCAN`, so a
+one-step press was sometimes never read — a frame of miss in the middle
+of a window. Each of those read a table a frame differently on two
+machines, and **this section once called the tables floors because of
+it, blaming the machine's history.** It was the instrument's.
+`put()` now walks the view to her with the camera's own pan and stands
+her at the trail mark; `tick()` goes from the top of one game frame to
+the top of the next. Measured that way **every gap of a shape gives the
+same run on level 2 and level 4, exactly `RUN_JUMPS`**, and the suites
+assert it exactly. A WALK's window is still a floor and that one is
+real: which frames of the push rhythm reach the lip is the gap's own,
+so the downhill window has a frame of miss in it (6 of 7 frames, at
+both phases) and **the jump UP is 1 frame on this level's gap and 2 on
+level 4's**. That is the jump a run is for. **The phase is worth a
+frame at a run**: an odd byte column meets the lip a byte earlier. Two shapes
 are not in the table because no press cleared them on the old jump,
 measured over a gap cut into level 1's own roof in RAM: **two rows up
 across any gap, and four tiles on the level.** The tool asserts every
@@ -5556,10 +5949,11 @@ and compares. The jump UP is still the tightest, by a frame.
 **ONE PRESS RULE IS INSIDE EVERY WINDOW**, which is the whole driver:
 UP on the frame her box reaches the byte column before the gap's first.
 Over the rooftops from the top of the first ladder to the key, **193
-game frames in 387 hardware ones** with the drones held off — the lock,
-with a jump cel and the incoming column on the same frames — and the
-same with them on, **HP 100 → 84**: two of their rounds, and she still
-makes all four.
+game frames in 387 hardware ones** with the drones held off — and that
+is **one dropped frame, not the lock**: logged frame by frame, the extra
+hardware frame is a game frame that took three, the first jump's
+TAKE-OFF at a run (§8.16). With the drones on it is the same count,
+**HP 100 → 84**: two of their rounds, and she still makes all four.
 
 **A MISS COSTS WHAT THE TOOL SAYS, AND THE TOOL SAYS IT FROM THE
 APEX.** A walking jump pressed five bytes before gap 48 comes down where
@@ -5663,8 +6057,7 @@ garage: **848 game frames in 1,696 hardware ones**, the lock, with HP
 she reaches the key with **68**: two of their rounds on the first tall
 roof, the medkit, two on the second and two on the last — about what
 level 2's drive under fire costs, for a level crossed at a climb's
-pace rather than a run's. Level 4 is unpainted, so the garage goes back to the
-title — a full reset.
+pace rather than a run's. The garage leads to level 4 (§8.16).
 
 **Not one composite level 1 had not already baked**, by the rules
 level 2 found (§8.14): props over `far_fill`, lamps on columns 0 mod 6
@@ -5691,6 +6084,79 @@ lip in the air, where DOWN is not a ledge. It jumps after four.
 
 **What is NOT here**: an agent (§9), and the escape car, which is the
 City's last level's set piece.
+
+### 8.16 Level 4: the City's last, and the way out of it
+
+`tools/make_city_map.py` writes it with the other three — one
+`build_city()`, a layout each, and levels 1-3 byte for byte what they
+were — and `tools/test_city4.py` drives it. Level 3's garage leads here
+(**54 hardware frames**, one sector) and it opens on that garage drawn
+open.
+
+**IT IS THE TWO MAPS BEFORE IT END TO END**, because it is the City's
+last and the player has been taught both halves:
+
+| | |
+|---|---|
+| three gaps | **one of every shape level 2 measured** — level at column 22, UP onto the tallest roof at 41, DOWN onto the key's at 88 — all three wide: 7/8, 6/7 and 8/9 frames at a run, 4, **2** and 6 at a walk (§8.14). Each gap's pit has one ladder, back onto the roof she jumped FROM |
+| one plaza | eight wide, off the tallest roof (row 6): walked off it is **128 lines and 32 points**, hung off the ledge it is **70 and free**, and on its far side a ladder up the next building past a barricade (§8.15). No take-off at either phase lands across it |
+| the key's roof | **no ladder**, as level 2's had none, so the last jump is the only way onto it; walking off its near edge is 96 lines, `FALL_FREE` exactly, into the pit the way out is in — and that pit's ladder goes back up to the roof the jump is made from, so a miss is never a softlock |
+| a drone on the street | for the first time: in the plaza, two rows above the pavement, which is her muzzle's line there |
+
+**The medkit is under the jump that goes UP, and pays most of a miss
+back, not all of it.** A walking press five bytes early off the row-7
+roof falls 140 lines and costs `miss_cost(7)` = 44; the medkit is
+worth 35 (§8.6), so she lands on it at 56 and gets up at **91**. Level
+2's uphill miss was off a row-8 roof and cost 28, which a medkit covers
+whole.
+
+**AND ITS WAY OUT IS THE WAY OUT OF THE CITY.** UP at the garage with
+the key is `GS_CLEAR` and `LEVEL_GOTO` goes to level 5 — the forest, an
+environment away, so the door reads the forest's art: **144 hardware
+frames** to `LEVEL_ENV` 1 and `LEVEL_OK` 1, with her health, her reserve
+and her coins and without the key (§8.1). **The game plays straight
+through from level 1 to level 6 now**: `tools/test_flow.py` clears every
+door in the run of painted levels it reads off `build/` — five of them,
+one an environment change — and the coins it put in her pocket on level
+1 are still there on level 6 before level 7, unpainted, sends her back
+to the title.
+
+**THE WINDOWS ARE EXACT AT A RUN, AND LEVEL 4 IS WHAT FOUND THE
+INSTRUMENT OUT.** Gap 22 is level 2's gap 22 exactly, and at a run's
+odd phase it measured **9** here against 8 there — which this section
+first put down to the machine's history and answered by making
+`RUN_JUMPS` a floor. **It was the suite's camera** (§8.14): poked to
+each run-up, she was off the screen and the view was parked at the
+map's far end, and the press went in wherever `step()` stopped. With
+the camera following her and the press at the top of a game frame,
+gap 22 is 7 / 8 on both levels and so is every shape: the suites check
+`RUN_JUMPS` exactly. The walk stays a floor, and level 4's jump UP is
+**2** frames at a walk where level 2's is 1.
+
+**AND THE DRIVE DROPS FRAMES, WHICH IS AN ENGINE FINDING AND NOT THE
+MAP.** 340 game frames in **683** hardware ones, and every one of the
+three extra is a game frame that took THREE hardware frames — a frame
+with no heroine on the screen (§9). Logged frame by frame, with the
+drones held off:
+
+| game frame | what she was doing |
+|---|---|
+| 1 | the first step of a run — `KARA_STATE` idle → run |
+| 11 | in the air, mid-jump, the camera stepping |
+| 105 | falling after letting go of the ledge |
+| 253 | the TAKE-OFF of the last jump, at a run — run → jump |
+
+and **level 2's drive has exactly one, at its first take-off from a
+run**, where its suite allowed a hardware frame of slack and called it
+the anchor. Level 3, which never runs, has none in 848. The suites now
+say what they measure — "one dropped, at a take-off" and "no more than
+three" — and the cause is the next thing to find, not a thing to bound
+for ever: §9's delay-of-a-known-length is the instrument.
+
+**What is NOT here**: the escape car. plan.md ends the City with it as
+a cutscene, and it is a set piece — loaded for one fixed moment, the
+way §6.2 keeps the other five — which needs the cutscene state that
+§11 step 8 still owes.
 
 ## 9. Performance budget — measured directly, and it closes
 
@@ -5722,6 +6188,7 @@ HARDWARE FRAME**, and two rules decide it, both the beam's:
 | **her erase** | frame **B** | she must be on the screen for BOTH sweeps. Erased on A, the second sweep finds her gone — which is the flicker, at 100% |
 | **`H_HEAD`** | frame **B** | the incoming column's cells are the left edge of each row BELOW under the old start address (§8.2), so painting them behind the beam only buys the rest of THAT sweep. On A they would be swept a second time before the latch: a 4-pixel column of the wrong tile down the left edge, for a whole displayed frame |
 | `ENT_REPAINT_DUE`, `ENEMY_REFRESH` | frame **B** | they change the background and must follow every erase — which is where they already were (§10) |
+| **... and since the drones follow her** | | `ENEMY_REFRESH` is at the TOP of B, in the border, whenever nothing lifted off after it could meet it (`ENEMY_SLOT`); the drone's logic, her rounds' flight, where the drone goes next and which drone the next frame has are all in B's wait for its head gate (`ENEMY_THINK`, `ENEMY_MOVE`, `ENEMY_PICK_NEXT`) — §8.7 |
 
 **The wait is an EDGE, not a level.** `WAIT_VSYNC` tests the level and
 the pulse is 16 scanlines (§7.7): on the rare frame whose work ends
@@ -5774,7 +6241,13 @@ between tick 5 and the erase.
   could afford a 15,520 T draw and deferred the entry draw up to
   `EN_DEFER_MAX` frames waiting for one; it now returns "room" always.
   The drone is redrawn **every game frame** instead of one frame in two
-  at best and never while the picture scrolled.
+  at best and never while the picture scrolled. **THAT WAS NOT TRUE,
+  AND A PLAY-TEST IS WHAT SAID SO**: `VIEW_STEP` still held the refresh
+  off on every frame the picture moved, and over level 1's walk east
+  the drone was drawn on **134 game frames of 449**. It is drawn on
+  every one now — 404 of the same 449, every frame it is on the screen
+  — from the top of the second sweep, and `VIEW_STEP` and
+  `ENEMY_ROOM` are gone (§8.7).
 * **`ENT_UPDATE`'s touch sweep is back on every frame.** It was on one
   frame in two, then one in four on a measured phase, because the pair
   of it and the enemy redraw was 376 T more than a 50 Hz frame had.
@@ -6045,7 +6518,8 @@ paths:
 
 Phase 3 lands between the drone's own two draws instead of on top of
 one: eight frames back on one firing path and fifteen on the other, for
-two off the plain run. **Widening `ENEMY_ROOM` to match** — letting the
+two off the plain run. (`ENEMY_ROOM` is gone now — §8.7.) **Widening
+`ENEMY_ROOM` to match** — letting the
 refresh have the odd frames the sweep no longer takes — was measured
 too and is NOT taken: it is worth 185 firing but **155 running**, and
 the run is the path the play-test was about.
@@ -6112,7 +6586,7 @@ starting phases, with the drone-off run as the control, so the cost is
 the encounter and not the gun. The frames it loses are frames carrying
 the `shoot` cel, which at 54,444 T drawn and erased is the heaviest in
 the game, plus one of the drone's two unmissable draws (§8.7).
-`ENEMY_ROOM`'s gate cannot see it: the tick is a whole 13,312 T and a
+`ENEMY_ROOM`'s gate (gone since — §8.7) cannot see it: the tick is a whole 13,312 T and a
 firing frame that reaches the refresh at tick 5 has thousands of T less
 than the walking frame the gate was measured against. Tightening the
 gate by a whole tick was tried and measured — 196 to 196 — so the cost
@@ -6577,6 +7051,26 @@ the old sprite. Every one of these lived in the join.
    `KARA_LAST_BOT = 191` too; the camera just never put it there. 256
    scanlines is four ticks and 48 more, which is how it is put back.
 
+   **AND IT WAS PUT BACK TWO TICKS SHORT, AND STAYED THAT WAY.** Four
+   ticks past tick 1 is tick FIVE, and the code said `ld c,3`: line 184
+   gated at 65,812 T and line 185 at 39,440, half a sweep before it. The
+   gate is her first line plus `KARA_ERASE_LEAD`, so it reaches 185
+   whenever her first drawn line is 152 or lower — the end of every fall
+   the camera cannot keep up with — and she was then lifted off before
+   the second sweep showed her: **there in one sweep of two, at the
+   bottom of the picture.** Logged in the running game, a gate of 188
+   started her erase at **41,184 T** with the beam reaching her first
+   line at 55,056; with `ld c,5` it starts at **66,936**, after the beam
+   has left line 188. **What hid it is a check that skips a sample it
+   cannot read**: `tools/test_module4.py` takes her position from the
+   first line of the picture that differs from the map, and a sample
+   with no heroine in it differs nowhere, so it was dropped rather than
+   failed — and the samples it did keep were the ones where she
+   happened to be visible, which is where "she is placed up to seven
+   lines low" came from (§8.2). It took the strip clip above, which
+   made those samples differ in the HUD's row and stopped them being
+   dropped, to make it visible at all.
+
 And one thing that was not a bug in the new code at all: **`COL_HEAD`
 had to move from 18 to 14**, because the *faster* `DRAW_COLUMN` finishes
 the head sooner and a head that finishes early paints the incoming
@@ -6760,6 +7254,16 @@ frame, so this only helps a standing player on a still screen.
   what §9's tick table measures from; and the test to apply to any raster
   gate is not "is the number right" but **"does changing the number
   change anything"**.
+* **`RASTER_WAIT` REACHED LATE INSIDE ITS OWN TICK WAITS ITS WHOLE DELAY
+  AGAIN.** It credits whole ticks (§9's item 5) and nothing finer,
+  because the interrupt is the only clock: a caller that arrives after
+  the tick it asked for, but inside it, cannot tell how far in it is and
+  counts the line delay from where it stands. So the WORK IN FRONT of a
+  gate moves the gate — down level 1's fall, a drone refresh in front of
+  her erase took it from 60,784 T to 72,232 and the sweep past the
+  vblank (§8.7). Anything new that lands before her erase on a frame
+  the strip steps a row down has to be measured at her erase, not at
+  itself.
 * **A COUNT OF GAME FRAMES IS PHASE-SENSITIVE AND HAS TO BE ANCHORED.**
   A game frame is two hardware ones (§9), so a window of 200 hardware
   frames holds exactly 100 of them — **and only if it starts on one**.
@@ -6777,6 +7281,22 @@ frame, so this only helps a standing player on a still screen.
   (§9). The test to apply is the one this section already applies to a
   raster gate: **does changing something that should not matter change
   the answer?**
+* **A TEST THAT POKES HER SOMEWHERE HAS TO PUT THE CAMERA THERE TOO,
+  AND A PRESS HAS TO GO IN AT THE TOP OF A GAME FRAME.** The City's
+  window suites poked her to each run-up and let the camera "come to
+  her" - and from hundreds of bytes away it cannot: `PLAYER_SCREEN_X`
+  is a modulo-256 difference (§8.10), so it chased the map's far end
+  and every window was measured with her off the screen and the push
+  zone never entered. And `step()` stops wherever the emulator's frame
+  ends, which after a three-hardware-frame game frame is past the next
+  `INPUT_SCAN`, so an UP held for one step was sometimes never read.
+  Between them they made every take-off window read a frame
+  differently on two machines, and that was written down as the
+  machine's history (§8.14). The walk at the jump UP read 3 frames; it
+  is 1. **The test is the one this section keeps arriving at: does
+  something that should not matter - which level, which run of the
+  suite - change the answer?** `put()` and `tick()` in
+  `tools/test_city.py` are the fix.
 * **A MODEL BUILT FROM A SNAPSHOT OF ENGINE STATE DESCRIBES A SCREEN
   THAT HAS SINCE MOVED ON, AND IT READS AS TEARING.** `tools/test_module4.py`
   reconstructs the playfield from the map, and the MAP IS PLAY STATE:
@@ -6878,6 +7398,24 @@ frame, so this only helps a standing player on a still screen.
   time a level was made of solid steps. The test is one line: jump and
   read `KARA_WY`. (It is −17 and 28 now, after a play-test — and that
   number was measured before it was written into any comment.)
+* **RASM 3.2.5 DROPS A UNARY MINUS IN FRONT OF AN `equ` IT HAS NOT
+  SEEN YET.** `ld bc,-TILE_H` in `entity.asm`, with `TILE_H` an `equ`
+  in `tilemap.asm` four includes later, assembled as `ld bc,16`; `and
+  -TILE_H AND 255` as `and &10`; and `-X-1` as `X-1` — no error, no
+  warning, a clean build. Measured on a scratch file with `X` defined
+  after every use: `ld a,-X`, `cp -X`, `db -X`, `ld bc,-X-1` and
+  `ld bc,-X*2` are all WRONG, while `ld de,-(X)`, `ld bc,0-X`, `and
+  256-X` and `dw -LABEL` are right — so it is the sign directly in front
+  of a forward `equ` and nothing else. **Write `0 - X`.** What found it
+  was a pickup's cell recorded at byte 0, line 16 for a key at byte 96,
+  line 80 (§8.7); what it had already done, invisibly, was grow a box
+  right and down instead of either way. `tools/check_unary_minus.py`
+  walks `main.asm` with its includes expanded in RASM's own order and
+  stops the build at any such site, naming it — its control is the
+  scratch file above, where it names all five wrong forms and none of
+  the four right ones. **The general rule is the one this section keeps
+  arriving at**: a build that is clean is not a build that is right,
+  and the only witness to an assembler is the bytes.
 * **`LDI` DECREMENTS `BC`, AND `BC` IS WHERE THE COUNTERS WERE.**
   `ENT_FRAME_COPY` walks the span format with `C` = lines left in this
   group and `B` = bytes in this span, and copied with `LDI` — so the
@@ -7015,6 +7553,19 @@ trailing copies of itself across the roof.
   its pickup back over the twelve bytes Kara overlapped, and why both
   `ENT_REPAINT_DUE` and `ENEMY_REFRESH` are the last two calls in the
   loop.
+* **A SAVE-UNDER IS WORLD-FIXED AND THE HUD IS NOT, SO A SPRITE MAY
+  NEVER BE DRAWN OVER THE STRIP.** An erase replays absolute
+  addresses, which is right for every pixel the CRTC scrolls and wrong
+  for the one run that stays put on the glass: a view step between her
+  draw and her erase turns the strip she saved into a copy of it one
+  row up, painted after the strip's own vacate. A fall did exactly
+  that on Caprice32 (§7.8), and the camera's band — the only thing that
+  kept her off row 23 — is what a fall outruns. **The drone is the
+  same sprite one persistence along**, and level 4's street drone was
+  drawn down to line 190, so `HUD_CLIP` was called by both; the drone
+  is held above line 176 now (§8.7) and the clip is hers. A third
+  sprite with a save-under calls it, or is held off the strip's rows
+  the way the drone is.
 * `LD SP,&BFFF` explicitly at startup. An SP that drifts into `&C000-&FFFF` shows up as
   random screen corruption, not as a crash.
 * AMSDOS keeps its buffers around `&A700-&BFFF`, and the firmware its
@@ -7791,6 +8342,23 @@ the next one starts.
    she loses between floors 30 and 38 are `EBUL_DAMAGE` exactly: the
    drone on row 38 saw her, fired, and hit her.
 
+   **AND NOW IT COMES DOWN WITH HER** (§8.7): drawn once, it is hers
+   until one of them is dead, so the same descent reads
+
+   ```
+     floor 30 -> 38   ...  HP 92   drone SY 92
+     floor 38 -> 46   ...  HP 76   drone SY 92
+     floor 46 -> 54   ...  HP 68   drone SY 92
+     floor 54 -> 62   ...  HP 60   drone SY 108
+   ```
+
+   — at her chest on every floor below its own, `ES_Y` 568 → **940**,
+   every leg a whole number of `EBUL_DAMAGE`, and nothing above row 38.
+   Seven floors of it is about her hundred points, so the driver tops
+   her up at the top of every shaft: whether she reaches the bottom is a
+   question about the shafts and not about the balance, and what each
+   leg cost her is still measured from there.
+
    **AND THE CONTROL IS THAT A DESCENT COULD BE A FALL.** The generator
    cuts holes in floors, so "she got to the bottom" would read the same
    if gravity had found one — `TA_CLIMB` is taken off the ladder tile in
@@ -7811,7 +8379,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Fifteen of the twenty-four levels have
+   **What is left**: maps. Fourteen of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -7853,7 +8421,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other fifteen levels**, which is a designer's work and
+   for the other fourteen levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

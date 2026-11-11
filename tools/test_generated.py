@@ -161,6 +161,13 @@ def descend(p, report=True):
     """Down every shaft the level has, and where she got to."""
     landings, hurt = [p.row()], {}
     for _ in range(p.h // 4):
+        # FULL HEALTH AT THE TOP OF EVERY SHAFT. The drone that sees her
+        # follows her down now (CLAUDE.md 8.7) and fires the whole way,
+        # and seven floors of it is about her hundred points - so without
+        # this, whether she reached the bottom would be a question about
+        # the balance and not about the shafts. What a leg cost her is
+        # still measured, from here.
+        p.m.poke(p.sym["PLAYER_HP"], 100)
         row, before = p.row(), p.byte("PLAYER_HP")
         shafts = p.shafts(row)
         if not shafts:
@@ -222,6 +229,8 @@ def main():
               f"{floors} - the last is the ground the shaft ends on")
 
         print("\n  the descent, with the shafts read off the level's own map:")
+        at = sym["ENEMIES"] + sym["ES_Y"]       # the slot's ADDRESS, not a
+        es_y0 = p.m.peek(at) | p.m.peek(at + 1) << 8    # pointer held in it
         landings, hurt = descend(p)
         # EVERY FLOOR BUT THE GROUND, which is the one she stands ON and
         # never lands on: the generator paints row h-1 as well so the
@@ -240,23 +249,33 @@ def main():
               f"a {p.h}-row map, which is what V_CR_MAX is patched to")
 
         print("\n  the drone it placed, which is 8.7's own widening:")
-        # ENEMIES is the slot's ADDRESS and not a pointer held in it.
-        at = sym["ENEMIES"] + sym["ES_Y"]
-        es_y = p.m.peek(at) | p.m.peek(at + 1) << 8
+        es_y1 = p.m.peek(at) | p.m.peek(at + 1) << 8
         check("its ES_Y is past what a byte reaches",
-              es_y > 255 and p.byte("ENEMY_LIVE") == 1,
-              f"ES_Y {es_y}, ENEMY_LIVE {p.byte('ENEMY_LIVE')} - and the "
-              f"eight-bit reading's own control is in tools/test_shape.py")
-        drone_row = next(r for r in floors if r * 16 > es_y)
+              es_y0 > 255 and p.byte("ENEMY_LIVE") == 1,
+              f"ES_Y {es_y0} where the record put it, ENEMY_LIVE "
+              f"{p.byte('ENEMY_LIVE')} - and the eight-bit reading's own "
+              f"control is in tools/test_shape.py")
+        drone_row = next(r for r in floors if r * 16 > es_y0)
         took = {row: lost for row, lost in hurt.items() if lost}
-        check("... and it saw her and fired, on its own floor and nowhere else",
-              len(took) == 1
-              and landings[landings.index(next(iter(took))) + 1] == drone_row
-              and sum(took.values()) % sym["EBUL_DAMAGE"] == 0,
-              f"{sum(took.values())} points on the way down to row "
-              f"{drone_row}, in whole EBUL_DAMAGE of {sym['EBUL_DAMAGE']}, "
-              f"and nothing on any other floor - which is what says it is "
-              f"the drone and not the fall (a ladder is not a fall at all)")
+        first = min(took) if took else None
+        check("... and it saw her and fired from its own floor, and not "
+              "before it",
+              took and landings[landings.index(first) + 1] == drone_row
+              and all(lost % sym["EBUL_DAMAGE"] == 0 for lost in took.values()),
+              f"the first points on the way down to row {drone_row}, every "
+              f"leg in whole EBUL_DAMAGE of {sym['EBUL_DAMAGE']} - "
+              f"{ {r: took[r] for r in sorted(took)} } - and nothing above it, "
+              f"which is what says it is the drone and not the fall (a "
+              f"ladder is not a fall at all)")
+        # ... AND THEN IT CAME DOWN WITH HER, which is the play-test's
+        # "not leave the screen until you kill them or they kill you":
+        # drawn once, it follows her, and the floors below its own cost her
+        # as well (CLAUDE.md 8.7).
+        check("... and then it came down the shafts with her",
+              len(took) > 1 and es_y1 > es_y0 + 128
+              and p.word("ENEMY_ENG") != 0,
+              f"ES_Y {es_y0} -> {es_y1}, {len(took)} legs that cost her, and "
+              f"ENEMY_ENG &{p.word('ENEMY_ENG'):04X} at the bottom")
 
         # ---- the control: the shafts are what carried her --------------
         # A descent could be gravity finding a hole in the floor, and the

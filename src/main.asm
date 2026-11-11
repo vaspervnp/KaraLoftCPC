@@ -74,6 +74,14 @@ BOOT:           di
                 ld   bc,CORE_SIZE
                 ldir
 
+                ; ... and the HIGH image, which is in the binary but
+                ; not in the core because the core is full: the title's
+                ; strips, up at HIGH_ADDR (see the note at the end).
+                ld   hl,HIGH_IMAGE
+                ld   de,HIGH_ADDR
+                ld   bc,HIGH_SIZE
+                ldir
+
                 ; ... AND THERE IS NO LEVEL IMAGE TO RELOCATE ANY MORE.
                 ; A second LDIR used to bring level_1.lvl and its tile
                 ; flags down to &B000 out of the binary. A level the
@@ -287,9 +295,9 @@ SCROLL_DEMO:    di
                                             ; only be written in blanking, and
                                             ; the VERTICAL one is in the second
                                             ; sweep now - see the note there
-                call ENEMY_PICK             ; which one is in view UNDER THE
-                                            ; view just latched - see the note
-                                            ; on ENEMY_UPDATE
+                                            ; (which drone is in view UNDER IT
+                                            ; was worked out at the end of the
+                                            ; last frame: ENEMY_PICK_NEXT)
                 ; THE ROUNDS GO DOWN BEFORE SHE DOES, AND THE REASON IS
                 ; THE BEAM. They used to be drawn over her - she fires
                 ; past herself - and her draw is 32,000-40,000 T, so
@@ -337,9 +345,9 @@ SCROLL_DEMO:    di
                 ; every frame, and KARA_DONE is ACT_UPDATE's word that
                 ; her `die` run has finished playing (src/flow.asm).
                 call FLOW_CHECK
-                call ENEMY_UPDATE           ; the one in view, and their fire
-                call UPDATE_BULLETS         ; and whether one just left
-                call ENEMY_SHOT_CHECK       ; ... and whether it landed
+                                            ; (the drone and its fire, and her
+                                            ; rounds' flight, are the second
+                                            ; sweep's now - ENEMY_THINK, below)
                 call UPDATE_RELOAD
                 call CAMERA_DECIDE          ; requests next frame's step
                 call SCROLL_SERVICE         ; a vertical step in flight
@@ -452,8 +460,52 @@ SCROLL_DEMO:    di
                 ; move with the picture, which is what a world-fixed
                 ; sprite is supposed to do - the same reason the enemy
                 ; is a persistent sprite (CLAUDE.md 8.7).
+                ;
+                ; ---- AND THE DRONE BETWEEN THE TWO, IN THE BORDER ----
+                ; It used to be redrawn at the END of this sweep, after
+                ; her erase, where a frame that also paints the incoming
+                ; column had no room for it: 82,000 to 84,500 T against
+                ; 79,872, measured. So it was put off while the picture
+                ; moved and taken on one game frame in two when it did
+                ; not, and a play-test saw exactly that - "they jump from
+                ; one place to another". Here it is in the border, ahead
+                ; of the beam, in time the sweep spent waiting for tick 4,
+                ; on every game frame. ENEMY_SLOT decides BEFORE the
+                ; latch, in the view she was drawn in, whether anything
+                ; lifted off later in the sweep could meet it; if so it
+                ; goes in its old place at the end (src/enemy.asm).
+                ; After the latch, because that is the view it is drawn
+                ; in, and before the strip, because the strip's vacate
+                ; would otherwise paint under a box that saved it.
+                call ENEMY_SLOT
                 call SCROLL_VBLANK
+                call ENEMY_REFRESH_EARLY
                 call HUD_SERVICE
+                ; ... AND WHAT THE DRONE THINKS, in the rest of that wait:
+                ; its sight, its gun, its cels and its rounds' flight,
+                ; which the first sweep could not pay for once a drone
+                ; that follows her was always there to pay them
+                ; (ENEMY_THINK, src/enemy.asm). And her rounds' flight
+                ; with it, for the same reason and the same safety: they
+                ; come off by the addresses their draw saved (BUL_DREW,
+                ; bullets.asm), and whether one landed is asked of the
+                ; box the refresh has just placed.
+                call ENEMY_THINK
+                call UPDATE_BULLETS         ; whether one of hers just left
+                call ENEMY_SHOT_CHECK       ; ... and whether it landed
+                ; AND WHERE IT GOES NEXT, AND WHICH ONE THE NEXT FRAME
+                ; HAS, here and not at the end of the sweep. The end is
+                ; where her erase lands, and the erase's gate is HER
+                ; first line: on the street she is low in the picture and
+                ; it ends at 76,400 T, so the follow (2,700 T) and the
+                ; next frame's pick (1,900) took the sweep to 81,432 of
+                ; 79,872 - a game frame of FOUR hardware frames, nine
+                ; times down level 1's street. Neither reads anything the
+                ; rest of this sweep writes: the follow works in the
+                ; world and in the view as latched, which is this view
+                ; from the top of the sweep to the bottom (src/enemy.asm).
+                call ENEMY_MOVE
+                call ENEMY_PICK_NEXT
 
                 ; AND WAIT FOR THE INTERRUPT TO STAMP THIS FRAME'S ANCHOR
                 ; BEFORE USING ANY GATE THAT COUNTS FROM IT. THIS WAS THE
@@ -479,16 +531,15 @@ SCROLL_DEMO:    di
                 ; it was reading the elapsed ticks at the moment H_HEAD
                 ; is entered instead of trusting the number asked for.
                 ;
-                ; FOUR TICKS AND NOT FIVE, AND THE DRONE IS WHY. Five put
-                ; ENEMY_REFRESH at tick 6, where its 17,968 T runs past
-                ; the vblank: ENEMY_ROOM refused it, the draw was
-                ; deferred EN_DEFER_MAX frames and taken anyway, and a
-                ; play-test reported the drone appearing and
+                ; FOUR TICKS AND NOT FIVE, AND THE DRONE WAS WHY. Five
+                ; put its refresh at tick 6, where it ran past the vblank
+                ; and a play-test reported the drone appearing and
                 ; disappearing. At COL_HEAD = 12 the head is 8,304 T, so
                 ; from tick 4 its last row lands 3,716 T after the beam
                 ; has left the row that cell doubles as ON THE MACHINE'S
-                ; beam model - which is the one that counts (tilemap.asm)
-                ; - and the refresh is reached at tick 5 with room.
+                ; beam model - which is the one that counts (tilemap.asm).
+                ; The drone is in the border at the top of this sweep now
+                ; (above), and at the end only when it has to be.
                 ;
                 ; SO THE GATE ANCHORS ITSELF HERE instead of waiting for
                 ; the handler to catch up, which is both correct and
@@ -603,7 +654,7 @@ SCROLL_DEMO:    di
                 ; pickup left behind, and the enemy, which is a
                 ; persistent sprite where she is not. See enemy.asm.
                 call ENT_REPAINT_DUE
-                call ENEMY_REFRESH
+                call ENEMY_REFRESH_LATE     ; ... if ENEMY_SLOT said so
 
                 ; AND NOW WHERE SHE GOES, because the view is final: the
                 ; vertical latch happened at the top of this sweep, and
@@ -677,8 +728,20 @@ RASTER_WAIT:    ld   c,1
                 ; clear; a 64-line sprite reaches it in ordinary play.
                 ; 256 scanlines is four ticks and 48 more, so put it
                 ; back as exactly that.
+                ;
+                ; AND FOUR TICKS PAST TICK 1 IS TICK FIVE. This said
+                ; `ld c,3` for as long as it has existed, which waits
+                ; for the right line two ticks EARLY: line 184 is gated
+                ; at 65,812 T and line 185 at 39,440, half a sweep
+                ; before it. Measured in the running game, a gate of
+                ; line 188 started her erase at 41,184 T, with the beam
+                ; reaching her first line at 55,056 - so whenever her
+                ; first drawn line was 152 or lower, which is the end of
+                ; every fall the camera cannot keep up with, she was
+                ; lifted off before the second sweep showed her: there
+                ; in one sweep of two, at the bottom of the picture.
                 add  a,48
-                ld   c,3
+                ld   c,5
 .tick:          cp   52                     ; one tick is 52 scanlines
                 jr   c,.rem
                 sub  52
@@ -1140,3 +1203,29 @@ LEVEL_LVL       equ  LEVEL_IMAGE + LEVEL_TILEFLAGS_N
                 assert LEVEL_IMAGE + LEVEL_IMAGE_SIZE < STACK_TOP - 1024
                 ; and it must not land on top of what it is copied INTO
                 assert LEVEL_IMAGE >= ENT_TABLE + ENT_MAX * ENT_STRIDE
+
+; =====================================================================
+; THE HIGH IMAGE - in the binary and not in the core, because the core
+; is full: assembled for HIGH_ADDR, stored straight after the core in
+; the file, and put there by the bootstrap's second LDIR.
+;
+; WHAT GOES HERE IS WHAT NOTHING CALLS IN PLAY: the title's palette and
+; the two 608-byte strips its prompt blinks between (src/intro.asm).
+; They were 1,216 bytes of the core image, and the drone that follows
+; her (src/enemy.asm) took CORE_END past &4000 by 359 bytes - so they
+; moved, rather than anything the frame runs.
+;
+; HIGH_ADDR IS THE BASE RAM BETWEEN TILE_ATTR AND LEVEL_IMAGE, which
+; nothing else uses and nothing in play writes: a level transition
+; stages its streams at &8000-&9FFF (src/unpack.asm) and LEVEL_MAP_LOAD
+; unpacks into LEVEL_IMAGE, above it. The title comes back at the end of
+; the game, so this has to survive every level - and it does.
+; =====================================================================
+HIGH_ADDR       equ  TILE_ATTR + TILE_ATTR_N
+HIGH_IMAGE      equ  BOOT_END + CORE_SIZE   ; where its bytes sit in the file
+                org  HIGH_ADDR, HIGH_IMAGE
+HIGH_START:
+                include "intro.inc"
+HIGH_END:
+HIGH_SIZE       equ  HIGH_END - HIGH_START
+                assert HIGH_END <= LEVEL_IMAGE

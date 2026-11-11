@@ -1394,6 +1394,31 @@ ENT_SETTLE:     ld   a,(ENT_RESULT)
                 ; ENT_REPAINT_DUE once she is off the screen, next to
                 ; ENEMY_REFRESH and for the same reason.
                 ld   (ENT_RP_DUE),hl
+                ; ... AND WHERE IT IS, for ENEMY_SLOT (src/enemy.asm): the
+                ; cell its top-left falls in, which is the one ENT_BAKE
+                ; drew it into. World bytes across, world lines down.
+                ld   hl,(ENT_HIT)
+                inc  hl                     ; ENT_X
+                ld   e,(hl)
+                inc  hl
+                ld   d,(hl)                 ; DE = x, world pixels
+                inc  hl                     ; ENT_Y
+                ld   a,(hl)
+                inc  hl
+                ld   h,(hl)
+                ld   l,a                    ; HL = y, the BASE of its box
+                ld   bc,0 - TILE_H          ; NOT -TILE_H: see CLAUDE.md 10
+                add  hl,bc                  ; its top
+                ld   a,l
+                and  256 - TILE_H           ; ... on the tile grid
+                ld   l,a
+                ld   (ENT_RP_Y),hl
+                srl  d
+                rr   e                      ; pixels to bytes
+                ld   a,e
+                and  256 - TILE_W_BYTES
+                ld   e,a
+                ld   (ENT_RP_X),de
                 ret
 
 ; ---------------------------------------------------------------------
@@ -1558,4 +1583,6 @@ ENT_RP_WC:      db 0
 ENT_RP_WR:      db 0
 ENT_RP_WORD:    dw 0
 ENT_RP_DUE:     dw 0            ; a cell waiting to be repainted
+ENT_RP_X:       dw 0            ; ... its left, world bytes
+ENT_RP_Y:       dw 0            ; ... and its top, world lines
 ENT_BAKE_LIST:  ds ENT_BAKE_MAX * ENT_BAKE_STRIDE

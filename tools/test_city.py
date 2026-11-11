@@ -27,7 +27,8 @@ AND A THREE-TILE GAP DOWNHILL CAN BE CROSSED WITHOUT A PRESS: running
 off its edge lands her on the far roof at one stride phase in two. That
 was a reason to make the downhill gaps four wide, and a play-test said
 four was too wide to make at all - so they are three, every gap is one
-a WALK can make, and the run-off check below says which gaps a run off
+a WALK can make - the one UP on a single frame, which makes it a run's -
+and the run-off check below says which gaps a run off
 the edge crosses rather than that none does.
 """
 import os
@@ -159,19 +160,7 @@ class City:
                 self.game += (self.byte("FRAME_COUNT") - f0) & 255
                 return
 
-    def put(self, wx, feet):
-        """Stand her somewhere and let the camera come to her. A poke is
-        a fair question for the windows: what is asked is the JUMP, and
-        how she got to the run-up is the drive's, which is driven."""
-        m, sym = self.m, self.sym
-        m.poke(sym["KARA_WX"], wx & 255)
-        m.poke(sym["KARA_WX"] + 1, wx >> 8)
-        wy = feet - 64
-        m.poke(sym["KARA_WY"], wy & 255)
-        m.poke(sym["KARA_WY"] + 1, wy >> 8)
-        m.poke(sym["KARA_VY"], 0)
-        m.poke(sym["KARA_GROUND"], 1)
-        m.poke(sym["PLAYER_HP"], 100)
+    def _settle(self):
         last, still = None, 0
         for _ in range(600):
             self.step()
@@ -181,6 +170,49 @@ class City:
             last = v
             if still > 6:
                 break
+
+    def _poke(self, wx, feet, facing):
+        m, sym = self.m, self.sym
+        m.poke(sym["KARA_WX"], wx & 255)
+        m.poke(sym["KARA_WX"] + 1, wx >> 8)
+        wy = feet - 64
+        m.poke(sym["KARA_WY"], wy & 255)
+        m.poke(sym["KARA_WY"] + 1, wy >> 8)
+        m.poke(sym["KARA_VY"], 0)
+        m.poke(sym["KARA_GROUND"], 1)
+        m.poke(sym["PLAYER_HP"], 100)
+        m.poke(sym["KARA_FACING"], facing)
+
+    def put(self, wx, feet):
+        """Stand her somewhere, facing right, with the camera where play
+        would have it. A poke is a fair question for the windows: what is
+        asked is the JUMP, and how she got to the run-up is the drive's,
+        which is driven.
+
+        BUT THE CAMERA IS PART OF THE QUESTION, AND IT WAS NOT WHERE PLAY
+        PUTS IT. Poked straight to her run-up she was hundreds of bytes
+        off the screen; PLAYER_SCREEN_X takes the difference modulo 256
+        (CLAUDE.md 8.10), so the camera read her as far to the RIGHT,
+        chased the map's right-hand end and parked there - WORLD_X 216 at
+        every try of level 4's windows, her KARA_X 141 and 217. That is a
+        state no player can reach, and it is not the same walk: in the
+        push zone a walk is two bytes on one game frame in two (8.2).
+        So the view is walked to her with the camera's own pan, never
+        more than a screen away so its arithmetic is always the game's,
+        and she is stood facing right, where it settles her at its trail
+        mark - the camera of a heroine who has been walking this way.
+        """
+        for _ in range(30):
+            vl = self.byte("WORLD_X") * 2
+            if vl <= max(0, wx - 30) and wx - vl <= 60:
+                break
+            if wx - vl < 30:        # left of the view: from its left edge,
+                self._poke(max(wx, vl + 4) if vl else wx, feet, 1)
+            else:                   # facing left, which pans it left
+                self._poke(min(wx, vl + 70), feet, 0)
+            self._settle()
+        self._poke(wx, feet, 0)
+        self._settle()
 
 
 def walk_to(c, col, frames=900):
@@ -288,42 +320,101 @@ def fall(c, direction, frames=400, joy_extra=0):
     return fell, hp0, c.byte("PLAYER_HP")
 
 
+def tick(c):
+    """ONE game frame, from the top of the loop to the top of the next -
+    which is where INPUT_SCAN has not yet read the joystick.
+
+    step() runs whole hardware frames until FRAME_COUNT moves, so where
+    it stops is wherever the emulator's frame happens to end - measured,
+    PCs 10,108 to 14,546, which is inside the next game frame's own work
+    and past its INPUT_SCAN. An UP held for one step() was then read on
+    some frames and never on others, and a press window came out with a
+    frame of miss in its middle; and a sync after a step() runs a whole
+    game frame more, which made a walk read as two bytes a frame.
+    """
+    f0 = c.byte("FRAME_COUNT")
+    while c.byte("FRAME_COUNT") == f0:
+        c.m.run_us(64)
+    sync(c.m, c.sym, half=0)
+
+
 def window(c, gap, w, near, far, start, run=True):
-    """Every byte column she could press UP at on the way to `gap`, and
-    which of them land her on the far roof. One machine, put back at the
-    same run-up before each try, so the stride's PHASE is the start's."""
-    good, ran_off = [], False
-    for X in list(range(gap * 4 - 16, gap * 4 + 10)) + [None]:
+    """The GAME FRAMES, counted from the start of the run-up, on which
+    UP starts a jump that comes down past `gap` - and whether running
+    off its edge with no press at all crosses it. One machine, put back
+    at the same run-up before each try, so the stride's phase is the
+    start's.
+
+    IT IS FRAMES AND IT USED TO BE BYTE COLUMNS, which is the same
+    number only while she steps a byte a frame. The press went in on the
+    first frame her box reached column X and the count was the distinct
+    columns pressed at - and in the camera's push zone a walk is two
+    bytes on one frame in two (8.2), so half the frames a player can
+    press on were never asked about. Frames are what a player's timing
+    is made of.
+
+    AND A PRESS COUNTS ONLY IF IT STARTED A JUMP AND THAT JUMP LANDED
+    ACROSS: the coyote frames past the lip are presses in the air that
+    do start one (8.4), and a run off a downhill edge crosses with no
+    jump at all (RUN_OFF), so "she ended up on the far roof" would count
+    a late press that did nothing. Its first landing is the verdict -
+    a press that clears the far roof and comes down on the step beyond
+    it is a jump made, not one missed.
+    """
+    far_edge = (gap + w) * 4
+
+    def attempt(t):
         c.put(start, near * 16)
         if run:
             c.m.key_down('A')
-        pressed = None
-        for i in range(70):
-            p = X is not None and c.wx() >= X and pressed is None
-            c.m.joystick(JOY["right"] | (JOY["up"] if p else 0))
-            if p:
-                pressed = c.wx()
-            c.step()
-            if (c.byte("KARA_GROUND") and i > 2
-                    and (c.feet() != near * 16 or c.wx() + 5 >= (gap + w) * 4)):
+        jumped, landed = None, None
+        sync(c.m, c.sym, half=0)
+        for i in range(90):
+            press = i == t
+            # ... AND FROM THE ROOF SHE STARTED ON: a press after she has
+            # come down somewhere else is a jump from the street, and off
+            # a plaza's pavement one lands on the crate past its edge
+            if (press and c.byte("KARA_GROUND")
+                    and c.feet() != near * 16):
+                break
+            c.m.joystick(JOY["right"] | (JOY["up"] if press else 0))
+            near_side = c.wx() + 5 < far_edge
+            tick(c)
+            if press:               # ... and from THIS side of the gap: a
+                jumped = (near_side  # run that went off its edge is on
+                          and c.byte("KARA_VY") >= 128)   # the far roof
+            if t is not None and i > t and jumped is not None \
+                    and c.byte("KARA_GROUND"):
+                landed = (c.feet(), c.wx())
+                break
+            if t is None and c.byte("KARA_GROUND") and i > 2 \
+                    and (c.feet() != near * 16 or c.wx() + 5 >= far_edge):
+                landed = (c.feet(), c.wx())
                 break
         c.m.joystick(0)
         if run:
             c.m.key_up('A')
         for _ in range(3):
             c.step()
-        # ACROSS IS ON A ROOF PAST THE GAP, not on the far roof's own
-        # line: past a narrow far roof a long jump comes down on the
-        # step beyond it, and that is a jump made, not one missed.
-        over = c.feet() < PAVEMENT and c.wx() + 5 >= (gap + w) * 4
-        if over:
-            # ACROSS WITH NO PRESS AT ALL is a run-off, whether or not a
-            # press was asked for: a late X she never reached is one.
-            if pressed is None:
-                ran_off = True
-            else:
-                good.append(pressed)
-    return sorted(set(good)), ran_off
+        # ACROSS IS THE FAR ROOF'S LINE OR HIGHER, not merely off the
+        # pavement: a plaza has a crate in it, and a take-off that comes
+        # down on its top near the far side has not crossed anything
+        over = (landed is not None and landed[0] <= far * 16
+                and landed[1] + 5 >= far_edge)
+        return over, jumped
+
+    good, misses = [], 0
+    for t in range(48):
+        over, jumped = attempt(t)
+        if over and jumped:
+            good.append(t)
+            misses = 0
+        elif good:
+            misses += 1
+            if misses > 4:          # past the coyote frames: it is over
+                break
+    ran_off, _ = attempt(None)
+    return good, ran_off
 
 
 def main():
@@ -435,9 +526,14 @@ def main():
           c.byte("AMMO_RESERVE") == 42 and c.byte("KEYS_COUNT") == 1,
           f"reserve {c.byte('AMMO_RESERVE')}, keys {c.byte('KEYS_COUNT')}, "
           f"HP {c.byte('PLAYER_HP')}")
-    check("... and the loop held, jumps and incoming columns alike",
+    # ONE FRAME OF IT IS DROPPED, AND IT IS NOT THE ANCHOR. This read
+    # "the loop held" with a frame of slack; measured frame by frame, the
+    # extra hardware frame is a game frame that took three - the first
+    # jump's TAKE-OFF at a run (CLAUDE.md 8.16).
+    check("... and the loop dropped one frame at most, at a take-off",
           c.hw <= 2 * c.game + 1,
-          f"{c.game} game frames in {c.hw} hardware ones")
+          f"{c.game} game frames in {c.hw} hardware ones: "
+          f"{c.hw - 2 * c.game} dropped")
 
     # ---- the way out -------------------------------------------------
     print("\n  and the way out:")
@@ -604,20 +700,25 @@ def main():
             offs += ran_off
         runoff_match = runoff_match and offs == (
             1 if (w, f - n) in city.RUN_OFF else 0)
-        walk, _ = window(wm, g, w, n, f, g * 4 - 24, run=False)
+        walks = [len(window(wm, g, w, n, f, g * 4 - 24 + phase,
+                            run=False)[0]) for phase in (0, 1)]
         want = city.RUN_JUMPS[w, f - n]
         wwant = city.WALK_JUMPS.get((w, f - n), 0)
-        # A RUN'S WINDOW IS EXACT AND A WALK'S IS A FLOOR: the walk's
-        # measured a frame wider here, after the drive, than on a machine
-        # that had just arrived, and the run's did not move (make_city_map).
-        ok = tuple(got) == want and len(walk) >= wwant
+        # A RUN'S WINDOW IS THE SHAPE'S AND A WALK'S IS A FLOOR. With the
+        # camera where play has it and the press at the top of a game
+        # frame (put(), tick()), a run comes out the same on every level
+        # for every gap of a shape; a walk steps two bytes on one frame
+        # in two in the push zone, so where the lip falls in that rhythm
+        # is the gap's, and the same shape measures 1 here and 2 on
+        # level 4 (make_city_map.py).
+        ok = tuple(got) == want and min(walks) >= wwant
         all_match = all_match and ok
         print(f"      gap at {g:3d}, {w} wide, row {n} -> {f}: running "
-              f"{got[0]}/{got[1]} frames, walking {len(walk)}"
+              f"{got[0]}/{got[1]} frames, walking {walks[0]}/{walks[1]}"
               f"{'' if ok else '  <- the tool says ' + str(want) + ', walking at least ' + str(wwant)}")
     check("they are the windows make_city_map.py was built against",
-          all_match, "even and odd stride at a run, and a walk makes every "
-          "one of them")
+          all_match, "a run's exactly, at both stride phases, and a walk's "
+          "at least")
     check("... and a run off the edge crosses the downhill ones only",
           runoff_match, "at one stride phase of the two, and the level "
           "and the uphill gap never")

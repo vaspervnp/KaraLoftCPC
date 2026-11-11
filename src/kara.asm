@@ -218,6 +218,12 @@ KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
                 ; ---- how much of her is on the display ---------------
                 ld   a,(KARA_Y)
                 call SPAN_CLIP_V            ; -> HL groups, A top, C lines
+                ld   b,a
+                ld   a,(KARA_X)
+                ld   d,a
+                ld   e,KARA_W_BYTES
+                ld   a,b
+                call HUD_CLIP               ; ... and never into the strip
                 ld   (KARA_LAST_TOP),a
                 push hl                     ; SCR_ADDR RETURNS in HL, so the
                 push bc                     ; frame pointer has to go on the

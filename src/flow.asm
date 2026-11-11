@@ -359,7 +359,7 @@ LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
                 ; picture that had moved under it, and a vertical one
                 ; would latch a start address worked out against the
                 ; view it was asked in.
-                ; AND ITS PARAMETERS GO WITH ITS FLAGS. The five
+                ; AND ITS PARAMETERS GO WITH ITS FLAGS. The four
                 ; bytes below are what SAYS a step is in flight; the
                 ; six after them are what the step WAS - the column
                 ; and the view it was asked in, and the same for the
@@ -374,7 +374,6 @@ LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
                 ld   (H_PENDING),a
                 ld   (H_TAIL_DUE),a
                 ld   (V_REQUEST),a
-                ld   (VIEW_STEP),a
                 ld   (V_PHASE),a
                 ld   (H_COL),a
                 ld   (H_WX),a
@@ -388,6 +387,8 @@ LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
                 ld   (ENT_RP_DUE),hl        ; a pickup's cell, waiting to be
                                             ; repainted out of a map that is
                                             ; about to be replaced
+                ld   (ENT_RP_X),hl          ; ... and where it was, which
+                ld   (ENT_RP_Y),hl          ; nothing reads without it
                 jp   HUD_DISOWN             ; ... and the strip is laid out
                                             ; again from what it now finds
 

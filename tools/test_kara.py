@@ -129,12 +129,25 @@ def main():
                     rng.randrange(frames), rng.randrange(2),
                     rng.randrange(1024)) for _ in range(120)]
 
+    # WHERE HER BOTTOM IS DEPENDS ON HER COLUMN NOW. Row 23 left of the
+    # strip's last cell is the HUD's (CLAUDE.md 7.8), and her save-under
+    # holding its pixels is what left a copy of it on the wall when a
+    # fall outran the camera - so HUD_CLIP stops her at the strip's
+    # top line wherever her box's columns meet the strip's. Read off the
+    # build rather than written down, as the strip's width is.
+    strip_top = sym["HUD_ROW"] * 8
+    strip_bytes = sym["HUD_STRIP_CELLS"] * 2
+    kw = sym["KARA_W_BYTES"]
+    on_strip = 0
     for x, y, f, facing, scroll in cases_list:
         y0, rows = decode(blobs[facing], f)
         top = (y + y0) & 0xFF
+        bottom = (strip_top if (x + kw) & 0xFF < strip_bytes + kw
+                  else SCR_LINES)
         if top < SCR_LINES:
             first, nskip = top, 0
-            ndraw = min(len(rows), SCR_LINES - top)
+            ndraw = min(len(rows), max(0, bottom - top))
+            on_strip += bottom < SCR_LINES and top + len(rows) > bottom
         else:
             above = 256 - top
             if above >= len(rows):
@@ -170,7 +183,11 @@ def main():
         bad_erase += sum(1 for i in range(0x4000) if back[i] != before[i])
 
     print(f"  {cases} placements: {culls} entirely off the display, "
-          f"{clips} clipped at an edge")
+          f"{clips} clipped at an edge, {on_strip} of them at the HUD's")
+    check("... and some of them run into the HUD's row and stop at it",
+          on_strip > 0,
+          f"{on_strip} placements - without them the line above says "
+          f"nothing about HUD_CLIP")
     check("every pixel of her lands where the v-model says", bad == 0,
           f"{bad} wrong bytes")
     check("nothing outside her spans is touched", stray == 0, f"{stray} bytes")

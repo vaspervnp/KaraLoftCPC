@@ -21,10 +21,11 @@
 
                 ; The picture's palette, the prompt's two strips and
                 ; the eight screen addresses they go to, all written by
-                ; tools/make_intro.py. It is included FIRST because the
-                ; equates in it are used below and RASM evaluates those
-                ; in source order.
-                include "intro.inc"
+                ; tools/make_intro.py, are NOT included here: they are
+                ; 1,248 bytes the frame never touches, and they live in
+                ; the HIGH image at the end of src/main.asm, outside the
+                ; core. Everything below names them as operands only,
+                ; which RASM resolves in its second pass.
 
 INTRO_BLINK_MASK equ 15         ; frames a state: 16 on, 16 off
 
