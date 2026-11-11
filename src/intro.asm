@@ -101,10 +101,14 @@ INTRO_PROMPT:   or   a
 ;      destroys everything
 ; ---------------------------------------------------------------------
 INTRO_WAIT:     call INPUT_INIT
+                ld   a,TUNE_TITLE           ; the title has its own tune,
+                call SOUND_TUNE             ; and this loop is 50 Hz, so it
+                                            ; ticks every other frame
                 ld   a,INTRO_BLINK_MASK     ; so the first frame draws them
                 ld   (INTRO_BLINK),a        ; ON rather than off
                 ei
 .frame:         call WAIT_VSYNC
+                call SOUND_HALF
                 ld   hl,INTRO_BLINK
                 inc  (hl)
                 ld   a,(hl)
@@ -124,6 +128,7 @@ INTRO_WAIT:     call INPUT_INIT
 
 .held:          call WAIT_VSYNC_END
 .release:       call WAIT_VSYNC
+                call SOUND_HALF
                 di
                 call INPUT_SCAN
                 ei

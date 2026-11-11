@@ -92,7 +92,16 @@ SHAPE_NOW:      ds  SHAPE_STRIDE            ; the shape in force
 ; sweep of engine RAM covers these bytes like any others.
 ;                                Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-MAP_SHAPE_SET:  cp   SHAPE_MIN_LOG
+MAP_SHAPE_SET:  ; HER SHAPE FIRST, because the world's right-hand bound
+                ; below is the map's and hers at once (src/swim.asm). The
+                ; header is where both come from, so they are set in one
+                ; place - and it costs the core nothing, since this file
+                ; is in the TOP image.
+                push af
+                ld   a,(LEVEL_LVL + LVL_FLAGS)
+                call BOX_SET
+                pop  af
+                cp   SHAPE_MIN_LOG
                 jr   c,.no                  ; too narrow to fill the screen
                 cp   SHAPE_MAX_LOG + 1
                 jr   c,.take
@@ -149,6 +158,11 @@ MAP_SHAPE_SET:  cp   SHAPE_MIN_LOG
                 ld   hl,PT_V_CR_MAX1
                 call SHAPE_POKE
                 ld   hl,(SHAPE_NOW + SH_KARA_X)
+                ld   a,(BOX_XMAX_LESS)      ; a swimmer's sprite reaches
+                ld   e,a                    ; further past her box
+                ld   d,0
+                or   a
+                sbc  hl,de
                 ld   (PM_KARA_XMAX),hl
 
                 ; ---- the runs --------------------------------------

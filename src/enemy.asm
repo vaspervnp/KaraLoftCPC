@@ -91,7 +91,18 @@ EN_T_STRIDE     equ 32          ; a power of two, because ENEMY_TYPE_AT
 ; says align to the WHOLE table and this is the table's own size
 ; rounded up - 128 holds four rows exactly, and the assert is what will
 ; say so on the fifth.
-                align 128
+;
+; AND THEN `align 128` WAS TOO MUCH, which the sea is what showed. What
+; the indexing needs is that the table does not CROSS a page, and an
+; align is only one way to get that: every byte the code in front of it
+; grows by is free until the table would cross, and then the align
+; costs up to 127 bytes at once. The cable's runs took the hazard code
+; five bytes past &1B00 and the core past &4000 by about a hundred. So
+; it moves to the next page only when it has to - here, and asserted in
+; main.asm, which is the same rule written once more.
+                if ($ AND 255) + EN_KINDS * EN_T_STRIDE > 256
+                align 256
+                endif
 ENEMY_TYPES:
                 db L1_CITYAGENT_BANK
                 dw L1_CITYAGENT_ADDR
@@ -884,6 +895,9 @@ ENEMY_MOVE:     ld   a,(ENEMY_EARLY)
 ; ---------------------------------------------------------------------
 ENEMY_FOLLOW:   ld   hl,(KARA_WX)
                 ld   de,KARA_BOX_W / 2
+BX_FOLLOW       equ  $ - 2                  ; AFTER the instruction it names:
+                                            ; before it, it named the operand
+                                            ; of ld hl,(KARA_WX) (CLAUDE.md 10)
                 add  hl,de
                 ld   (EN_HERMID),hl         ; her middle, world bytes
                 ld   b,2                    ; its side, and then the other
@@ -1393,7 +1407,8 @@ EBUL_SPAWN:     ld   e,a
                 ld   (hl),e
                 inc  hl
                 ld   (hl),EBUL_LIFE_INIT
-                ret
+                ld   a,SFX_ESHOT            ; the drone's own sound: nothing
+                jp   SFX_REQ                ; it leaves behind says "fired"
 
 EBUL_CLEAR:     xor  a
                 ld   (EBUL_LIVE),a
@@ -1519,11 +1534,13 @@ EBUL_HITS_HER:  push hl
                 ld   e,(hl)                 ; its screen line
                 ld   a,(KARA_X)
                 add  a,KARA_ART_X
+BX_EB_ART       equ  $ - 1
                 ld   c,a
                 ld   a,d
                 sub  c
                 jr   c,.miss
                 cp   KARA_BOX_W
+BX_EB_W         equ  $ - 1
                 jr   nc,.miss
                 ld   a,(KARA_Y)
                 ld   c,a
@@ -1531,6 +1548,7 @@ EBUL_HITS_HER:  push hl
                 sub  c
                 jr   c,.miss
                 cp   KARA_BOX_H
+BX_EB_H         equ  $ - 1
                 jr   nc,.miss
                 ; AND SHE IS SHORTER WHEN SHE CROUCHES. The pose is the
                 ; roll's first cel and the artist draws it from line 23
@@ -1652,7 +1670,9 @@ ENEMY_SHOT_CHECK:
 
 ; ENEMY_WOUND - one hit on IX. Carry set if that killed it.
 ;                                destroys AF,DE,HL
-ENEMY_WOUND:    ld   a,(ix + ES_HP)
+ENEMY_WOUND:    ld   a,SFX_EHIT             ; SFX_REQ keeps the flags: the
+                call SFX_REQ                ; carry below is this routine's
+                ld   a,(ix + ES_HP)         ; answer (src/sound.asm)
                 dec  a
                 ld   (ix + ES_HP),a
                 ret  nz
@@ -1673,6 +1693,8 @@ ENEMY_WOUND:    ld   a,(ix + ES_HP)
                 ; more frames instead, falling and flashing, and
                 ; ENEMY_PICK above keeps picking it while it does.
                 ld   (ix + ES_DIE),EN_DIE_FRAMES
+                ld   a,SFX_EKILL
+                call SFX_REQ
                 scf
                 ret
 
@@ -1823,6 +1845,7 @@ ENEMY_REFRESH:  ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
                 or   a
                 sbc  hl,de
                 ld   de,KARA_BOX_W / 2
+BX_EN_MID       equ  $ - 2
                 or   a
                 sbc  hl,de                  ; ... less hers
                 ld   a,h
@@ -1972,6 +1995,7 @@ ENEMY_SLOT:     ; HER BOX, AS SHE WAS DRAWN, in world units - FIRST,
                 ; in the view she was drawn in, which is the one before
                 ; SCROLL_VBLANK latches.
                 ld   a,KARA_W_BYTES
+BX_EN_KW        equ  $ - 1
                 ld   (EN_KW),a
                 ld   a,(KARA_LAST_CNT)
                 ld   (EN_KH),a

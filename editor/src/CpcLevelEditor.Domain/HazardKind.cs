@@ -24,4 +24,13 @@ public enum HazardKind : byte
 {
     /// <summary>The forest's retractable spike trap: retracted, half, full, half.</summary>
     SpikeTrap = 0,
+
+    /// <summary>
+    /// The sea's live cable: off, a warning flash, off, live (CLAUDE.md 8.18).
+    /// A COLUMN of cells — <c>p1</c>'s top nibble is how many cells BELOW
+    /// the record's own the run goes on for, and its bits 2-3 how far into
+    /// its first cel it begins, in quarters, so that two cables need not
+    /// change on the same frame. The spike trap's top six bits are 0.
+    /// </summary>
+    Cable = 1,
 }

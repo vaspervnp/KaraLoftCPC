@@ -126,6 +126,18 @@ def mirror_byte(b):
     return out
 
 
+def widest(blob):
+    """The longest span in one encoded frame: y0, lines, then groups of
+    (nlines, count, dskip lo, dskip hi, nlines * count mask/data pairs)
+    until nlines is 0."""
+    i, w = 2, 0
+    while blob[i]:
+        n, c = blob[i], blob[i + 1]
+        w = max(w, c)
+        i += 4 + 2 * n * c
+    return w
+
+
 def encode_frame(rgba, box, palette, mirror=False):
     """One frame of the sheet -> its span record, and some statistics.
 
@@ -456,6 +468,12 @@ def main():
            f"{name}_BOX_W".ljust(23) + f" equ {fw // 2}        ; bytes",
            f"{name}_BOX_H".ljust(23) + f" equ {fh}",
            f"{name}_BLOB_SIZE".ljust(23) + f" equ {len(out)}",
+           # THE WIDEST RUN, which is what the blitter's unrolled
+           # SPAN_RUN has to be at least as long as - and that is not
+           # the box: the swimmer's box is 32 bytes and her widest line
+           # is 20. Read back out of the bytes just written, so it is
+           # the blob's and not this tool's opinion of it.
+           f"{name}_SPAN_MAX".ljust(23) + f" equ {max(widest(b) for b in blobs)}",
            ""]
     def equate(sym, value):
         inc.append(sym.ljust(23) + f" equ {value}")   # ljust alone runs a long

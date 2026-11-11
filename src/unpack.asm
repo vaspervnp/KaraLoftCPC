@@ -26,9 +26,12 @@
 ; =====================================================================
 
 LEVEL_STAGE     equ &8000       ; the packed stream lands here; the
-                                ; biggest measured is 4,695 bytes and
-                                ; &8000-&9FFF holds 8,192
-LEVEL_STAGE_MAX equ &2000
+                                ; biggest measured is 4,912 bytes -
+                                ; ten sectors, 5,120 as they are read
+LEVEL_STAGE_MAX equ &1400       ; ... and ten is the room. It was
+                                ; &2000 until the sound took &9400 up
+                                ; (src/main.asm); tools/dskdata.py
+                                ; refuses a stream of more sectors
 
 ; ---------------------------------------------------------------------
 ; UNPACK_BANK - page a bank in and fill it from a packed stream.

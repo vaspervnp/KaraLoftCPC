@@ -893,7 +893,8 @@ HUD_INV:        ld   a,(KEYS_COUNT)
                 ld   hl,HUD_INV_K
                 cp   (hl)
                 jr   nz,.changed
-                ld   a,(COINS_COUNT)
+                ld   a,(COINS_COUNT)        ; ... or her AIR, under water:
+HX_SLOT2_A      equ  $ - 2                  ; src/swim.asm patches it
                 ld   hl,HUD_INV_C
                 cp   (hl)
                 jr   nz,.changed
@@ -967,13 +968,21 @@ HUD_INV_LAYOUT: ld   a,(KEYS_COUNT)
 .key:           ld   de,HUD_INV_BUF
                 call HUD_INV_ITEM
 
+                ; THE SECOND SLOT IS THE COINS ON LAND AND HER AIR IN
+                ; THE WATER - the same icon-and-digit, three addresses
+                ; patched by BOX_SET (src/swim.asm), because a level of
+                ; water has no coin in it and the strip has no fourth
+                ; cell to spare (7.8).
                 ld   a,(COINS_COUNT)
+HX_SLOT2_B      equ  $ - 2
                 ld   (HUD_INV_C),a
                 call HUD_INV_DIGIT
                 ld   hl,HUD_ICON_COIN
+HX_ICON2        equ  $ - 2
                 or   a
                 jr   nz,.coin
                 ld   hl,HUD_ICON_COIN_DARK
+HX_ICON2_DARK   equ  $ - 2
 .coin:          ld   de,HUD_INV_BUF + 6
                 ; falls into HUD_INV_ITEM
 

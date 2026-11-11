@@ -878,23 +878,40 @@ def main():
           before == 0 and p.byte("GAME_STATE") == GS_CLEAR,
           f"GAME_STATE {before} -> {p.byte('GAME_STATE')}")
 
-    # AND THAT IS THE END OF THE CAVE: level 13 is the undersea's first
-    # and nobody has painted it, so LEVEL_GOTO refuses and the game
+    # AND THAT IS THE END OF THE CAVE: level 13 is the undersea's first.
+    # Whether it is PAINTED is read off build/ and not written down here -
+    # the third time a suite has had the end of the game in it (CLAUDE.md
+    # 8.15). Painted, the gate is a door an environment away and she
+    # arrives in the water (8.18); not, LEVEL_GOTO refuses and the game
     # starts again from the title (8.1) - a full reset, not a door.
-    back = None
+    sea = os.path.exists(os.path.join(os.path.dirname(os.path.abspath(
+        __file__)), "..", "build", "level_13.lvl"))
+    back = into = None
     for f in range(1400):
         p.m.run_frames(1)
+        if p.byte("GAME_STATE") == 0 and p.byte("LEVEL_CUR") == 12:
+            into = f
+            break
         if p.byte("LEVEL_CUR") == 0 and p.byte("GAME_STATE") == 0:
             back = f
             break
-        if f > 200:
+        if f > 200 and not sea:
             p.m.joystick(0x10)
             p.m.run_frames(2)
             p.m.joystick(0)
-    check("... and past it is the title, because level 13 is not painted",
-          back is not None and p.byte("PLAYER_HP") == 100,
-          f"back on level 1 after {back} hardware frames, HP "
-          f"{p.byte('PLAYER_HP')}")
+    if sea:
+        p.m.run_frames(10)
+        check("... and past it is the undersea, an environment away, and "
+              "she arrives swimming",
+              into is not None and p.byte("LEVEL_ENV") == 3
+              and p.byte("LEVEL_SWIM") == 1,
+              f"level 13 after {into} hardware frames, LEVEL_ENV "
+              f"{p.byte('LEVEL_ENV')}, LEVEL_SWIM {p.byte('LEVEL_SWIM')}")
+    else:
+        check("... and past it is the title, because level 13 is not "
+              "painted", back is not None and p.byte("PLAYER_HP") == 100,
+              f"back on level 1 after {back} hardware frames, HP "
+              f"{p.byte('PLAYER_HP')}")
 
     # -----------------------------------------------------------------
     # A MISS COSTS THE HEIGHT AND NOT A POINT, and that is a number and

@@ -50,54 +50,18 @@ HURT_FRAMES     equ 2           ; and there are two of them - which is the
                                 ; same 80 ms the old four were at 50 Hz
 
 ; =====================================================================
-; BOOTSTRAP - entered from BASIC with CALL &4000, firmware still live.
+; THE BOOTSTRAP IS NOT HERE ANY MORE: it is src/boot.asm, and what this
+; file assembles is the three images it unpacks - the core, the HIGH
+; image and the SOUND image, back to back in build/engine.bin from
+; BOOT_ADDR, each for the address it runs at. GAME.BIN is those three
+; ZX0-packed and the loader around them (tools/make_boot.py), because
+; the sound image took the plain file past the AMSDOS blocks the disc
+; has room for (CLAUDE.md 4, 7.9). ORG's second argument is what lets
+; an image's address and its place in the file differ.
 ; =====================================================================
-                org  BOOT_ADDR
+BOOT_END        equ  BOOT_ADDR              ; the images start the file
+CORE_IMAGE      equ  BOOT_END               ; where the core bytes sit in it
 
-BOOT:           di
-                ld   sp,STACK_TOP           ; below VRAM, above everything else
-
-                ; Mode 0 and both ROMs off. The lower ROM must go before we
-                ; execute at &0040, otherwise reads from &0000-&3FFF come
-                ; from the OS ROM rather than from the code we just copied.
-                ld   bc,GA_PORT * 256 + RMR_MODE0
-                out  (c),c
-
-                ; Known RAM configuration before touching the window.
-                ld   bc,GA_PORT * 256 + RAM_CFG_BASE
-                out  (c),c
-
-                ; Relocate the core engine image down to &0040. Source and
-                ; destination do not overlap, so a plain LDIR is safe.
-                ld   hl,CORE_IMAGE
-                ld   de,CORE_ADDR
-                ld   bc,CORE_SIZE
-                ldir
-
-                ; ... and the HIGH image, which is in the binary but
-                ; not in the core because the core is full: the title's
-                ; strips, up at HIGH_ADDR (see the note at the end).
-                ld   hl,HIGH_IMAGE
-                ld   de,HIGH_ADDR
-                ld   bc,HIGH_SIZE
-                ldir
-
-                ; ... AND THERE IS NO LEVEL IMAGE TO RELOCATE ANY MORE.
-                ; A second LDIR used to bring level_1.lvl and its tile
-                ; flags down to &B000 out of the binary. A level the
-                ; game LOADS cannot come out of a binary, so they are on
-                ; the disc with the art and LEVEL_MAP_LOAD reads them -
-                ; see the note by LEVEL_IMAGE.
-
-                jp   CORE_ENTRY             ; no way back to BASIC from here
-
-BOOT_END:
-CORE_IMAGE      equ  BOOT_END               ; where the core bytes sit in the file
-
-; =====================================================================
-; CORE ENGINE - assembled for &0040, stored in the file after the
-; bootstrap. ORG's second argument is what lets those differ.
-; =====================================================================
                 org  CORE_ADDR, BOOT_END
 
 CORE_START:
@@ -113,7 +77,8 @@ CORE_ENTRY:     ; Install our own IM 1 handler. The firmware's lives in the
 
                 call PALETTE_SET
                 call BUFFERS_CLEAR
-                xor  a
+                call SOUND_INIT             ; before the first disc read,
+                xor  a                      ; which mutes the chip
                 call SCREEN_CLS
 
                 call BANK_TEST              ; must run before anything else
@@ -216,7 +181,9 @@ SCROLL_DEMO:    di
                 jr   nc,.installed
                 xor  a                      ; it refused: the bytes arrived
                 ld   (LEVEL_OK),a           ; and were not a level
-.installed:     ld   a,(LEVEL_OK)
+.installed:     call SOUND_LEVEL            ; the City's tune, and the watch
+                                            ; put level with her pockets
+                ld   a,(LEVEL_OK)
                 or   a
                 call z,DISC_DIAG
                 call INPUT_INIT
@@ -489,6 +456,20 @@ SCROLL_DEMO:    di
                 call ENEMY_SLOT
                 call SCROLL_VBLANK
                 call ENEMY_REFRESH_EARLY
+                ; THE TRAPS' CYCLE, AND THE FIRST OF ITS PAINT, BEFORE THE
+                ; STRIP. A row step down vacates the whole of row 22 and
+                ; that is 32,856 T of this sweep (7.8): after it, the paint
+                ; below had one cell before its tick and the paint at the
+                ; end of the sweep was reached 432 T past its own, so in
+                ; the sea a cable that changed on such a frame was two
+                ; cells behind the map for a game frame, four times down
+                ; level 13. Here a cell is begun only before tick 2, which
+                ; is three of them and the strip still done by ~52,000 T
+                ; of the 63,488 it has. In the forest it is the strip's
+                ; step right, 7,636 T, given back to the field.
+                ; A level with no trap pays the two tests.
+                call HAZARD_TICK
+                call HAZARD_PAINT_E
                 call HUD_SERVICE
                 ; ... AND WHAT THE DRONE THINKS, in the rest of that wait:
                 ; its sight, its gun, its cels and its rounds' flight,
@@ -515,14 +496,24 @@ SCROLL_DEMO:    di
                 ; from the top of the sweep to the bottom (src/enemy.asm).
                 call ENEMY_MOVE
                 call ENEMY_PICK_NEXT
-                ; THE SPIKE TRAPS' CYCLE, AND EVERY CELL OF IT THAT IS NOT
-                ; UNDER HER. Still in the wait for the head gate, which is
-                ; time the loop had always spent doing nothing; the tick
-                ; writes the map before H_HEAD reads it for the incoming
-                ; column, and the paint only begins a cell with a whole
-                ; tick to spare in front of the gate (src/hazard.asm).
-                call HAZARD_TICK
+                ; ... AND EVERY CELL OF IT THAT IS NOT UNDER HER and the
+                ; first pass had no room for. Still in the wait for the
+                ; head gate, which is time the loop had always spent doing
+                ; nothing; the tick has written the map before H_HEAD
+                ; reads it for the incoming column, and the paint only
+                ; begins a cell with a whole tick to spare in front of the
+                ; gate (src/hazard.asm).
                 call HAZARD_PAINT_B
+                ; THE SOUND, once a game frame: what the game did, and a
+                ; tick of the music and the effects (src/sound.asm). Here
+                ; and not in the interrupt, whose tick inside the pulse
+                ; lands in the first sweep's top border - her lead over
+                ; the beam. And AFTER the traps' paint and not before it:
+                ; the paint begins a cell only with the tick to spare, so
+                ; put first the sound's 4,000-10,000 T took cells off it,
+                ; and walking across level 7's field 12 game frames of 80
+                ; showed a trap a cel behind (tools/test_forest7.py).
+                call SOUND_TICK
 
                 ; AND WAIT FOR THE INTERRUPT TO STAMP THIS FRAME'S ANCHOR
                 ; BEFORE USING ANY GATE THAT COUNTS FROM IT. THIS WAS THE
@@ -1020,7 +1011,21 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "tilemap.asm"
                 include "hud.asm"
                 include "flow.asm"
-                include "mapshape.asm"
+                ; mapshape.asm is in the TOP image now - it runs once a
+                ; level and the core needed the room (see below)
+
+; ---------------------------------------------------------------------
+; EVERY BLOB THE SPAN BLITTER DRAWS HAS ITS WIDEST LINE INSIDE SPAN_RUN,
+; which is unrolled to SPAN_MAX_WIDTH and entered by count: a line one
+; byte wider would enter it one group before its start. The exporter
+; writes each blob's widest run; the swimmer's is asserted in swim.asm.
+; ---------------------------------------------------------------------
+                assert KCORE_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert KEXTRA_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert KACT_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert CITYDRONE_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert CITYAGENT_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert FORESTSNIPER_SPAN_MAX <= SPAN_MAX_WIDTH
 
 ; ---------------------------------------------------------------------
 ; Cross-module invariants. They live here, after every include, because
@@ -1231,7 +1236,8 @@ LEVEL_LVL       equ  LEVEL_IMAGE + LEVEL_TILEFLAGS_N
                 ; already work. A level that grew past the stack would
                 ; otherwise corrupt it at the moment it loaded.
                 include "levels/mapimage.inc"
-                assert LEVEL_IMAGE + LEVEL_IMAGE_SIZE < STACK_TOP - 1024
+                ; ... and it stops short of the TOP image, which is
+                ; asserted where TOP_ADDR is defined, below
                 ; and it must not land on top of what it is copied INTO
                 assert LEVEL_IMAGE >= ENT_TABLE + ENT_MAX * ENT_STRIDE
 
@@ -1266,3 +1272,57 @@ HIGH_SIZE       equ  HIGH_END - HIGH_START
 ; HAZARD_SPAWN empties the list at every level install (src/hazard.asm).
 HZ_PEND         equ  HIGH_END
                 assert HZ_PEND + HZ_PEND_MAX * 2 <= LEVEL_IMAGE
+
+; =====================================================================
+; THE SOUND IMAGE - the player, its tunes and its effects (src/sound.asm,
+; tools/make_music.py), assembled for SOUND_ADDR, stored after the HIGH
+; image in the file and put there by the bootstrap's third LDIR.
+;
+; &9400 IS BELOW THE MAP AND ABOVE THE LOADER'S STAGING, which is the
+; one place left in base RAM with room for it: the core has a hundred
+; bytes, the HIGH image a hundred and forty, and the stack's kilobyte
+; is not for spending. What it costs is the staging buffer, which was
+; 8 KB at &8000 and is 5 KB now - TEN sectors, which is exactly the
+; biggest stream on the disc (the forest's C4, 4,912 bytes) - and
+; tools/dskdata.py refuses a stream that does not fit rather than
+; letting a load run into the music.
+; =====================================================================
+SOUND_ADDR      equ  &9400
+SOUND_IMAGE     equ  HIGH_IMAGE + HIGH_SIZE
+                org  SOUND_ADDR, SOUND_IMAGE
+SOUND_START:
+                include "sound.asm"
+SOUND_END:
+SOUND_SIZE      equ  SOUND_END - SOUND_START
+                assert SOUND_END <= MAP_ADDR
+                assert SOUND_ADDR >= LEVEL_STAGE + LEVEL_STAGE_MAX
+                assert SOUND_ADDR >= ENEMY_SCRIPT + SPAN_SCRIPT_MAX
+
+; =====================================================================
+; THE TOP IMAGE - what the undersea needed and the core had no room for
+; (src/swim.asm), and the map's shape patcher (src/mapshape.asm), which
+; runs once a level and was 388 bytes of a core with 88 left. Assembled
+; for TOP_ADDR, stored after the SOUND image in the file, and put there
+; by the bootstrap's fourth unpack.
+;
+; &BB00-&BEFF IS THE KILOBYTE THE STACK WAS KEPT CLEAR OF, AND IT WAS
+; MEASURED BEFORE IT WAS SPENT. Painted with a pattern and played - a
+; level, a death and its restart, four doors into the forest and four
+; into the cave, the cave's ladders and the doors on - the stack never
+; wrote below &BFDD: 35 bytes of the 1,024. It keeps 256. The level
+; image below it is the other neighbour, and the biggest the build makes
+; is asserted short of TOP_ADDR below. Nothing else writes in this
+; image but its own patchers' working bytes (SHAPE_NOW and the like).
+; =====================================================================
+TOP_ADDR        equ  &BB00
+TOP_IMAGE       equ  SOUND_IMAGE + SOUND_SIZE
+                org  TOP_ADDR, TOP_IMAGE
+TOP_START:
+                include "levels/_shared/kswim.inc"
+                include "mapshape.asm"
+                include "swim.asm"
+                include "oxygen.asm"
+TOP_END:
+TOP_SIZE        equ  TOP_END - TOP_START
+                assert TOP_END <= STACK_TOP + 1 - 256
+                assert LEVEL_IMAGE + LEVEL_IMAGE_SIZE <= TOP_ADDR

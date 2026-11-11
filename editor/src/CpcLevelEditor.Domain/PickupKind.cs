@@ -19,4 +19,7 @@ public enum PickupKind : byte
 
     /// <summary>The book of level 3's puzzle; <c>p1</c> carries which symbol.</summary>
     Book = 5,
+
+    /// <summary>An oxygen tank: her air, full, in a level of water (CLAUDE.md 8.18).</summary>
+    Oxygen = 6,
 }

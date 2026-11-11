@@ -388,7 +388,10 @@ FDC_XFER_OK:    ld   a,(DISC_ST0)
 ; read and the next, which is what the command overhead fits into. The
 ; seek is only paid when the track actually changes.
 ; ---------------------------------------------------------------------
-DISC_READ:      call DISC_MOTOR_ON
+DISC_READ:      call SOUND_MUTE             ; nothing ticks for the whole
+                                            ; read: a note left on would
+                                            ; hold for 1.6 s (sound.asm)
+                call DISC_MOTOR_ON
                 call FDC_DRAIN              ; whatever AMSDOS left behind
                 ld   a,&FF
                 ld   (DISC_HEAD),a          ; seek on the first sector, so the

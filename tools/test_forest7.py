@@ -459,7 +459,10 @@ def level7(sym, tiles, trap0):
           f"{len(rb)} bites at a run against {len(wb)} at a walk")
 
     # ---- the controls on the picture
-    for name, poke in (("HAZARD_PAINT_B poked to RET", [("HAZARD_PAINT_B", 0xC9)]),
+    for name, poke in (("HAZARD_PAINT_B poked to RET",
+                        [("HAZARD_PAINT_B", 0xC9)]
+                        + ([("HAZARD_PAINT_E", 0xC9)] if "HAZARD_PAINT_E" in sym
+                           else [])),
                        ("HZ_UNDER_HER told she is never there",
                         [("HZ_UNDER_HER", 0xB7), ("HZ_UNDER_HER", 0xC9, 1)])):
         mx, _ = to_level(sym, 7, to_level(sym, 6)[0])
@@ -502,6 +505,8 @@ def level7(sym, tiles, trap0):
     for name, guard in (("with the guard", True), ("without it", False)):
         mx, _ = to_level(sym, 7, to_level(sym, 6)[0])
         mx.poke(sym["HAZARD_PAINT_B"], 0xC9)
+        if "HAZARD_PAINT_E" in sym:         # ... and the pass before the
+            mx.poke(sym["HAZARD_PAINT_E"], 0xC9)    # strip, or it paints them
         t = sym["HZ_TABLE"]
         for k in range(mx.peek(sym["HZ_COUNT"])):
             e = t + 8 * k
@@ -514,12 +519,13 @@ def level7(sym, tiles, trap0):
             mx.poke(e + 3, new_cell >> 8)
             mx.poke(e + 5, 3 * 2)
         if not guard:
-            a = sym["HZ_LIMIT"]
-            code = [mx.peek(a + i) for i in range(48)]
-            i2 = next(i for i in range(47) if code[i:i + 2] == [0xFE, 2])
-            i39 = next(i for i in range(47) if code[i:i + 2] == [0xFE, 39])
-            mx.poke(a + i2 + 1, 0)
-            mx.poke(a + i39 + 1, 255)
+            # the two immediates are NAMED, because a search through the
+            # painter's code for `cp 2` is a control that breaks the day
+            # anything is put in front of it (CLAUDE.md 10)
+            assert mx.peek(sym["HZ_GUARD_L"]) == 2
+            assert mx.peek(sym["HZ_GUARD_R"]) == 39
+            mx.poke(sym["HZ_GUARD_L"], 0)
+            mx.poke(sym["HZ_GUARD_R"], 255)
         walk(mx, sym, 50)
         mx.poke(sym["PLAYER_HP"], 100)
         _, wx = walk(mx, sym, 96, tiles, excuse="all")
@@ -538,25 +544,37 @@ def level7(sym, tiles, trap0):
             ("standing in it, jumping and firing", False,
              lambda g: (JOY_UP if g % 10 == 0 else 0) | (JOY_FIRE if g % 6 < 2 else 0),
              False),
-            ("running across it, the A paint allowed to run", True, None, True)):
+            # THE RUN WITH THE GUN, because that is the path the rule is
+            # for: 800 T of room in its first sweep (CLAUDE.md 9). Once the
+            # paint was 4,100 T a cell (8.18), a plain run had room for one
+            # in front of her draw and this control, run there, was blind.
+            ("running and firing across it, the A paint allowed to run",
+             True, lambda g: JOY_RIGHT | (JOY_FIRE if g % 6 < 2 else 0), True)):
         ml, _ = to_level(sym, 7, to_level(sym, 6)[0])
         if nop:
             a = sym["HAZARD_PAINT_A"] + 10
             assert ml.peek(a) == 0xC0, "HAZARD_PAINT_A's `ret nz` moved"
             ml.poke(a, 0x00)
+            # ... AND C OFF, because B and the pass before the strip now
+            # paint every cell she is not standing in (CLAUDE.md 8.18):
+            # without this A has nothing to paint, the run cannot drop a
+            # frame, and the control is blind rather than the rule wrong.
+            # The cells under her are A's then, in front of her draw.
+            ml.poke(sym["HAZARD_PAINT_C"], 0xC9)
         walk(ml, sym, 58 if run else 66)
         ml.poke(sym["PLAYER_HP"], 100)
         if run:
             ml.key_down('A')
-            n, _ = stand_count(ml, sym, pattern=lambda g: JOY_RIGHT)
+            n, _ = stand_count(ml, sym, pattern=pattern or (lambda g: JOY_RIGHT))
             ml.key_up('A')
         else:
             n, _ = stand_count(ml, sym, pattern=pattern)
         expect = (n < 100) if nop else (n == 100)
         check(f"{label}: {'it drops' if nop else 'the 25 Hz lock'}", expect,
               f"{n} game frames in 200 hardware"
-              + (" - a cell is ~5,200 T in front of her draw and a run has 800 "
-                 "(CLAUDE.md 9), which is why it waits for her to stop" if nop else ""))
+              + (" - a cell is ~4,100 T in front of her draw and the run with "
+                 "the gun has 800 (CLAUDE.md 9), which is why it waits for her "
+                 "to stop" if nop else ""))
 
     # ---- the whole of it: the idol, the altar, the field, the key
     print("\n  and with the idol:")

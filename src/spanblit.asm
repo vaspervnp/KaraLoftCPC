@@ -57,7 +57,7 @@
 ; ---------------------------------------------------------------------
 ; THE COUNT IS THE ENTRY POINT
 ;
-; SPAN_RUN is twelve identical byte groups, entered N groups from the
+; SPAN_RUN is twenty identical byte groups, entered N groups from the
 ; end to write N bytes - the same trick the clipped box blitter in
 ; sprite.asm uses, and for the same reason: a counted loop costs 24 T a
 ; byte in bookkeeping on top of 72 T of work.
@@ -69,7 +69,7 @@
 ;       ld   (.idx + 1),a       ; A = count
 ;   .idx:  ld a,(SPAN_ENTRY)    ; ... reads SPAN_ENTRY + count
 ;
-; which works because SPAN_ENTRY is page-aligned and count is 0-12, so
+; which works because SPAN_ENTRY is page-aligned and count is 0-20, so
 ; the low byte of the address IS the index. 32 T, no scratch pair.
 ;
 ; SPAN_RUN does not RET. It falls through into the line step and the
@@ -84,7 +84,15 @@
 ;       B'  lines left in this group        C'  lines left in the sprite
 ; =====================================================================
 
-SPAN_MAX_WIDTH  equ 12                  ; 24 pixels
+                ; TWENTY BYTES, AND IT WAS TWELVE UNTIL SHE SWAM. The
+                ; swimmer is 64x24 and her widest line is 20 bytes - her
+                ; BOX is 32, and that is not what this has to cover: the
+                ; exporter writes every blob's widest run as _SPAN_MAX
+                ; and main.asm asserts each drawn blob against this.
+                ; Eight more groups are 72 bytes in a page that had 118
+                ; of padding before SPAN_ENTRY, so the core paid 8 - the
+                ; table's own eight entries (CLAUDE.md 8.18).
+SPAN_MAX_WIDTH  equ 20                  ; 40 pixels
 SPAN_MAX_LINES  equ 64
 SPAN_GROUP      equ 9                   ; bytes of one SPAN_RUN group
 SPAN_END_MARK   equ 255                 ; a count no run can have
@@ -92,8 +100,14 @@ SPAN_END_MARK   equ 255                 ; a count no run can have
                 ; straddles the fold, so two runs of header. Nothing
                 ; near it in practice - the widest line of the real art
                 ; is 11 bytes and the mean is 5.7 - but the buffer has
-                ; to survive the worst frame anyone draws later.
-SPAN_SCRIPT_MAX equ SPAN_MAX_LINES * (2 * 3 + SPAN_MAX_WIDTH) + 1
+                ; to survive the worst frame anyone draws later. AND IT
+                ; IS SIZED FOR THE TALL CELS, not for SPAN_MAX_WIDTH: a
+                ; 64-line cel is an upright one and none of those is
+                ; wider than SPAN_TALL_WIDTH, while the swimmer's 20-byte
+                ; lines come 24 to a cel - 625 bytes of script against
+                ; 1,153 (asserted in swim.asm, where her height is known).
+SPAN_TALL_WIDTH equ 12
+SPAN_SCRIPT_MAX equ SPAN_MAX_LINES * (2 * 3 + SPAN_TALL_WIDTH) + 1
 
 ; ---------------------------------------------------------------------
 ; SPAN_CLIP_V - how much of a frame is on the display, vertically.
@@ -675,7 +689,7 @@ CX_BUDGET:      ld   a,(SPAN_NL)            ; SPAN_CLIP_N's ten instructions
 
 CX_OFF_LEFT:    cp   128
                 jp   c,CX_NOTHING           ; 80..127: entirely off the right
-                neg                         ; 1..12 bytes off the left
+                neg                         ; bytes off the left, 1..127
                 ld   (CX_DROP),a
                 ld   (.d + 1),a
                 ld   a,(CX_STORED)
@@ -901,7 +915,7 @@ CX_RUN:         ld   (CX_N1),a
                 cp   7
                 jr   nz,.whole              ; a plain 256-byte crossing
                 ld   a,e
-                neg                         ; bytes left in the block, 1..12
+                neg                         ; bytes left in the block, 1..20
                 ld   (.split + 1),a
                 ld   (CX_N2),a
                 ld   a,(CX_N1)

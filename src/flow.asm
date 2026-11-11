@@ -389,6 +389,9 @@ LEVEL_ENTER:    ; ---- this level's own puzzle state -----------------
                                             ; about to be replaced
                 ld   (ENT_RP_X),hl          ; ... and where it was, which
                 ld   (ENT_RP_Y),hl          ; nothing reads without it
+                call SOUND_LEVEL            ; the environment's tune, and the
+                                            ; watch put level with what she
+                                            ; carries in (src/sound.asm)
                 jp   HUD_DISOWN             ; ... and the strip is laid out
                                             ; again from what it now finds
 

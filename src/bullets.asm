@@ -124,6 +124,7 @@ BUL_SPAWN:      ld   hl,BULLETS
                 jr   z,.muzzle          ; 0 = facing right: as drawn
                 neg
                 add  a,KARA_W_BYTES * 2 - 1
+BX_MUZZLE       equ  $ - 1
 .muzzle:        srl  a                  ; pixels -> screen bytes
                 ld   d,a
                 ld   a,(KARA_X)

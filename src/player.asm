@@ -162,6 +162,9 @@ WORLD_W         equ MAP_W * TILE_W_BYTES    ; 128 tiles of 4 = 512 bytes,
                 ; here: the two have to agree or she moves under a cel
                 ; that says she is not moving.
 PLAYER_UPDATE:  call FALL_MARK              ; where this frame's fall began
+                ld   a,(LEVEL_SWIM)         ; THE WATER OWNS HER, dead or
+                or   a                      ; alive - none of the ladder,
+                jp   nz,PLAYER_SWIM         ; the ledge or the fall is here
                 ld   a,(KARA_STATE)
                 cp   KST_CLIMB_TURN
                 ret  z
@@ -277,6 +280,8 @@ PM_KARA_XMAX    equ  $ - 2
                 ; pixels of level nobody can see the edge of.
 .probe_r:       push hl
                 ld   de,KARA_BOX_W - 1
+BX_PROBE_R      equ  $ - 2                  ; after it - before, the ex de,hl
+                                            ; ahead of push hl (CLAUDE.md 10)
                 add  hl,de                  ; ... and its leading edge
                 ld   de,(KARA_WY)
                 call BOX_SOLID_H
@@ -293,6 +298,7 @@ PM_KARA_XMAX    equ  $ - 2
                 dec  a                      ; her screen column after 1 byte
                 ld   c,a
                 ld   a,CAM_LEAD
+BX_LEAD_X       equ  $ - 1
                 sub  c                      ; how far short of the mark
                 cp   CAM_BAND
                 ld   a,(PLAYER_STEP)
@@ -314,8 +320,10 @@ PM_KARA_XMAX    equ  $ - 2
                 jr   nz,.probe_l            ; BOX and her sprite starts that
                 ld   a,l                    ; many bytes to the LEFT of it, so
                 cp   KARA_ART_X             ; a box at 0 puts the sprite at -3
+BX_EDGE_CP      equ  $ - 1
                 jr   nc,.probe_l            ; - KARA_X comes back 253 and the
 .edge_l:        ld   hl,KARA_ART_X          ; blitter culls her.
+BX_EDGE_L       equ  $ - 2
                                             ; Without a bound at all she walks
                                             ; off the left of the world:
                                             ; KARA_WX wraps
@@ -487,6 +495,7 @@ HAZARD_HURT:    ld   a,(LEVEL_HAZARD)
                                             ; all - tilemap.asm asked once
                 ld   hl,(KARA_WY)
                 ld   de,KARA_BOX_H - 1
+BX_LAST_LINE    equ  $ - 2
                 add  hl,de
                 ex   de,hl                  ; DE = her LAST line
                 ld   hl,(KARA_WX)           ; HL = her box's left edge
@@ -1132,6 +1141,7 @@ PM_CD_VIEW      equ  $ - 1
 
 .facing_left:   call PLAYER_SCREEN_X
                 cp   CAM_LEAD
+BX_LEAD_CAM     equ  $ - 1
                 ret  nc                     ; ahead of the mark: let her walk
                 ld   a,(WORLD_X)
                 or   a
@@ -1184,6 +1194,7 @@ CAMERA_V:       ld   a,(V_REQUEST)
                 ld   hl,(KARA_WY)
                 ld   a,l
                 add  a,KARA_BOX_H / 2       ; HER MIDDLE, in sixteen bits and
+BX_CAM_MID      equ  $ - 1
                 ld   l,a                    ; without BC, which this routine
                 ld   a,h                    ; has never destroyed
                 adc  a,0
@@ -1280,6 +1291,7 @@ PM_VT_VIEW      equ  $ - 1
 
                 ld   hl,(KARA_WY)
                 ld   de,CAM_BOT - KARA_BOX_H / 2
+BX_VIEW_MID     equ  $ - 2
                 or   a
                 sbc  hl,de
                 jr   c,.top                 ; her middle is inside the band
@@ -1429,6 +1441,7 @@ PLAYER_SPAWN:   ld   a,(ENT_COUNT)
                                             ; pixels (8.1). B is free here:
                                             ; the search's counter is spent
                 ld   hl,0 - KARA_BOX_H      ; the record's y is the BASE
+BX_SPAWN        equ  $ - 2
                 add  hl,bc
                 ld   (KARA_WY),hl
                 ld   (FALL_TOP),hl          ; ... and she is not falling from
@@ -1470,6 +1483,7 @@ PLAYER_TO_SCREEN:
                 call VIEW_NEXT_X
                 add  a,a
                 add  a,KARA_ART_X           ; THE ONE PLACE THE ART OFFSET IS
+BX_TO_SCREEN    equ  $ - 1
                 ld   e,a                    ; PAID: KARA_X is the sprite's
                 ld   a,(KARA_WX)            ; left edge and KARA_WX the box's,
                 sub  e                      ; and the blitter wants the sprite

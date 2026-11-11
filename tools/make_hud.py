@@ -134,7 +134,7 @@ def pip_cell(lines, left, right, palette):
 # height has to be chosen. It is chosen by ink and not by arithmetic:
 # the 8-line window with the most drawn pixels in it, so a re-drawn
 # icon re-crops itself.
-ICONS = ("key", "coin")
+ICONS = ("key", "coin", "oxygen")   # the oxygen: the sea's second slot (8.18)
 
 
 def icon_bytes(sheet, box, palette, dark=None):

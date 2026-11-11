@@ -758,8 +758,13 @@ def read_tile_bank(machine, sym, n, src=0x4000):
 
     read_ram() ignores banking and always returns bank 1, so the bytes
     have to be moved into base RAM by the machine itself. The scratch is
-    &9000 - inside the level staging buffer, which is free once a level
-    has finished loading, and NOT &A000, which is the map.
+    &8C00-&93FF - inside the level staging buffer, past the enemy's
+    erase script and below the SOUND image at &9400, which is the part
+    of the buffer nothing uses once a level has loaded. It is 2 KB, so a
+    longer read is taken in pieces: the City's tile blob is 3,264 bytes,
+    and copied whole from &9000 as it used to be it would have run
+    through the music player and the next tick would have crashed in
+    it (src/main.asm).
 
     The blob is entered with a JP and its last instruction is a spin
     rather than a RET, so the caller's PC is put back by hand - to the
@@ -768,14 +773,22 @@ def read_tile_bank(machine, sym, n, src=0x4000):
     and the blob leaves BC pointing at the gate array; resuming mid-spin
     polls the wrong chip and hangs forever.
     """
-    machine.run_code(0x8000, bytes([
-        0x01, 0xC4, 0x7F, 0xED, 0x49,                       # ld bc,&7FC4:out
-        0x21, src & 0xFF, src >> 8, 0x11, 0x00, 0x90,       # hl=src de=&9000
-        0x01, n & 0xFF, n >> 8, 0xED, 0xB0,                 # bc=n : ldir
-        0x01, 0xC0, 0x7F, 0xED, 0x49,                       # ld bc,&7FC0:out
-        0x18, 0xFE]))                                       # jr $
-    out = machine.read_ram(0x9000, n)
-    machine.set_pc(sym["WAIT_VSYNC"])
+    SCRATCH, PIECE = 0x8C00, 0x0800
+    assert SCRATCH >= sym["ENEMY_SCRIPT"] + sym["SPAN_SCRIPT_MAX"]
+    assert SCRATCH + PIECE <= sym["SOUND_ADDR"]
+    out = bytearray()
+    while len(out) < n:
+        k = min(PIECE, n - len(out))
+        a = src + len(out)
+        machine.run_code(0x8000, bytes([
+            0x01, 0xC4, 0x7F, 0xED, 0x49,                   # ld bc,&7FC4:out
+            0x21, a & 0xFF, a >> 8,                         # hl = src
+            0x11, SCRATCH & 0xFF, SCRATCH >> 8,             # de = scratch
+            0x01, k & 0xFF, k >> 8, 0xED, 0xB0,             # bc=k : ldir
+            0x01, 0xC0, 0x7F, 0xED, 0x49,                   # ld bc,&7FC0:out
+            0x18, 0xFE]))                                   # jr $
+        out += machine.read_ram(SCRATCH, k)
+        machine.set_pc(sym["WAIT_VSYNC"])
     return out
 
 
@@ -798,7 +811,7 @@ def column_sweep(m, sym):
     screen with noise before every placement, which also makes "nothing
     outside the column was touched" free to check.
     """
-    TILES, MAPA, STUB = 0x4000, MAP_ADDR, 0x9800
+    TILES, MAPA, STUB = 0x4000, MAP_ADDR, 0x9300   # &9400 up is the sound
 
     def page(cfg):
         m.write_ram(STUB, bytes([0xF3, 0x01, cfg, 0x7F, 0xED, 0x49, 0x18, 0xFE]))

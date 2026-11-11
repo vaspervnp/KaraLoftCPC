@@ -238,6 +238,7 @@ BOX_SOLID_H:    ld   a,e
                 call MAP_CELL               ; the column, resolved once
                 pop  af
                 add  a,KARA_BOX_H - 1
+BX_SOLID_H      equ  $ - 1
                 rrca
                 rrca
                 rrca
@@ -283,6 +284,7 @@ BOX_SOLID_V:    ld   a,b
                 ld   a,l
                 and  TILE_W_BYTES - 1       ; how far into its tile the edge is
                 add  a,KARA_BOX_W - 1       ; ... plus her width: 0..8
+BX_SOLID_V      equ  $ - 1
                 rrca                        ; / TILE_W_BYTES - and RRCA wraps
                 rrca                        ; bit 0 round to bit 7, so the AND
                 and  &3F                    ; below is not optional

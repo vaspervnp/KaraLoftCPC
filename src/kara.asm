@@ -35,6 +35,7 @@ KARA_H          equ KCORE_BOX_H             ; 64 lines
 KSET_CORE       equ 0                       ; idle, walk, jump, shoot
 KSET_EXTRA      equ 1                       ; run, roll
 KSET_ACT        equ 2                       ; hang, use, hurt, climb_turn, climb
+KSET_SWIM       equ 3                       ; swim, swim_shoot - the undersea
 KSET_BYTES      equ 8
 KSET_TWO_FACED  equ 255                     ; ... every frame of this set is
 
@@ -80,6 +81,17 @@ KACT_ROW:       db L1_KACT_BANK
                 dw L1_KACT_ADDR
                 db L1_KACT_L_BANK
                 dw L1_KACT_L_ADDR
+                db 0
+
+                ; THE SWIMMER, and PINNED like kcore and kextra: the swim
+                ; set REPLACES the run set in the one bank set that has
+                ; water (CLAUDE.md 6.2), in &C7 where kextra is anywhere
+                ; else, so it has one address and a constant can name it.
+                db KSET_TWO_FACED
+                db KSWIM_PIN_BANK
+                dw KSWIM_PIN_ADDR
+                db KSWIM_L_PIN_BANK
+                dw KSWIM_L_PIN_ADDR
                 db 0
 
 ; ---------------------------------------------------------------------
@@ -222,6 +234,7 @@ KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
                 ld   a,(KARA_X)
                 ld   d,a
                 ld   e,KARA_W_BYTES
+BX_HUD_CLIP     equ  $ - 1
                 ld   a,b
                 call HUD_CLIP               ; ... and never into the strip
                 ld   (KARA_LAST_TOP),a
@@ -268,6 +281,7 @@ KARA_SPAN_DRAW: ld   a,(KARA_SET)           ; which blob this cel is in
                 ; one floor down.
                 ld   a,(SPAN_X)
                 cp   SCR_CHARS * 2 - KARA_W_BYTES + 1
+BX_LANE         equ  $ - 1
                 ld   a,c                    ; neither of these touches F
                 ld   bc,SPAN_SCRIPT
                 jr   nc,.clipped

@@ -149,7 +149,8 @@ FADE_SHOW:      ld   hl,(FADE_PAL)
 .hold:          push bc
                 call WAIT_VSYNC_END
                 call WAIT_VSYNC
-                pop  bc
+                call SOUND_FADE             ; the music goes on, and down a
+                pop  bc                     ; step with every step of black
                 djnz .hold
                 ret
 

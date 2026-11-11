@@ -76,6 +76,7 @@ PU_MEDKIT       equ 2
 PU_COIN         equ 3
 PU_IDOL         equ 4
 PU_BOOK         equ 5           ; p1 carries which symbol
+PU_OXYGEN       equ 6           ; a tank: her air, full (8.18)
 
 ENT_KIND        equ 0
 ENT_X           equ 1
@@ -196,6 +197,7 @@ ENT_OVERLAP:    push hl
                 ; she is to the LEFT: does her right edge reach it?
                 add  hl,de                  ; undo
                 ld   de,KARA_BOX_W
+BX_ENT_W        equ  $ - 2
                 add  hl,de
                 or   a
                 ld   d,b
@@ -249,6 +251,7 @@ ENT_OVERLAP:    push hl
                 ; hit, which is the zero test the byte version made with
                 ; JR Z.
 .k_above:       ld   de,KARA_BOX_H          ; D is spent: this path is done
+BX_ENT_H        equ  $ - 2
                 add  hl,de                  ; with its height
                 jr   nc,.miss2
                 ld   a,h
@@ -347,12 +350,14 @@ ENTITY_COLLISION_CHECK:
                 or   a
                 sbc  hl,de                  ; kara - entity
                 ld   de,KARA_BOX_W - 1
+BX_ENT_W1       equ  $ - 2
                 add  hl,de                  ; 0..(max + KARA_BOX_W - 2) if it
                 ld   a,h                    ; can possibly be touching
                 or   a
                 jr   nz,.far
                 ld   a,l
                 cp   HITBOX_W_MAX + KARA_BOX_W - 1
+BX_ENT_WMAX     equ  $ - 1
                 jr   nc,.far
                 pop  hl
                 call ENT_OVERLAP
@@ -542,7 +547,12 @@ ENT_ON_TOUCH:   ld   a,(hl)
                 ld   hl,STATUES_HELD
                 inc  (hl)
                 jr   .took
-.not_idol:      cp   PU_BOOK
+.not_idol:      cp   PU_OXYGEN
+                jr   nz,.not_tank
+                ld   a,OXY_MAX              ; a tank fills her air whatever
+                ld   (OXYGEN),a             ; is left (src/swim.asm)
+                jr   .took
+.not_tank:      cp   PU_BOOK
                 ret  nz                     ; an unknown pickup is left alone
                 ld   a,d                    ; the symbol she is now carrying
                 ld   (CURRENT_BOOK_ID),a
@@ -844,7 +854,8 @@ ENT_ART_CEL:    db HUDICON_KEY_FIRST        ; PU_KEY
                 db HUDICON_COIN_FIRST       ; PU_COIN
                 db HUDICON_IDOL_FIRST       ; PU_IDOL
                 db HUDICON_BOOK_FIRST       ; PU_BOOK
-ENT_ART_KINDS   equ 6
+                db HUDICON_OXYGEN_FIRST     ; PU_OXYGEN
+ENT_ART_KINDS   equ 7
                 assert (ENT_ART_CEL AND 255) + ENT_ART_KINDS <= 256
 
 ; The overrides: environment, kind, and where its own sheet is.
@@ -863,6 +874,9 @@ ENT_ART_OVER:   db 0, PU_KEY, L1_CITYPICKUPS_BANK
                 db 3, PU_MEDKIT, L4_SEAPICKUPS_BANK
                 dw L4_SEAPICKUPS_ADDR
                 db SEAPICKUPS_MEDKIT_FIRST
+                db 3, PU_OXYGEN, L4_SEAPICKUPS_BANK
+                dw L4_SEAPICKUPS_ADDR
+                db SEAPICKUPS_OXYGEN_FIRST
                 db &FF
 
 ; ---------------------------------------------------------------------

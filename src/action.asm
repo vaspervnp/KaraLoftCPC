@@ -63,7 +63,9 @@ KST_DROP        equ 9           ; falling, having not jumped
 KST_DIE         equ 10          ; ... and the last thing she does
 KST_CROUCH      equ 11          ; DOWN alone, on her feet
 KST_HANG        equ 12          ; ... and DOWN at the lip of a floor
-KST_COUNT       equ 13
+KST_SWIM        equ 13          ; in the water, whatever she is doing
+KST_SWIM_FIRE   equ 14          ; ... and the trigger released (8.18)
+KST_COUNT       equ 15
 
 ; WHERE HER BOX STARTS WHEN SHE IS DOWN ON ONE KNEE. The crouch is the
 ; roll's first cel and the artist draws it from line 23 of the 64-line
@@ -87,11 +89,14 @@ KARA_ANIMS:     db KSET_CORE,  KCORE_IDLE_FIRST,       KCORE_IDLE_COUNT,       1
                 db KSET_ACT,   KACT_DIE_FIRST,         KACT_DIE_COUNT,         0
                 db KSET_EXTRA, KEXTRA_ROLL_FIRST,      1,                      0
                 db KSET_ACT,   KACT_HANG_FIRST,        KACT_HANG_COUNT,        1
+                db KSET_SWIM,  KSWIM_SWIM_FIRST,       KSWIM_SWIM_COUNT,       1
+                db KSET_SWIM,  KSWIM_SWIM_SHOOT_FIRST, KSWIM_SWIM_SHOOT_COUNT, 0
 
 ; One duration table per SET, indexed by the frame's number in its blob.
 KARA_DURATIONS: dw KCORE_DURATION
                 dw KEXTRA_DURATION
                 dw KACT_DURATION
+                dw KSWIM_DURATION
 
 ; ---------------------------------------------------------------------
 ; THE CEL RATE IS THE ART'S AND THE GROUND IS THE ENGINE'S, AND WHERE
@@ -123,6 +128,7 @@ KARA_RATE:      db 1            ; idle
                 db 1, 1, 1, 1   ; jump, roll, aim, fire
                 db 1, 1, 1, 1   ; climb, climb_turn, drop, die
                 db 0, 0         ; crouch, hang
+                db 1, 1         ; swim, swim_fire
                 assert $ - KARA_RATE == KST_COUNT
 
 ; ---------------------------------------------------------------------
@@ -167,6 +173,8 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 jr   z,.committed
                 cp   KST_CLIMB_TURN
                 jr   z,.committed
+                cp   KST_SWIM_FIRE
+                jr   z,.committed
                 cp   KST_FIRE
                 jr   nz,.choose
 .committed:     ld   a,(KARA_DONE)
@@ -192,7 +200,10 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 ; crouch before she takes hold is phase 1 and hanging is
                 ; phase 2, and it holds her still through both. All this
                 ; does is name the cels.
-.choose:        ld   a,(KARA_HANG)
+.choose:        ld   a,(LEVEL_SWIM)         ; in the water nothing below
+                or   a                      ; applies: she swims, and the
+                jp   nz,ACT_SWIM            ; gun is her one choice (swim.asm)
+                ld   a,(KARA_HANG)
                 or   a
                 jr   z,.not_hang
                 dec  a
@@ -315,6 +326,7 @@ ACT_UPDATE:     ; ---- nothing survives this -------------------------
                 jr   nz,.want
                 ld   a,KST_WALK
 
+ACT_WANT        equ  $                      ; A = the state - for swim.asm
 .want:          ld   hl,KARA_STATE
                 cp   (hl)
                 jr   z,ACT_ANIMATE          ; unchanged: just age the cel
@@ -437,12 +449,15 @@ ACT_SHOW:       ld   a,(KARA_STATE)
 ; IN : C = the set, (KARA_FRAME) the new cel
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-ACT_MUZZLE:     ld   a,c
+ACT_MUZZLE:     ld   hl,KCORE_SPAWNS
+                ld   a,c
                 or   a
-                ret  nz                     ; only kcore carries a gun so far
-                ld   a,(KARA_FRAME)
+                jr   z,.table
+                cp   KSET_SWIM              ; kcore carries a gun, and in the
+                ret  nz                     ; water so does the swimmer
+                ld   hl,KSWIM_SPAWNS
+.table:         ld   a,(KARA_FRAME)
                 ld   b,a
-                ld   hl,KCORE_SPAWNS
 .next:          ld   a,(hl)
                 inc  a
                 ret  z                      ; SPAWN_END

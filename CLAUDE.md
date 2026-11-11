@@ -321,8 +321,8 @@ the forest**: an environment away, so the door reads the forest's art,
 City's four maps and the forest's two, every door a measured
 transition — and `tools/test_flow.py` walks the whole chain with seven
 coins in her pocket before the seventh level, unpainted, sends it back
-to the title. (Since §8.17 the chain is levels 1 to 12 and it is the
-thirteenth that sends it back.) The drive found something that is not the map: **a game
+to the title. (Since §8.18 the chain is levels 1 to 13 and it is the
+fourteenth that sends it back.) The drive found something that is not the map: **a game
 frame that takes three hardware frames, three times in 340** — at a
 run's first step, at a running take-off and once in a fall — and level
 2's "lock" was one of them all along (§8.16).
@@ -407,6 +407,62 @@ that picture excused every cell still waiting to be painted, so a
 painter that never painted passed it**; excusing only the cells she
 stands in is what found the first painter a tick short. Level 8's way out is the cave in the mountain, **so the game
 plays straight through from level 1 to level 12** (§8.17).
+
+**AND THERE IS SOUND — MUSIC ON THE TITLE AND IN THREE ENVIRONMENTS,
+AND THIRTEEN EFFECTS — AND NOT ONE INSTRUCTION OF IT IS IN THE FIRST
+SWEEP.** `src/sound.asm` is three voices and a fourth that steals one:
+A the melody, B the bass, C the drums, and every effect on C, with the
+music on C COUNTED the whole time it is not heard, so it comes back in
+step and on its own envelope rather than re-struck. It ticks once a
+game frame in the second sweep's wait for its head gate — not in the
+interrupt plan.md puts it in, whose tick lands in her lead over the
+beam — and **the game does not call it for its effects**: `SND_WATCH`
+reads her health, her rounds, her reserve, the key, the coins, the idol
+and the level's state once a frame and turns each change into a
+request, so a spike, a fall and a drone's round all sound the same hit
+without a call site anywhere. The tunes are COMPOSED, in
+`tools/make_music.py`, because there is no audio in the art package and
+nobody here can listen; what can be checked without an ear is: **the
+chip's eleven registers are the tool's own model of the player, tick
+for tick — 240 ticks of the title and 220 of the City, 0 registers
+wrong, and 682 wrong with the model a tick out** — and every effect is
+its descriptor on C and hands C back to the music in step, 9 of 9
+(§6.7). The frame paid nothing measurable: every lock is what it was,
+the run with the gun 95 at worst as before. **And it moved the disc**:
+the sound image took a plain GAME.BIN past the AMSDOS blocks the disc
+has, so GAME.BIN is its three images ZX0-packed now with a loader
+(`src/boot.asm`) — 21 blocks to 13 — and the level data is back at
+track 8, **inside a standard 40-track disc** for the first time since
+the twelfth map, with 26 sectors spare instead of 17 (§4, §7.9).
+
+**AND SHE SWIMS: LEVEL 13 IS THE UNDERSEA, THE FIRST LEVEL SHE IS NOT
+STANDING UP IN.** The level header's underwater bit — byte 4, bit 2,
+which the format has always had and nothing read — is what says so, and
+`MAP_INSTALL` then patches **twenty-seven immediates and four words**
+that say how big she is, the way it already patches the map's shape:
+the box, the probes, the clips, the camera's marks, the muzzle, and the
+HUD's second slot, which shows her air instead of her coins
+(`src/swim.asm`). She is the art's 64×24 swimmer, out of the swim set
+`level_banks.py` has pinned in every level's banks all along and that
+nothing played; she swims four ways with the water lifting her a line every
+other frame, breathes at the surface and over a vent and nowhere else,
+and drowns without it. On a land level all 27 sites hold the land
+byte, and that is the suite's first check. The sea's **live cables**
+are the forest's trap machinery with a second kind and one new idea: **a
+trap is a COLUMN of cells**, one record a cable. Level 12's gate leads
+there — an environment away, 139 hardware frames — and the siphon at the
+bottom is the way out, **so the game plays from level 1 to level 13.**
+**And it found the forest a cell short**: the sea scrolls DOWN, and a
+row step's 32,856 T of strip left the trap painter no time, so a cable
+was two cells behind the map for a game frame. The answer was a pass of
+the painter before the strip, and then — because the forest's eight
+traps had been fitting their sweep with 180 µs to spare — the cell test
+in characters, about 25 times cheaper, and a paint that addresses a row
+once instead of a cell (5,204 T → 4,100). Both levels' pictures are 0
+frames wrong and both lock at 100 of 200 (§8.18). **And for an
+afternoon every land level had the swimmer's box**, because a routine
+took a register one call too late; and two of the 27 sites were named
+one instruction early, which the City's drone is what found (§10).
 
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
@@ -556,7 +612,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-thirty pass**, the editor's own among them. Eighteen checks in
+thirty-two pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -646,11 +702,21 @@ src/entity.asm    the entity table, the AABB, the five interaction
 src/enemy.asm     the level's characters: patrol, sight, fire, damage,
                   the persistent sprite that pays for them, and the
                   drone that follows her once it has been seen (8.7)
-src/hazard.asm    the spike traps: a map cell whose tile changes, its
-                  cycle, and the three places a changed cell may be
-                  painted without a save-under putting it back (8.17)
+src/hazard.asm    the spike traps and the sea's cables: a map cell - or
+                  a column of them - whose tile changes, its cycle, and
+                  the four passes a changed cell may be painted in
+                  without a save-under putting it back (8.17, 8.18)
 src/hazard_high.asm  ... and what runs once: the spawn at a level
                   install and the altar's links, in the HIGH image (4)
+src/sound.asm     the AY: three voices, the effects that steal C, and
+                  the watch that hears what the game did (6.7)
+src/swim.asm      the swimmer: her box, patched into 27 immediates and
+                  4 words at install, her four-way physics and her gun,
+                  in the TOP image (8.18)
+src/oxygen.asm    ... and her air: spent, breathed back over the level's
+                  own regions, drowned without (8.18)
+src/boot.asm      GAME.BIN: the engine's four images ZX0-packed, and
+                  the loader that unpacks them to where they run (4)
 disc/disc.bas     ASCII BASIC loader - straight into the game, and what
                   every suite runs
 build/kara.bas    ... and the PLAYER's one, generated: the label screen
@@ -696,6 +762,11 @@ tools/make_intro.py        the title .scr -> the CRTC's screen order,
 tools/make_hud.py          the artist's health cells -> Mode 0 bytes
 tools/make_fade.py         one step toward black for every hardware
                            colour, out of the cube the palette is (6.6)
+tools/make_music.py        the tunes and the effects, as scores: the
+                           compiler to the player's bytes, a model of
+                           the player tick by tick, and --wav (6.7)
+tools/make_boot.py         engine.bin's four images -> ZX0 -> GAME.BIN
+                           around src/boot.asm (4)
 tools/make_loader.py       the label screen's palette note -> kara.bas,
                            the disc's front door (7.9)
 tools/make_city_map.py     the City's maps - ALL FOUR, 128x16, over the
@@ -717,6 +788,12 @@ tools/make_cave_map.py     the cave's maps - levels 9 TO 12, all four,
                            One tool, four compositions, and they SHARE
                            a bake because a tileset is the
                            environment's (8.13)
+tools/make_sea_map.py      the undersea's first map, level 13, 32x64: a
+                           dive past four live cables between the
+                           ledges, its air in two regions, the bake of
+                           each cable's four cels over the water, and a
+                           flood fill that says every cable is in the
+                           way of the key (8.18)
 tools/tilebake.py          the overlay bake, once: the City's own baker,
                            lifted so the cave could use it (7.3)
 tools/blender_title.py     the title scene and its CPC render settings
@@ -777,6 +854,9 @@ tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
                            it to the bottom (11 step 7)
+tools/test_sound.py        the AY read back out of the chip: the model,
+                           the effects and the hand-back, the keyboard,
+                           a silent disc read, the fade, and the lock
 tools/test_cave.py         levels 9 to 12 on the machine: the first
                            tall maps SHIPPED, climbed floor by floor to
                            the gate, back DOWN the next one, up the
@@ -785,7 +865,13 @@ tools/test_cave.py         levels 9 to 12 on the machine: the first
                            a hole costs her and what a missed step and
                            a broken ladder do not; and her action cels
                            per environment (8.13)
-tools/test_*.py            acceptance suites, thirty of them
+tools/test_sea.py          level 13 on the machine: the box patched and
+                           unpatched, the swimmer's four ways and the
+                           drift, her gun, her air and her drowning,
+                           the cables' cycle off the map byte, the bite,
+                           the route to the siphon with every cell
+                           checked on every frame, and the lock (8.18)
+tools/test_*.py            acceptance suites, thirty-two of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -841,6 +927,13 @@ The project uses the two-step route, wrapped in `build.sh`:
 ./build.sh
 ```
 
+**RASM writes `build/engine.bin` and GAME.BIN is not that file.**
+`engine.bin` is the engine's three images, each for its own address;
+`tools/make_boot.py` packs them and assembles `src/boot.asm` around them
+into `build/game.bin`, which is what iDSK puts on the disc (§4). It runs
+on every build, `--relink` included, because it reads only what RASM has
+just written.
+
 **`./build.sh --relink` regenerates no asset at all** — it assembles and
 images whatever `build/` already holds. It exists for
 `tools/test_painter.py`, which puts the EDITOR's own level in `build/`
@@ -879,26 +972,64 @@ hex literal in this codebase fails to parse. `build.sh` passes it; any ad-hoc
 AMSDOS can only land the binary somewhere BASIC is not, and BASIC occupies
 `&0170` upward — so the load address is `&4000`, which is exactly the banked
 window nothing may live in. The code at `&4000` is therefore a **bootstrap, not
-the engine**:
+the engine** — and since the sound, **it is `src/boot.asm` and nothing in
+`src/main.asm`**:
 
 1. `DI`, `LD SP,&BFFF`.
 2. Write `&8C` to the gate array: Mode 0, **both ROMs disabled**. The lower ROM
-   must go before any execution at `&0040`, or reads from `&0000-&3FFF` come
-   from the OS ROM instead of the relocated code.
+   must go before anything is unpacked to `&0040`: writes always reach RAM,
+   but ZX0 READS back what it has written — every match is a copy out of its
+   own output — and with the ROM in, a read below `&4000` is the firmware's.
 3. Select RAM config `&C0` so the window is in a known state.
-4. `LDIR` the core engine image down to `&0040` (source and destination do not
-   overlap) and `JP` into it. There is no way back to BASIC after this.
-   **A second `LDIR` first puts the HIGH image at `&AA00`**: what the
-   core has no room for — the title's two prompt strips, and the code
-   the spike traps run ONCE, at a level install and at an altar
-   (§8.17) — stored in the file after the core and assembled for base
-   RAM between `TILE_ATTR` and `LEVEL_IMAGE`, which `main.asm` asserts
-   (§8.7 has why the core ran out, §8.17 why it ran out again).
+4. **Four ZX0 streams, unpacked straight to where they run**, and `JP
+   CORE_ENTRY`. There is no way back to BASIC after this.
+   * **the core** to `&0040`;
+   * **the HIGH image** to `&AA00`: what the core has no room for — the
+     title's two prompt strips, and the code the spike traps run ONCE, at a
+     level install and at an altar (§8.17) — assembled for base RAM between
+     `TILE_ATTR` and `LEVEL_IMAGE`, which `main.asm` asserts (§8.7 has why
+     the core ran out, §8.17 why it ran out again);
+   * **the SOUND image** to `&9400`: the player, its tunes and its effects
+     (§6.7), between the loader's staging and the map;
+   * **the TOP image** to `&BB00`: the swimmer — her box patcher, her
+     physics and her air — and the map's shape patcher, which is what the
+     core had no room for once she could swim (§8.18). It sits between the
+     biggest level image and the stack's last 256 bytes, both asserted;
+     the stack's measured low is `&BFDD`, 35 bytes.
 5. The core rewrites `&0038` with `JP IRQ_HANDLER` before the first `EI`, since
    the firmware's handler went out with the lower ROM.
 
-`ORG code,output` in RASM is what lets the core be assembled for `&0040` while
-being stored in the file after the bootstrap.
+**`main.asm` assembles the four images into `build/engine.bin`, back to
+back from `&4000`, each for the address it runs at** — `ORG code,output`
+in RASM is what lets an image's address and its place in the file differ
+— and `tools/make_boot.py` packs each and assembles the loader around
+them into `build/game.bin`, which is what goes on the disc as GAME.BIN.
+It asserts the four are the whole of `engine.bin`, so nothing assembled
+can be left behind, and the loader asserts its own file ends below
+`&9400`, so none of the four is overwritten while it is being read.
+
+**IT IS PACKED BECAUSE THE DISC RAN OUT OF FILE BLOCKS, NOT FOR LOAD
+TIME.** The sound image took the plain file from 18 blocks to 21 and
+AMSDOS's allocation past the raw data area's first block (§7.9):
+
+| | plain | ZX0 |
+|---|---:|---:|
+| the core | 16,232 | 10,315 |
+| the HIGH image | 1,618 | 545 |
+| the SOUND image | 2,942 | 1,918 |
+| GAME.BIN | 20,842 | **13,010 — 13 blocks, from 21** |
+
+and the undersea (§8.18) made it four images and a block more:
+
+| | plain | ZX0 |
+|---|---:|---:|
+| the core | 16,177 | 10,289 |
+| the HIGH image | 1,702 | 622 |
+| the SOUND image | 2,942 | 1,918 |
+| the TOP image | 1,012 | 830 |
+| GAME.BIN | 21,833 | **13,899 — 14 blocks** |
+
+The unpack is about a quarter of a second at boot, once.
 
 ## 5. Test loop — always verify in the emulator
 
@@ -946,11 +1077,13 @@ mid-scanline skews the bands.
 &0040-&3FFF  Core engine, scrolling engine, sound driver      (never banked out)
 &4000-&7FFF  Level logic, collision data, entity management   (BANKED WINDOW)
 &8000-&BFFF  Sprite buffers, background restore buffers, temp (never banked out)
-             ... &A000 the map, &A800 the entity table, &A8C0 the
+             ... &8000-&93FF the loader's staging while a level
+             loads (7.5), &9400 the SOUND image (6.7), &A000 the map, &A800 the entity table, &A8C0 the
              spike traps (8.17), &A900 the tile flags, &AA00 the
              HIGH image (4) and the traps' pending cells after it,
              &B100 the pristine LEVEL_IMAGE the bootstrap lands
-             there (10)
+             there (10), &BB00 the TOP image - the swimmer and the
+             shape patcher (4, 8.18) - and the stack's 256 bytes
 &C000-&FFFF  Primary video RAM
 ```
 
@@ -1206,13 +1339,104 @@ colour. **All 27 colours at all three levels, 81 readings, against an
 independent reading of the cube**, with `k = 0` leaving every colour
 alone and `k = FADE_STEPS` black for all of them.
 
-### 6.7 AY-3-8912
+### 6.7 AY-3-8912 — and the player, which is `src/sound.asm`
 
 Accessed through PPI port A (`&F4`) with control on `&F6`. Register set: R0-R5 tone
 periods, R6 noise period, R7 mixer, R8-R10 channel volumes, R11-R13 hardware envelope.
-The music player runs from the 50 Hz interrupt. Channel C is the SFX carrier: gunshots
-and hurt sounds steal it via the noise generator and volume envelope, then hand it back
-to the music without a re-trigger click.
+**The chip is clocked at 1 MHz and a tone cycle is sixteen periods, so a
+period p is 62,500 / p Hz** — `~/repos/Homeplanet` found its own constant an
+octave out after three tunes, which is why `tools/make_music.py` derives it and
+the suite reads it back off the chip.
+
+**THREE VOICES AND A FOURTH THAT STEALS ONE.** A is the melody, B the
+bass, C the drums — and C is also where every effect is heard (plan.md
+7). An effect takes C for as long as its volumes last; **the music on C
+goes on being COUNTED the whole time**, so when the effect ends C comes
+back on the tick and the envelope it had reached, not re-struck: no
+click and no drum a beat late. The envelopes are software — the AY has
+one envelope generator for all three voices — so amplitude bit 4 is
+never set and R11-R13 are never written; and noise is C's alone,
+because R6 is shared and the compiler refuses an instrument with noise
+on A or B.
+
+**ONE TICK A GAME FRAME, IN THE SECOND SWEEP'S WAIT FOR ITS HEAD GATE —
+AFTER THE TRAPS' PAINT, AND NOT IN THE INTERRUPT.** plan.md puts the player on the 50 Hz interrupt;
+the interrupt's tick inside the VSYNC pulse lands 532 T into the first
+sweep, which is the top border and her whole lead over the beam (§9):
+every 320 T there is a line off the top of her. The idle window costs
+nothing — measured, every lock in `tools/test_enemies.py` and
+`tools/test_climb.py` is what it was, the run with the gun 95 at worst —
+and what the music pays is resolution: a length is a whole number of
+40 ms ticks, so a sixteenth is 120 ms (125 BPM) or 160 (94). Outside
+the loop the title and the fade call it every other 50 Hz frame
+(`SOUND_HALF`, `SOUND_FADE`, the second taking the music down four
+levels a step of the palette's two), and **every disc read mutes it
+first** — `DISC_READ` runs with the interrupts off for up to 1.6 s and
+nothing ticks, so a note left on would hold for all of it.
+
+| a tick, benched from a DI stub | T |
+|---|---:|
+| the least | 3,880 |
+| typical | 4,336 |
+| the worst — a bar line, all three voices striking, an effect starting | 10,032 |
+
+**THE GAME DOES NOT CALL IT FOR ITS EFFECTS.** `SND_WATCH` reads, once a
+game frame, the bytes that say what happened — her health (down a hit
+or her death, up a medkit), her rounds (down a shot), the reload timer
+leaving 0, her reserve, the key and the coins going up, the idol picked
+up and put down, and `GAME_STATE` reaching `GS_CLEAR` — and turns each
+change into a request. So a spike, a fall and a drone's round are all
+the same hit with no call site anywhere, and the first sweep, where the
+frame has 800 T on its tightest path, pays for none of it. **Only the
+drones' events are requested where they happen** — `EBUL_SPAWN`,
+`ENEMY_WOUND` and its kill — because nothing they leave behind says
+"hit"; and `SFX_REQ` keeps EVERY register and the flags, because
+`ENEMY_WOUND`'s carry is its answer and its caller holds a pointer on
+the stack the other way round. `SOUND_LEVEL` puts the watch level with
+her pockets at every level start, or a restart would play the medkit.
+
+**THE EFFECTS ARE IN PRIORITY ORDER** — a request takes C only from an
+effect no more important than itself, and one that loses is dropped
+rather than queued, because a sound that arrives late is about
+something that has already happened: reload, the drone's shot, hers,
+a hit on a drone, a clip, a coin, a key, a medkit, a drone exploding,
+a hit on her, the altar, the door, her death.
+
+**SHARING THE CHIP WITH THE KEYBOARD** is input.asm's contract and it
+holds by construction: neither side runs in the interrupt, so they
+cannot meet halfway; `INPUT_SCAN` leaves port A an output, every write
+here leaves port C at PSG_IDLE, and R7 bit 6 — the PSG's own port A
+direction — is never set. Measured: RIGHT held for 200 frames under 100
+ticks of music, 200 of 200 frames read it.
+
+**THE MUSIC IS COMPOSED, BECAUSE THERE IS NOTHING TO TRANSCRIBE.**
+plan.md's `audio_pipeline.py` splits audio stems with ffmpeg; there are
+no stems and nobody here can listen. `tools/make_music.py` holds the
+scores — bars of sixteenth-note steps, the chords written above each
+tune — the instruments, the effects, and a compiler that finds the
+repetition the score writes out in full: a bar used twice is a
+subroutine and a run of them a loop.
+
+| tune | key | bytes | a loop |
+|---|---|---:|---:|
+| title | D minor, 94 BPM | 307 | 41.0 s |
+| City, levels 1-4 | A minor, 125 BPM | 371 | 30.7 s |
+| forest, 5-8 | D Dorian, 12/16 | 194 | 23.0 s |
+| cave, 9-12 | E Phrygian, 94 BPM | 293 | 41.0 s |
+
+The three environments nobody has painted play the title's. **What says
+it plays what was written** is `tools/test_sound.py`, from the chip's own
+registers: the tool's MODEL of the player — written a second time, in
+Python, on the compiled bytes — against the Z80, tick for tick: **240
+ticks of the title and 220 of the City, 0 of 11 registers wrong**, and
+682 wrong with the model a tick out; the tool's own check that every
+note the score's TEXT strikes is the period the model plays, two loops
+of every tune; and the bytes in memory against the bytes the compiler
+laid out, 1,165 of them. Every effect is checked tick for tick on C and
+then for the hand-back, 9 of 9; the control is `SND_WATCH` poked to
+`RET`, which makes the same hit silent; and `SOUND_MUTE` poked to `RET`
+holds a note through all 7,774 samples of a disc read that the mute
+keeps silent. `--wav` renders the model for an ear.
 
 ## 7. Asset pipeline
 
@@ -1874,8 +2098,11 @@ tools/test_levels.py    every bank of all six levels, byte-exact on a
 `LEVEL_STAGE` is `&8000`. **The staging buffer cannot be in the window**
 — the unpacker reads from it and writes to `&4000-&7FFF` — so it sits
 in base RAM on top of the save-under buffers, which are scratch while a
-level is changing. The biggest stream measured is 4,836 bytes against
-8 KB of room.
+level is changing. **It is ten sectors and the biggest stream is ten**:
+it was 8 KB until the sound image took `&9400` up (§6.7), and the
+forest's C4 is 4,912 bytes, read as 5,120. `tools/dskdata.py` refuses a
+stream of more sectors than `LEVEL_STAGE_MAX`, by name, rather than
+letting a load run into the music.
 
 #### Getting it off the disc: the engine drives the 765 itself
 
@@ -2413,6 +2640,15 @@ same negative control the bar and the rounds have: with `HUD_INV`
 returning at once the run is still drawn and the CRTC carries **all 96
 bytes** of it off with the world.
 
+**UNDER WATER THE SECOND SLOT IS HER AIR, AND NOT ONE INSTRUCTION
+CHANGED FOR IT.** The coins' count and the coins' two icon cells are
+three 16-bit operands in `HUD_INV` and `HUD_INV_LAYOUT`, and `BOX_SET`
+writes the oxygen's there at install with the rest of the swimmer's box
+(§8.18): the slot reads `OXY_DIGIT` instead of `COINS_COUNT` and draws
+the artist's own `oxygen` icon, out of `hud_icons` like the others and
+cropped by `tools/make_hud.py` the same way. A coin found in the sea is
+still counted; it is not shown until she is out of it.
+
 #### THE STRIP IS REPAIRED AFTER THE BEAM HAS SHOWN IT, AND ON A ROW STEP THAT IS A GHOST
 
 **A play-test found it and a measurement named it**: *"στην πτώση το
@@ -2791,9 +3027,16 @@ The label screen is a whole 16 KB and BASIC cannot unpack anything, so
 it goes on as a plain AMSDOS binary. That took AMSDOS's own allocation
 from block 18 to **36 — which IS the first data block at track 8** —
 and `tools/dskdata.py` said so rather than letting the level streams be
-overwritten. `DATA_TRACK` is **9** now: the first data block is 40, the
-files have four 1 KB blocks of room left, and the data ends at sector
-346 of 360. Both ends are checked by the build.
+overwritten. `DATA_TRACK` went to **9**: the first data block 40, four
+1 KB blocks of room left for the files.
+
+**AND THEN THE SOUND TOOK THREE OF THE FOUR AND ONE MORE, AND THE ANSWER
+WAS TO PACK GAME.BIN.** The sound image (§6.7) took the plain file from
+18 blocks to 21 and AMSDOS to block 41, past the data's first. Raising
+`DATA_TRACK` again would have cost nine sectors the levels need; GAME.BIN
+is its three images ZX0-packed now, with a loader (§4) — **13 blocks,
+AMSDOS tops out at block 33**, and `DATA_TRACK` is back at **8**, its
+first block 36. Both ends are checked by the build.
 
 #### And what it leaves for the levels, now that there can be twenty-four
 
@@ -2803,19 +3046,21 @@ image:
 
 | | sectors |
 |---|---:|
-| the data area, from track 9 of a 42-track image | 297 |
+| the data area, from track 8 of a 42-track image | 306 |
 | the art, the title and the twelve maps that exist | **280** |
-| **spare** | **17** |
-| ... staying inside a standard 40-track disc | **−1** |
+| **spare** | **26** |
+| ... staying inside a standard 40-track disc | **8** |
+| **and since the thirteenth map (§8.18)** | **281, 25 spare, 7 inside 40 tracks** |
 
-**The twelfth map is the one that crossed it**: the data runs to track
-40, which is the first of the extended pair, by one sector. Twenty-four
-maps is twelve more of those, so four levels an environment fits with
-five to spare **and needs the extended pair of tracks** —
-which is what the image already carries and what many drives will not
-read. Today the game does too. `tools/dskdata.py` says so rather than leaving it to the drive:
-past 40 tracks it prints how many sectors are out there, and past 42 it
-is an error with the arithmetic in it.
+**The twelfth map crossed into the extended pair and the packed GAME.BIN
+brought it back**: the data runs to track 39 now, so the game reads off
+a standard 40-track disc again. Twenty-four maps is twelve more
+sectors, so four levels an environment fits with fourteen to spare —
+and **needs the extended pair again from the ninth new map on**, which
+is what the image carries and what many drives will not read.
+`tools/dskdata.py` says so rather than leaving it to the drive: past 40
+tracks it prints how many sectors are out there, and past 42 it is an
+error with the arithmetic in it.
 
 `tools/test_loader.py` compares **video RAM with the artist's file byte
 for byte** — the AMSDOS header, BASIC's `LOAD` at &C000 and the file
@@ -2944,8 +3189,8 @@ is somewhere to go now, and the line was not the interesting part —
 So **several levels share an environment's art**, and a transition
 between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
 is **4**, which is six environments of four levels: 24 maps, 24
-sectors — twelve of them on the disc now, and 17 spare for the other
-twelve (§7.9).
+sectors — thirteen of them on the disc now, and 25 spare for the
+other eleven (§7.9).
 
 **`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
 
@@ -6351,8 +6596,10 @@ worst** across the field, against 73,340 at tick 3.
 **C IS THE CELLS UNDER HER FEET.** B leaves them for fear of her
 save-under and A will not paint while she moves, so without C the cell
 she stood in was a cel behind the map on **65 game frames** of the walk
-across; with C, **15** — the frames whose sweep ended past its tick.
-The BITE is never behind, because the bite is the map's.
+across; with C, **15** — the frames whose sweep ended past its tick —
+and **21 since the sound**, whose tick runs between B and C and starts
+C up to 10,000 T later (§6.7). The BITE is never behind, because the
+bite is the map's.
 
 **A IS THE FALLBACK, AND ITS LAST CLAUSE IS A MEASUREMENT.** A cell at
 the top of the first sweep is ~5,200 T in front of her draw, and a run
@@ -6442,10 +6689,11 @@ her erase put the old cel back.
 * **A trap and an enemy in one level.** A cell repainted at the end of
   a sweep under the drone's save-under would come back stale; no
   forest level has an enemy (§9), and the City has no trap.
-* **A row scrolled in vertically while a trap in it changes** keeps
-  the cel that row was painted with until the next change. The
-  forest's view stays at `WORLD_CR` 0 except in a pit, and no trap is
-  placed beside one.
+* ~~**A row scrolled in vertically while a trap in it changes**~~ — **it
+  is handled now, because the sea scrolls down** (§8.18): `HZ_WHERE`
+  keeps a cell that is one or two rows off the view on the list and paints
+  it the frame its row is shown, where it used to be handed to `HZ_PAINT`
+  off the screen, painted nowhere and called done.
 * **The idol in the HUD.** `STATUES_HELD` is not drawn; the idol going
   from the branch is all that says she has it.
 * **The pulse.** The artist's lit altar pulses dim, bright and mid; a
@@ -6454,6 +6702,266 @@ her erase put the old cel back.
   rules, §11 step 7 — but the trap's and altar's composites are baked by
   `make_forest_map.py`, which is the cave's position on its ladders
   (§8.13) with a sprite sheet instead of a tile sheet.
+
+### 8.18 Level 13: the undersea — the swimmer, her air, and the live cables
+
+`tools/make_sea_map.py` writes it and `tools/test_sea.py` drives it.
+Level 12's gate leads there — environment 4, so the door reads the sea's
+art, **139 hardware frames** — and it is 32×64 like the cave, and goes
+DOWN, which is plan.md's own direction for the sea. The header's flags
+byte is `SCROLL_V | UNDERWATER`, and **the underwater bit is the first
+thing in the format the engine had never read.**
+
+#### SHE IS 64×24 AND HORIZONTAL, AND TWENTY-SEVEN IMMEDIATES SAY SO
+
+The swim sheet has shipped since §7.1 — 12 frames, `swim` 8 and
+`swim_shoot` 4, both facings, pinned in every level's banks — and
+nothing ever drew it. It is a fourth row of `KARA_SETS` (`KSET_SWIM`)
+and two states, `KST_SWIM` and the committed `KST_SWIM_FIRE`.
+
+**What her SIZE is, to the engine, is twenty-seven bytes and four words
+of immediate operand** spread through `collide.asm`, `player.asm`,
+`enemy.asm`, `entity.asm`, `bullets.asm`, `hud.asm` and `kara.asm`: the
+box (`SWIM_BOX_W` 16 bytes, `SWIM_BOX_H` 24 lines, against 6 and 64), the
+sprite's offset from it (`SWIM_ART_X` 8), the probes' edges, the
+camera's marks, her right-hand bound, the muzzle, `HUD_CLIP`, the X
+clip's lane test, the AABB's PlayerStart row, the box the drone and the
+trap painter take for hers — and **the HUD's second slot, which reads
+her air instead of her coins**. Each site carries an `equ $ - 1` name,
+`BOX_SITES` and `BOX_WORDS` list them with a land value and a water
+value, and `BOX_SET` writes one column or the other at `MAP_INSTALL`,
+from `MAP_SHAPE_SET`. **It is §8.3's mechanism and §8.3's reason**:
+every site is on a per-frame path, and a patched immediate costs
+nothing; a test of a flag at each would be 31 of them.
+
+**The source holds the LAND values, so a land level is the engine it
+was** — which is the suite's first check: on level 1 every one of the
+27 sites holds its land byte, on level 13 every one its water byte. Its
+control is `BOX_SET` poked to `RET`: she swims down onto the first ledge
+and stops **40 lines short of it, `KARA_WY` 192 against 232** — a 64-line
+box in the water.
+
+**AND THAT CHECK PASSED WHILE TWO OF THE SITES WERE IN THE WRONG
+PLACE.** It read each site back against the table's own land column,
+which is the table checked against itself. `BX_FOLLOW` and `BX_PROBE_R`
+had their `equ $ - 2` written BEFORE the instruction they name instead
+of after it, so they named the operand of the instruction above — and
+`BOX_SET` wrote its land byte there on every land level: the drone's
+follow read `ld hl,(&2F03)` instead of `ld hl,(KARA_WX)`, and the `ex
+de,hl` in front of her right-hand probe became a `dec b`. Nothing in the
+sea could see it; the City's drone could, and `tools/test_enemies.py`
+failed ten checks — a step of four bytes, 30 bytes off her where it
+keeps 19, one hit taken of two. **The check now reads the land byte out
+of `build/engine.bin`, as the assembler wrote it, before `BOX_SET` has
+ever run**: on the build with the two labels misplaced it finds both,
+`&1F13` and `&2AE6`, and on the fixed one none of the 27.
+
+#### SHE SWIMS FOUR WAYS, AND THE WATER LIFTS HER
+
+`PLAYER_SWIM` replaces the ground, the ladder, the ledge and the fall:
+`KARA_VY` is 0 and nothing falls. Across, it is `PLAYER_X` — the walk, a
+byte a game frame — with `IN_RUN` cleared, because she does not run in
+the water; up and down, a line at a time through `BOX_SOLID_V`
+(`TA_SOLID`), `SWIM_VY` = `P_CLIMB` lines a game frame; and with nothing
+held the water lifts her a line every other frame. Measured:
+
+| | |
+|---|---|
+| DOWN | 40 lines in 20 game frames |
+| UP | 20 in 10 |
+| nothing held | 10 lines UP in 20 |
+| RIGHT, and RIGHT with SHIFT | 20 bytes in 20, both |
+| onto a ledge | flush: `KARA_WY` 232, the ledge's top at 256 |
+| UP under the surface | nothing — its tiles are `SOLID` |
+
+**Her gun is the land's gesture with the swim sheet's cels**: SPACE held
+is the stance, the release is `KST_SWIM_FIRE`, which plays `swim_shoot`'s
+four cels (8-11) and fires from `KSWIM_SPAWNS` — `ACT_MUZZLE` takes the
+table by set — two rounds a release, 14 → 12.
+
+**AND HER WIDEST SPAN WAS NOT A WIDTH THE BLITTER HAD.** `SPAN_RUN` was
+unrolled twelve bytes deep because her land box is twelve bytes wide;
+the swimmer is thirty-two, and her spans run to **20**. Entered at a
+group count past its own start, the jump into the run goes somewhere
+else. `SPAN_MAX_WIDTH` is 20 now — a narrower span enters it nearer its
+end and pays nothing — `aseprite2spans.py` emits every blob's
+`{NAME}_SPAN_MAX`, and `main.asm` asserts each against it, so the next
+wide character is a build error with its name in it. The save-under
+script is sized by `SPAN_TALL_WIDTH` = 12, because what fills it is a
+TALL sprite's lines.
+
+#### HER AIR, AND THE FIRST READER THE REGION SECTION HAS HAD
+
+`src/oxygen.asm`: `OXYGEN` 0-99, a unit every `OXY_RATE` = 7 game
+frames — 693 frames, 27.7 s — `OXY_GULP` = 4 a frame back where there is
+air, and a tank (`PU_OXYGEN` = 6, the editor's `PickupKind.Oxygen`)
+fills it. Out of it the water takes `DROWN_HURT` = `EBUL_DAMAGE` every
+`DROWN_RATE` = 25 frames, a second. The HUD's second slot shows
+`OXYGEN / 11` — 9 for a full breath — with the artist's oxygen icon,
+dark at 0 like every slot of the strip.
+
+**Where the air is, is the level's**: a REGION of kind `OxygenVent` (2,
+docs/editor.md 5.5's order and the editor's `RegionKind`), read out of
+the pristine level image the way the links are (§8.17). Every level
+before this one shipped with no regions, so **nothing had ever read that
+section**. Level 13 carries two: the row under the surface, and a vent's
+column halfway down.
+
+| | measured | control |
+|---|---|---|
+| spent | 10 units in 70 game frames | `OXY_STEP` = `RET`: 99 → 99 |
+| the digit | 7 at 83 | |
+| at the surface | 83 → 99 | |
+| out of air | 100 → 76 over 75 frames: three bites of 8 | |
+| drowned | the level comes back, at her start, with a full breath | |
+
+#### THE CABLES: A TRAP IS A COLUMN OF CELLS NOW
+
+`HZ_CABLE` = 1 (the editor's `HazardKind.Cable`). The manifest's *"1.5
+s off, 1 s live; flash one spark frame as warning 250 ms before going
+live"* is a trap's four cels — off, the flash, off, live — at **30, 2, 6
+and 25 game frames**, 2.5 s, `HZ_DUR`'s second row. Only the live cel
+carries `TA_HAZARD`: the flash warns and does not bite.
+
+**A cable hangs from ledge to ledge, so it is three cells tall, and one
+record a cell would spend `HZ_MAX` on two cables and a half.** `p1`
+carries the RUN instead: its top nibble is how many cells below the
+record's own the cable goes on for, its bits 2-3 a head start into its
+first cel in quarters, and bits 0-1 the cel it starts on, which is all
+`p1` ever was. `HZ_WRITE` writes the run and pends every cell of it.
+**A spike trap's top six bits are 0, so the forest is the trap it was**,
+and `HZ_RUNS` — set at the spawn if any trap has a run — is what keeps a
+level with none from paying a record read a cel.
+
+**The head start is there because all four cables were in phase**: a
+63-frame cycle each, so every 63 frames twelve cells changed at once.
+The phases are chosen so that **no two cables change within two game
+frames of each other**, which the suite measures off the map bytes.
+
+| | measured | control |
+|---|---|---|
+| the cycle, off the map byte | 25, 30, 2, 6 — `HZ_DUR`'s row | |
+| a run | all 3 cells change together | the nibble zeroed: only the first goes round |
+| the phases | nearest two changes: 2 game frames | |
+| the bite, a cycle sat in a cable | one, 16 points | `HAZARD_TICK` = `RET`: none |
+
+The four cels are composited over the water at build time, like every
+trap (§8.17) — 4 tiles, 256 bytes — and the `seacable` sprite blob stays
+out of the banks (`level_banks.py`'s `BAKED`).
+
+#### THE SEA SCROLLS DOWN, WHICH THE TRAP PAINTER HAD NEVER MET
+
+**A cell that changes while its row is coming in.** The incoming row is
+painted out of the map over the frames before the latch (§8.2); a cable
+that changed in between was handed to `HZ_PAINT` while it was still off
+the screen, painted nowhere, and taken off the list — so it came in with
+the cel it had been painted with and kept it until the cable next
+changed. §8.17 put that under "what is not here", because the forest's
+view never moves under its traps. `HZ_WHERE` asks where a cell is, up
+and down: three rows or more off the view it is **dropped** (its row
+will come in from the map, which has the new cel), one or two off it
+**waits**, half on it is **painted and kept**, and on it is painted.
+Driven over the whole route, every on-screen cell against the map on
+every game frame: **0 frames wrong**, against **34** with `HZ_WHERE`
+saying every cell off the screen is FAR, which is what the engine did
+before it.
+
+**And a row step leaves the painter no time.** Traced on the frame a
+cable changed while the view stepped down: the strip's row vacate at
+the top of the second sweep was **32,332 T** (§7.8); the tick and the
+paint came after it, at tick 3, and painted one cell before tick 4; and
+the paint at the end of the sweep was reached at **67,520 T, 432 past
+its own tick**. Two of the run's three cells were a cel behind the map
+for a game frame, four times down the level. So **`HAZARD_TICK` and a
+first pass, `HAZARD_PAINT_E`, go before the strip**: a cell begun only
+before tick 3, and **at most three painted** — a whole cable — so the
+strip is done by ~54,000 T of the 63,488 it has before the beam reaches
+row 22 on a real 6845. Tick 2 alone was one cell short: the third began
+1,900 T past it. **The budget counts the cells it PAINTS, not the
+entries it looks at**: the first version counted the two cells under
+her and painted one.
+
+#### AND THAT FOUND THE FOREST A CELL SHORT
+
+The walk across level 7's field went from 0 frames with a trap a cel
+behind to **7, then 10, then 12** while this was built — every one the
+eighth trap of the field, on screen and nowhere near her. Traced on the
+shipped build, **the forest had been fitting its eight cells into the
+second sweep with about 180 µs to spare**, and the cable's kind lookup
+and `HZ_WRITE`'s call were 152 µs more in the tick. Three things gave it
+back, and none of them is a cable's:
+
+| | before | after |
+|---|---:|---:|
+| `HZ_UNDER_HER`, a cell twenty bytes from her | ~1,070 T — two 16-bit `MEETS` | **36 T** |
+| ... beside her, under her | | 72, 124 T |
+| her box in characters, `HZ_HER_BOUNDS` | | 632 T, once a frame |
+| `HZ_PAINT`, a whole tile | 5,204 T | **4,100 T** |
+| ... half off either edge | | 2,960 T |
+| a pass at its tick or its budget | keeps the rest one at a time | **one `LDIR`** |
+
+**The cell test is in characters and asks the same question**: a
+tile's left edge 2c is even, so 2c ≤ n is c ≤ ⌊n/2⌋, and
+`tools/test_forest7.py`'s model of it did not change by a character.
+**The paint addresses a row once and not a cell**: the right-hand cell
+is the next word of the ring, two bytes on inside the same 2 KB block,
+which is also right for a left cell off the screen, because `SCR_ADDR`
+takes a signed column. Walking across the field: **0 frames**, and 0 on
+every other picture check of both levels.
+
+**Two controls went blind on the way, which is the other half of the
+lesson.** Turning off the paint that runs after the strip no longer
+left the edge cells to C, because the pass before the strip painted
+them — so the guard's control turns off both. And letting A paint while
+she runs no longer cost a plain run a frame, because one 4,100 T cell
+fits it — so that control drives the run with the gun now, whose room
+is 800 T (§9): **98 of 200 with A allowed and C off, 100 as built.**
+
+#### THE MAP
+
+32×64. Rock walls; **five ledges every seven rows from row 16, each
+from one wall eighteen tiles across**, alternating sides, so the way
+down is a zigzag through the gaps; **between each pair, one cable from
+ledge to ledge**, so every corridor is crossed past one; the vent's
+column halfway down, a ruin, and the siphon at the bottom, which is an
+`EK_DOOR` the key opens. A clip, two tanks, a medkit and the key.
+
+The tool flood-fills her box — four tiles by two — and refuses a level
+where any pickup or the siphon is out of reach, **and one where a cable
+is not in the way of the key**: with each cable's cells taken for wall,
+the key must be unreachable. Its control is a hole punched in the
+second ledge, which the tool refuses. 1,037 places her box can be.
+
+#### MEASURED, THE WHOLE OF IT
+
+| | |
+|---|---|
+| into it, from level 12's gate | 139 hardware frames, `LEVEL_ENV` 3, `LEVEL_SWIM` 1 |
+| the route, from the joystick | the clip (28 → 42), four cables crossed while off, the vent, a tank, the medkit, the key, the second tank: at the siphon with air 92, HP 100 |
+| UP at the siphon | `GS_CLEAR`, and level 14 is unpainted, so the title |
+| the picture, every game frame of the route | 0 frames wrong |
+| the lock — treading water, right, left, down with the view stepping, firing, down and right | **100 of 200**, all six |
+| the stack's low, over the dive | `&BFDD`, 35 bytes |
+| GAME.BIN | 14 AMSDOS blocks — the TOP image is the fourth stream (§4) |
+| the disc | 281 of 306 data sectors, tracks 8-39: inside 40 tracks, 25 spare |
+
+#### WHAT IS NOT HERE
+
+* **Levels 14-16.** `DISC_LEVEL_MAPS` carries a zero for each, so level
+  13's siphon goes back to the title.
+* **Anything that lives in the sea.** A drone or a mine would be an
+  enemy row the table has not got, and a trap and an enemy in one level
+  is still not supported (§8.17); level 13 is cables only.
+* **The sea's tune.** It plays the title's; the SOUND image has 130
+  bytes left and a tune is 194 to 371 (§6.7).
+* **Her death in the water is the land's `die` cels.** The art has no
+  swimming death; she drowns as she would fall.
+* **The flood between the cave and the sea** — plan.md's raster palette
+  effect — and buoyancy beyond the drift.
+* **The editor validates a cable and cannot make one**: the composites
+  are `make_sea_map.py`'s bake, as the forest's are its tool's.
+* **The TOP image has 12 bytes left** and the core 143. The next thing
+  the swimmer needs moves something out of one of them.
 
 ## 9. Performance budget — measured directly, and it closes
 
@@ -6545,6 +7053,15 @@ between tick 5 and the erase.
   every one now — 404 of the same 449, every frame it is on the screen
   — from the top of the second sweep, and `VIEW_STEP` and
   `ENEMY_ROOM` are gone (§8.7).
+* **And the sound.** A tick of the AY player is 3,880-10,032 T and it
+  goes into the second sweep's wait for its head gate, **after** the
+  traps' paint (§6.7). It went in BEFORE it first, on the argument that
+  the paint asks the tick before every cell and so gives way — and that
+  is exactly what it did: it gave way, and walking across level 7's
+  field **12 game frames of 80 showed a trap a cel behind** that nothing
+  had any reason to leave. After it, 0. Measured with it in: every
+  path's lock is what it was without it, and the run with the gun is 95
+  at worst of ten starting points, as before.
 * **`ENT_UPDATE`'s touch sweep is back on every frame.** It was on one
   frame in two, then one in four on a measured phase, because the pair
   of it and the enemy redraw was 376 T more than a 50 Hz frame had.
@@ -7651,6 +8168,15 @@ frame, so this only helps a standing player on a still screen.
   general rule is the one the rest of this section keeps arriving at
   from other directions**: a check that cannot tell "the thing is
   wrong" from "the thing never ran" is not a check.
+* **THE STAGING BUFFER IS NOT A SCRATCHPAD PAST `&93FF` ANY MORE.** The
+  suites used the free tail of the loader's staging as scratch for years
+  — a stub at `&9800`, the City's whole tile blob copied out of bank C4 to
+  `&9000` — and the sound image is at `&9400` now (§6.7). The copy would
+  have run 3,264 bytes through the player, and the next tick would have
+  crashed in its own code with the test reporting a tile mismatch. The
+  free part while a level plays is `&8B81-&93FF` (past the enemy's erase
+  script); `tools/test_module4.py`'s `read_tile_bank` takes pieces of
+  2 KB at `&8C00` and asserts both ends against the build's own symbols.
 * **`build.sh` CLEARS `build/levels` AND NOT `build/`, so a level whose
   generator is gone stays on the disc.** Removing `make_cave_map.py`'s
   level 10 and rebuilding left `build/level_10.lvl` where it was;
@@ -7860,6 +8386,42 @@ trailing copies of itself across the roof.
   lines tall with 23 hit points. Align to the whole table and assert
   `(TABLE AND 255) + rows * stride <= 256`. `ENT_ART` and `ENT_HITBOX`
   are indexed the same way and carry the same assert.
+* **AND AN `align` IS A BIGGER GUARANTEE THAN THAT RULE, AND IT COSTS
+  LIKE ONE.** `ENEMY_TYPES` was `align 128` — four rows of 32 held
+  exactly — and what the indexing needs is only that the table not
+  CROSS a page. So every byte the code in front of it grew by was free
+  until the table reached the next 128, and then it cost up to 127 at
+  once: the sea's cable runs took the hazard code five bytes past
+  `&1B00` and the core past `&4000`. It moves to the next page only when
+  it would cross one now, with the assert unchanged.
+* **AN `equ $ - N` NAMES THE INSTRUCTION ABOVE IT, SO IT GOES AFTER
+  THE ONE IT MEANS.** It is how this engine names a patched operand
+  (`PM_MC_COLM`, `HZ_LIMIT`, the swimmer's 31 sites), and written one
+  line early it still assembles, still resolves, and names the last
+  bytes of the instruction before — which a patcher then overwrites.
+  Two of the swimmer's sites were (§8.18): the City's drone followed
+  `&2F03`. **And a check that reads a patch table back against itself
+  cannot see it**: what can is the byte the ASSEMBLER put at the site,
+  out of the image on disc, compared with the value the table says the
+  source holds there.
+* **A VALUE THAT DECIDES SOMETHING IS TAKEN WHERE IT IS COMPUTED, NOT A
+  CALL LATER.** `BOX_SET` worked out "is this level under water" into
+  `A`, reset her breath — which loads `A` with the digit a full breath
+  shows, 9 — and only then took the answer into `C`. 9 is not zero, so
+  **every land level got the swimmer's box**. Nothing crashed:
+  `tools/test_flow.py` found her at `KARA_WY` 48 where the City's record
+  and roof say 32, taking no key, and `tools/test_entities.py` 226 AABB
+  answers of 1,654 wrong. It is
+  the clobber-list rule below with the clobber in the caller's own code.
+* **A NEW MECHANISM CAN BLIND AN OLD CONTROL, AND A BLIND CONTROL
+  PASSES.** The trap painter's pass before the strip (§8.18) painted the
+  edge cells that the guard's control relied on leaving to C, and the
+  faster paint left the A paint's control nothing it could not afford —
+  both controls stopped failing, which a suite reports as the control
+  failing and is easy to read as the engine being right. **After adding
+  a mechanism, re-run the controls of the ones next to it and check they
+  still FAIL** — and when one does not, move it to where the rule it
+  protects still binds, rather than loosen it.
 * **Anything that changes the BACKGROUND must run after every sprite
   has been lifted off it**, at the very end of the frame. A sprite's
   save-under was captured before the change and its erase will put the
@@ -8714,7 +9276,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Twelve of the twenty-four levels have
+   **What is left**: maps. Eleven of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -8756,7 +9318,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other twelve levels**, which is a designer's work and
+   for the other eleven levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 
@@ -8765,8 +9327,20 @@ the next one starts.
      converged to, so nothing moves afterwards. Level 1 opens at
      `WORLD_X` 9 and a level starting 64 bytes in opens at 41 instead
      of panning there over forty frames (§8.1).
-9. **Audio** — `audio_pipeline.py` (ffmpeg → 3 channels), AY player in the 50 Hz
-   interrupt, Channel C SFX priority.
+9. ~~**Audio**~~ — **done, and two of plan.md's three halves came out
+   differently** (§6.7, §12). The AY player is `src/sound.asm`, three voices
+   with the effects stealing C in priority order and handing it back to the
+   music in step; it ticks once a game frame in the second sweep's idle wait
+   and not in the interrupt; and the game's effects come out of a WATCH on
+   the bytes that say what happened rather than out of call sites. There is
+   no `audio_pipeline.py`, because there is no audio to put through one: the
+   four tunes are composed, in `tools/make_music.py`, and checked against the
+   chip by a model of the player rather than by an ear. `tools/test_sound.py`
+   is the suite. **What is still owed**: a tune for the undersea, the desert
+   and the station, which play the title's until they have levels; a level
+   clear and a game over as music rather than effects; and an ear — the
+   first play-test with the sound on is the first time anybody will have
+   heard it.
 
 ## 12. Corrections to plan.md
 
@@ -8800,3 +9374,9 @@ Consult this list before implementing from the plan:
 9. **`assert (X & 15)` fails under `-amper`** — `&15` parses as a hex literal.
    Use `AND`. And `ASSERT` is evaluated eagerly in source order, so
    cross-module assertions must sit *after* every `include`.
+10. **The audio module (§5 Module 7)** — there are no stems for an ffmpeg
+   pipeline to split and nobody here can listen, so the music is composed as
+   scores in `tools/make_music.py` instead; and the player is **not** on the
+   50 Hz interrupt, whose tick lands in the first sweep's top border — her
+   lead over the beam — but once a game frame in the second sweep's idle
+   wait, at 25 Hz. See §6.7.

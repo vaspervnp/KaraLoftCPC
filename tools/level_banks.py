@@ -96,7 +96,7 @@ SETPIECE = {"citycar", "desertshuttle", "desertbasedoor",
 # (CLAUDE.md 8.17). They are still EXPORTED, because tools/test_spans.py
 # checks every blob the art makes; they just do not go in a bank, which
 # is 2,214 bytes back in a set that had 671 to spare.
-BAKED = {"forestaltar", "forestspiketrap"}
+BAKED = {"forestaltar", "forestspiketrap", "seacable"}
 
 
 def blobs(level):

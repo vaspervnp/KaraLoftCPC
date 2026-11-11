@@ -83,6 +83,12 @@ gen python3 "$ROOT/tools/make_forest_map.py"
 # .zx0 itself.
 gen python3 "$ROOT/tools/make_cave_map.py"
 
+# ... and the undersea's: 32x64 like the cave's, and the first level she
+# SWIMS in (CLAUDE.md 8.18). Its cables are the forest's trap machinery
+# with a second kind, composited over the water and appended to
+# seatiles.bin - so it runs where the other bakes do, before the banks.
+gen python3 "$ROOT/tools/make_sea_map.py"
+
 python3 "$ROOT/tools/level_banks.py"
 
 # A level's OWN bytes - its map, its entity table and its tile flags -
@@ -121,6 +127,12 @@ gen python3 "$ROOT/tools/make_hud.py"
 # it would be a second copy of docs/cpc_palette.md.
 gen python3 "$ROOT/tools/make_fade.py"
 
+# The music and the effects: the scores, composed rather than
+# transcribed - there is no audio in the art package and nobody here can
+# listen - compiled to the player's bytes (src/sound.asm, CLAUDE.md 11
+# step 9). `--wav` renders them for an ear; the build does not need it.
+gen python3 "$ROOT/tools/make_music.py"
+
 python3 "$ROOT/tools/dskdata.py" --inc
 
 # --- code -------------------------------------------------------------
@@ -140,8 +152,13 @@ gen python3 "$ROOT/tools/pack.py" city_map.bin overscan.bin
 python3 "$ROOT/tools/check_unary_minus.py"
 
 rasm "$ROOT/src/main.asm" -I "$ROOT/src" -I "$BUILD" -amper \
-     -ob "$BUILD/game.bin" \
+     -ob "$BUILD/engine.bin" \
      -s -sa -os "$BUILD/game.sym"
+
+# GAME.BIN is NOT that file: it is its three images ZX0-packed and the
+# loader that unpacks them (src/boot.asm). Ungated like RASM, because it
+# reads only what RASM has just written.
+python3 "$ROOT/tools/make_boot.py"
 
 cp "$ROOT/disc/disc.bas" "$BUILD/disc.bas"
 

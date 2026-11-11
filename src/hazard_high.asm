@@ -20,6 +20,7 @@ HAZARD_SPAWN:   ld   hl,HZ_TABLE
                 xor  a
                 ld   (HZ_COUNT),a
                 ld   (HZ_PEND_N),a
+                ld   (HZ_RUNS),a
                 ld   a,(ENT_COUNT)
                 or   a
                 ret  z
@@ -48,6 +49,12 @@ HAZARD_SPAWN:   ld   hl,HZ_TABLE
 
 ; IX = the record, A = its slot.
 HZ_SPAWN_ONE:   ld   c,a
+                ld   a,(ix + ENT_P1)        ; a run of cells, anywhere in the
+                and  &F0                    ; level, and HZ_WRITE takes the
+                ld   hl,HZ_RUNS             ; long way for all of them
+                or   (hl)
+                ld   (hl),a
+                ld   a,c
                 inc  a
                 ld   (HZ_COUNT),a
                 ld   a,c
@@ -70,17 +77,43 @@ HZ_SPAWN_ONE:   ld   c,a
                 ld   (iy + HZ_BASE),a       ; cel 0, out of the pristine map
                 ld   a,(ix + ENT_P1)
                 and  HZ_CELS - 1            ; the cel it starts on
+                ld   d,a
+                ld   a,(ix + ENT_P0)        ; WHICH hazard: its own row of
+                add  a,a                    ; HZ_DUR (src/hazard.asm)
+                add  a,a
+                add  a,d
                 ld   c,a
-                add  a,(iy + HZ_BASE)
-                ld   (hl),a
                 ld   b,0
                 ld   hl,HZ_DUR
                 add  hl,bc
-                ld   a,(hl)
+                ld   e,(hl)                 ; that cel's whole duration ...
+                ; ... LESS A HEAD START, in quarters of it: p1's bits 2-3
+                ; (8.18). A phase that only names the cel a trap starts
+                ; on gives every trap a boundary at the same instant -
+                ; the moment they all began - and four of the sea's
+                ; cables then changed together every 63 frames: twelve
+                ; cells for one painter, which left one of them a cel
+                ; behind on the glass. Measured, with a head start each
+                ; no two of them change within two frames of another.
+                ld   a,(ix + ENT_P1)
+                rrca
+                rrca
+                and  3
+                jr   z,.timer
+                ld   b,a
+                ld   a,e
+                srl  a
+                srl  a
+                ld   c,a                    ; a quarter
+                ld   a,e
+.less:          sub  c
+                djnz .less
+                ld   e,a
+.timer:         ld   a,e
                 add  a,a
                 add  a,a
-                or   c
-                ld   (iy + HZ_TC),a
+                or   d                      ; ... and the cel: D, and ONLY D -
+                ld   (iy + HZ_TC),a         ; it ORed the kind's row in too
                 ld   l,(ix + ENT_X)         ; x, pixels -> characters
                 ld   h,(ix + ENT_X + 1)
                 srl  h
@@ -99,7 +132,12 @@ HZ_SPAWN_ONE:   ld   c,a
                 srl  h
                 rr   l
                 ld   (iy + HZ_WR),l
-                ret
+                ; ... and the cel it starts on goes into the map now,
+                ; down the whole of its run (src/hazard.asm)
+                ld   a,(iy + HZ_TC)
+                and  HZ_CELS - 1
+                add  a,(iy + HZ_BASE)
+                jp   HZ_WRITE
 
 ; ---------------------------------------------------------------------
 ; HZ_SATISFIED - HL = a receptacle that has just been given everything
@@ -236,3 +274,53 @@ HZ_ADVANCE_ROW: ld   b,3
 
 HZ_SRC:         db 0            ; HZ_SATISFIED's record index
 HZ_CELLP:       dw 0            ; ... and its cell
+
+; ---------------------------------------------------------------------
+; HZ_WHERE - B = a cell's world character row: A = where it is, up and
+; down, against the view.
+;
+;   HZ_FAR   0   three or more character rows off it: drop the cell,
+;                because its row will come in from the MAP, which has
+;                the new cel already
+;   HZ_EDGE  1   one or two rows off it: keep it, and paint nothing
+;   HZ_HALF2 2   half on it: paint the half that is, and keep it
+;   HZ_ON    3   on it: paint it, and it is done
+;
+; THE FOREST NEVER NEEDED THIS AND THE SEA DOES, because the sea scrolls
+; DOWN (8.18). The incoming row is painted out of the map over two
+; frames before the latch shows it (8.2), and a cell that changed in
+; between used to be handed to HZ_PAINT while it was still off the
+; screen - which painted nothing and called it done. So it came in
+; with the cel it had been painted with, and kept it until the trap
+; next changed: the "row scrolled in vertically" CLAUDE.md 8.17 put
+; under "what is not here". A cell at the edge waits on the list now
+; and is painted the frame it is shown.
+;                                destroys AF,E; keeps BC
+;
+; IT IS IN THE HIGH IMAGE AND NOT THE CORE because the core is full:
+; the cable's runs and this took the hazard code past &1B00, and
+; ENEMY_TYPES' align 128 then cost a whole 128 bytes. The HIGH image is
+; base RAM like the core, so a per-frame call costs nothing more here.
+; ---------------------------------------------------------------------
+
+HZ_WHERE:       ld   a,(WORLD_CR)
+                ld   e,a
+                ld   a,b
+                sub  e                      ; the tile's top, on the screen
+                add  a,3                    ; -3..25 -> 0..28
+                cp   29
+                jr   nc,.far
+                cp   2
+                jr   c,.edge                ; -3 and -2: above it
+                jr   z,.half                ; -1: its lower half is on it
+                cp   26
+                jr   c,.on                  ; 0..22: all of it
+                jr   z,.half                ; 23: its upper half is
+.edge:          ld   a,HZ_EDGE              ; 24 and 25: below it
+                ret
+.far:           xor  a
+                ret
+.half:          ld   a,HZ_HALF2
+                ret
+.on:            ld   a,HZ_ON
+                ret
