@@ -64,11 +64,11 @@ public static class LevelFlagSeeds
     /// artist's own "walkable surface = tile top".
     /// </para>
     /// <para>
-    /// <b>And <c>Hazard</c> does nothing yet.</b> <c>TA_HAZARD</c> is defined
-    /// in <c>src/collide.asm</c> and nothing reads it, so the spike pit is
-    /// flagged the way the level means it and is, for now, a dip she falls
-    /// into and jumps out of. The data is right in advance; the engine is
-    /// what owes.
+    /// <b>And <c>Hazard</c> bites.</b> <c>TA_HAZARD</c> was defined in
+    /// <c>src/collide.asm</c> and read by nothing until a play-test walked
+    /// the forest unhurt; <c>HAZARD_HURT</c> reads it under her last line
+    /// now (CLAUDE.md 8.12), and the spike TRAPS of levels 7 and 8 are tiles
+    /// whose biting cels carry it (8.17).
     /// </para>
     /// </remarks>
     public static readonly IReadOnlyDictionary<string, TileFlags> Forest =

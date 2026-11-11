@@ -27,7 +27,7 @@ namespace CpcLevelEditor.Domain;
 ///   <item><term>Receptacle</term><description>p0 = the <see cref="PickupKind"/> it takes, p1 = how many it still wants</description></item>
 ///   <item><term>Npc</term><description>p0 = coins asked, p1 = which line he says</description></item>
 ///   <item><term>Enemy</term><description>p0 = which character (<c>EN_*</c>), p1 = patrol half-width in tiles</description></item>
-///   <item><term>Hazard</term><description>p0 = damage, p1 = period</description></item>
+///   <item><term>Hazard</term><description>p0 = <see cref="HazardKind"/>, p1 = the cel it starts on — the damage and the period are the type's, like an enemy's (CLAUDE.md 8.17)</description></item>
 /// </list>
 /// <para>
 /// <b>The Enemy row is the one with a stale comment against it.</b> The

@@ -43,4 +43,16 @@ public enum TileFlags : byte
 
     /// <summary>Reserved — a fall that does not end well.</summary>
     Deadly = 64,
+
+    /// <summary>
+    /// A satisfied receptacle over this cell moves it on to the next tile.
+    /// </summary>
+    /// <remarks>
+    /// The byte's last free bit (<c>TA_ADVANCE</c>). An altar is baked into
+    /// the tileset as an empty piece and a lit one, one index apart, and
+    /// only the empty pieces carry it — so <c>PLACE_STATUE</c> lights
+    /// whatever altar is around the record without being told its shape,
+    /// and leaves a cell that is not an altar's alone (CLAUDE.md 8.17).
+    /// </remarks>
+    Advances = 128,
 }

@@ -196,7 +196,7 @@ SCROLL_DEMO:    di
                 ; AND A MISSING MAP IS THE SAME ANSWER. LEVEL_GOTO
                 ; returns carry clear for a level nobody has painted as
                 ; well as for a read that failed, and neither is a
-                ; level: MAP_INSTALL would parse whatever &B000 holds.
+                ; level: MAP_INSTALL would parse whatever &B100 holds.
 .failed:        xor  a
 .loaded:        ld   (LEVEL_OK),a
                 ; Full guns for the level: the Module 1-3 screen fires
@@ -317,6 +317,15 @@ SCROLL_DEMO:    di
                 ; (bullets.asm), so while she is firing she is drawn up
                 ; to seven scanlines later and her safe line moves with
                 ; it. The erase order below is reversed to match.
+                ;
+                ; ... AND IN FRONT OF THEM, THE SPIKE TRAPS SHE IS
+                ; STANDING IN. A trap whose cel changed under her could
+                ; not be painted in the second sweep - her save-under had
+                ; the old cel and her erase would put it back - so it is
+                ; painted here, before any save-under is taken, at the
+                ; price of her lead: one cell a frame, nothing at all in
+                ; a level with no trap (src/hazard.asm, CLAUDE.md 8.17).
+                call HAZARD_PAINT_A
                 call BUL_DRAW
                 call EBUL_DRAW
                 ld   a,(LEVEL_OK)
@@ -506,6 +515,14 @@ SCROLL_DEMO:    di
                 ; from the top of the sweep to the bottom (src/enemy.asm).
                 call ENEMY_MOVE
                 call ENEMY_PICK_NEXT
+                ; THE SPIKE TRAPS' CYCLE, AND EVERY CELL OF IT THAT IS NOT
+                ; UNDER HER. Still in the wait for the head gate, which is
+                ; time the loop had always spent doing nothing; the tick
+                ; writes the map before H_HEAD reads it for the incoming
+                ; column, and the paint only begins a cell with a whole
+                ; tick to spare in front of the gate (src/hazard.asm).
+                call HAZARD_TICK
+                call HAZARD_PAINT_B
 
                 ; AND WAIT FOR THE INTERRUPT TO STAMP THIS FRAME'S ANCHOR
                 ; BEFORE USING ANY GATE THAT COUNTS FROM IT. THIS WAS THE
@@ -655,6 +672,9 @@ SCROLL_DEMO:    di
                 ; persistent sprite where she is not. See enemy.asm.
                 call ENT_REPAINT_DUE
                 call ENEMY_REFRESH_LATE     ; ... if ENEMY_SLOT said so
+                call HAZARD_PAINT_C         ; ... and a trap's new cel, if
+                                            ; the wait above had no room
+                                            ; for it (hazard.asm)
 
                 ; AND NOW WHERE SHE GOES, because the view is final: the
                 ; vertical latch happened at the top of this sweep, and
@@ -991,6 +1011,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "levels/_shared/kextra.inc"
                 include "action.asm"
                 include "entity.asm"
+                include "hazard.asm"
                 include "enemy.asm"
                 include "bullets.asm"
                 include "input.asm"
@@ -1038,6 +1059,12 @@ BANK_STORE:     ld   a,PEN_GREEN
                 ; in the SAME PAGE as the label, not merely aligned.
                 assert (ENT_ART_CEL AND 255) + ENT_ART_KINDS <= 256
                 assert (ENT_HITBOX AND 255) + EK_COUNT * 2 <= 256
+                ; the traps' table is the 64 bytes between the entity
+                ; table and TILE_ATTR, and an altar cell's attribute is
+                ; looked up with TILE_ATTR's page in D (src/hazard.asm)
+                assert HZ_TABLE + HZ_MAX * HZ_STRIDE <= TILE_ATTR
+                assert (HZ_TABLE AND 255) + HZ_MAX * HZ_STRIDE <= 256
+                assert (TILE_ATTR AND 255) == 0
                 ; ENEMY_TYPE_AT does the same with a 32-byte stride, and
                 ; the WHOLE table has to sit in one page: ADD A,low
                 ; discards the carry, so a table that straddles a page
@@ -1188,7 +1215,11 @@ CORE_SIZE       equ  CORE_END - CORE_START
 ; have to be told. The padding is free on the disc - ZX0 eats a zero
 ; run - and the whole image packs to 354 bytes of one sector.
 ; =====================================================================
-LEVEL_IMAGE     equ  &B000      ; above the map and its table, below the stack
+LEVEL_IMAGE     equ  &B100      ; above the map and its table, below the stack
+                                ; - and a page above where it was, which is
+                                ; the HIGH image's: the spike traps' once-a-
+                                ; level half did not fit the core
+                                ; (src/hazard_high.asm, CLAUDE.md 8.17)
 LEVEL_TILEFLAGS equ  LEVEL_IMAGE
 LEVEL_TILEFLAGS_N equ TILE_ATTR_N
 LEVEL_LVL       equ  LEVEL_IMAGE + LEVEL_TILEFLAGS_N
@@ -1226,6 +1257,12 @@ HIGH_IMAGE      equ  BOOT_END + CORE_SIZE   ; where its bytes sit in the file
                 org  HIGH_ADDR, HIGH_IMAGE
 HIGH_START:
                 include "intro.inc"
+                include "hazard_high.asm"
 HIGH_END:
 HIGH_SIZE       equ  HIGH_END - HIGH_START
                 assert HIGH_END <= LEVEL_IMAGE
+; ... AND PAST IT, THE SPIKE TRAPS' PENDING CELLS: two bytes a cell, in
+; the base RAM nothing else uses, written before anything reads it -
+; HAZARD_SPAWN empties the list at every level install (src/hazard.asm).
+HZ_PEND         equ  HIGH_END
+                assert HZ_PEND + HZ_PEND_MAX * 2 <= LEVEL_IMAGE

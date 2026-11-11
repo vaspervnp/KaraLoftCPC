@@ -23,7 +23,7 @@
 ;
 ; The map at &A000, the entity table at &A800 and the tile flags at
 ; &A900 are all WORKING copies, made by MAP_INSTALL out of the image at
-; &B000 that came off the disc (src/unpack.asm). Play writes on every
+; &B100 that came off the disc (src/unpack.asm). Play writes on every
 ; one of them - a taken pickup's cell goes back to the plain tile, a
 ; dead drone's record is marked EF_TAKEN, a baked pickup owns a scratch
 ; tile - and the image is never touched. So a re-init is exactly
@@ -96,7 +96,7 @@ FLOW_STEP:      cp   GS_CLEAR
 
                 ; ---- she died --------------------------------------
                 ; The same level, from the image. No disc: her art is
-                ; in the banks and the level's bytes are at &B000.
+                ; in the banks and the level's bytes are at &B100.
                 ld   hl,PALETTE_DATA
                 call FADE_OUT
                 call LEVEL_RESTART
@@ -132,7 +132,7 @@ FLOW_STEP:      cp   GS_CLEAR
                 ; end of. It is also what an UNPAINTED level looks like:
                 ; DISC_LEVEL_MAPS carries a zero for every level nobody
                 ; has made yet, and LEVEL_GOTO refuses rather than
-                ; letting MAP_INSTALL parse whatever &B000 held.
+                ; letting MAP_INSTALL parse whatever &B100 held.
 .over:          call INTRO_SHOW             ; ... a disc read, so interrupts
                 call INTRO_WAIT             ; are off and the tick has stood
                                             ; still; the loop's own
@@ -230,7 +230,7 @@ LEVEL_ENV:      db &FF          ; which environment's art is in the banks,
 ;                                destroys everything
 ;
 ; The only difference is which of the two resets runs; what follows is
-; the same, because SCROLL_INIT does not care how the image at &B000
+; the same, because SCROLL_INIT does not care how the image at &B100
 ; got there.
 ; ---------------------------------------------------------------------
 LEVEL_RESTART:  call LEVEL_RESET
@@ -241,7 +241,7 @@ LEVEL_ADVANCE:  call LEVEL_ENTER
 LEVEL_SHOW:     call SCROLL_INIT
                 ret  nc
                 ; MAP_INSTALL refused. After a RESTART that means the
-                ; image at &B000 has been damaged - nothing else can
+                ; image at &B100 has been damaged - nothing else can
                 ; make a file that parsed once stop parsing - and after
                 ; an ADVANCE it means the level that just came off the
                 ; disc is not one this engine can read. There is no

@@ -11,7 +11,7 @@ which now carries its own §0 of five corrections this file forced (§8.3).
 **Modules 1-4 done, Module 5 all but its last test, Module 6 DONE —
 all four of its slices — and the LEVEL FSM's spine runs (§8.1): she
 dies, the screen fades and the level comes back out of the pristine
-copy at `&B000`; **the garage opens and she goes to the NEXT LEVEL**,
+copy at `&B100`; **the garage opens and she goes to the NEXT LEVEL**,
 which inside one environment is a map read of one sector and no art at
 all — 54 hardware frames, fade and all. Four levels an environment,
 six environments. **And a level opens on the view the camera
@@ -321,7 +321,8 @@ the forest**: an environment away, so the door reads the forest's art,
 City's four maps and the forest's two, every door a measured
 transition — and `tools/test_flow.py` walks the whole chain with seven
 coins in her pocket before the seventh level, unpainted, sends it back
-to the title. The drive found something that is not the map: **a game
+to the title. (Since §8.17 the chain is levels 1 to 12 and it is the
+thirteenth that sends it back.) The drive found something that is not the map: **a game
 frame that takes three hardware frames, three times in 340** — at a
 run's first step, at a running take-off and once in a fall — and level
 2's "lock" was one of them all along (§8.16).
@@ -357,8 +358,8 @@ FALLING past them: landed at the bottom her feet are on solid dirt and
 the spike is her box's bottom sixteen lines. **A level with no spike
 tile pays 24 T a frame for this and the forest pays 792** — against the
 800 the tightest path in the game has, which is the entry to re-measure
-the day a level wants spikes and an enemy at once. `TA_DEADLY` and
-`EK_HAZARD` are still where `TA_HAZARD` was.
+the day a level wants spikes and an enemy at once. `TA_DEADLY` is
+still where `TA_HAZARD` was; `EK_HAZARD` is not, below.
 
 **AND A DRONE THAT HAS BEEN ON THE SCREEN STAYS ON IT UNTIL ONE OF THEM
 IS DEAD.** A play-test: the drones *"jump from one place to another,
@@ -379,6 +380,33 @@ logic and her rounds' flight went into the second sweep's idle wait —
 and **an assembler that drops a minus sign**: RASM assembles
 `ld bc,-TILE_H` before `TILE_H` is defined as `ld bc,16`, silently, and
 the build refuses it now (§10).
+
+**AND THE FOREST IS FOUR MAPS, AND THE LAST TWO ARE ITS OWN MECHANIC:
+AN IDOL ON AN ALTAR STOPS A FIELD OF SPIKE TRAPS.** plan.md names it and
+nothing had ever driven it — levels 5 and 6 carried an idol and a
+receptacle, and the receptacle took the idol and set a flag that
+nothing read, beside a comment about a link section `MAP_INSTALL` had
+never parsed. **A trap is a map cell whose tile changes**: the artist's
+four cels and the altar's empty and lit pieces are composited over the
+ground at build time, at consecutive indexes, and the engine moves a
+cell on by writing one byte of the map — so the bite is the TILE's
+(`TA_HAZARD` on cels 1-3, read by §8.12's probe as an edge) and the
+cycle is 5, 2, 5 and 2 game frames, measured off the map byte. **The
+links have a reader**, out of the pristine level image: an idol on the
+altar marks every trap its `Disables` links name, and the altar's
+pieces carry `TA_ADVANCE`, the flag byte's last free bit, so the cell
+moves on to the lit one. Walked across level 7's field without the
+idol it is **five bites, 100 → 20**; with it, **none**. Level 8 has two
+altars and each stops only its own field. **Where the new cel goes
+down is the whole difficulty** — never under a sprite whose save-under
+holds the old one — so a changed cell waits for the second sweep's idle
+wait, or for the end of that sweep once she has been erased, and the
+picture is the map on every game frame of both walks, with the lock at
+100 of 200 running, standing, jumping and firing. **The first check of
+that picture excused every cell still waiting to be painted, so a
+painter that never painted passed it**; excusing only the cells she
+stands in is what found the first painter a tick short. Level 8's way out is the cave in the mountain, **so the game
+plays straight through from level 1 to level 12** (§8.17).
 
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
@@ -528,7 +556,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-twenty-nine pass**, the editor's own among them. Eighteen checks in
+thirty pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -618,6 +646,11 @@ src/entity.asm    the entity table, the AABB, the five interaction
 src/enemy.asm     the level's characters: patrol, sight, fire, damage,
                   the persistent sprite that pays for them, and the
                   drone that follows her once it has been seen (8.7)
+src/hazard.asm    the spike traps: a map cell whose tile changes, its
+                  cycle, and the three places a changed cell may be
+                  painted without a save-under putting it back (8.17)
+src/hazard_high.asm  ... and what runs once: the spawn at a level
+                  install and the altar's links, in the HIGH image (4)
 disc/disc.bas     ASCII BASIC loader - straight into the game, and what
                   every suite runs
 build/kara.bas    ... and the PLAYER's one, generated: the label screen
@@ -672,11 +705,12 @@ tools/make_city_map.py     the City's maps - ALL FOUR, 128x16, over the
                            nothing to (8.14 - 8.16)
 tools/make_level.py        that map + the entity table -> level_1.lvl,
                            the reference implementation of editor.md 9.2
-tools/make_forest_map.py   the forest's maps - levels 5 AND 6, 128x16,
-                           straight into the format: there are no
-                           overlays to bake, so no city_map.bin step to
-                           mirror. One LAYOUT an entry, one set of
-                           machinery (8.11)
+tools/make_forest_map.py   the forest's maps - levels 5 TO 8, 128x16,
+                           straight into the format, one LAYOUT an
+                           entry (8.11) - and the bake of the spike
+                           trap's four cels and the altar's two, over
+                           the ground, appended to the forest's
+                           tileset (8.17)
 tools/make_cave_map.py     the cave's maps - levels 9 TO 12, all four,
                            32x64, the first SHIPPED maps that are TALL
                            and the first with ladders since the City.
@@ -733,6 +767,12 @@ tools/test_forest.py       levels 5 and 6 on the machine: out of the
                            end, climbs two branches for level 6's key,
                            and carries her health through the door
                            between them (8.11)
+tools/test_forest7.py      levels 7 and 8 on the machine: the trap's
+                           cycle off the map byte, the bite, the
+                           picture checked against the map on every
+                           frame, the lock, the idol on the altar and
+                           the links it fires, and the way out into
+                           the cave (8.17)
 tools/test_generated.py    a level NOBODY painted, on the machine: the
                            editor generates a 32x64 one, it goes on a
                            disc, and she is driven down every shaft of
@@ -745,7 +785,7 @@ tools/test_cave.py         levels 9 to 12 on the machine: the first
                            a hole costs her and what a missed step and
                            a broken ladder do not; and her action cels
                            per environment (8.13)
-tools/test_*.py            acceptance suites, twenty-nine of them
+tools/test_*.py            acceptance suites, thirty of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -848,11 +888,12 @@ the engine**:
 3. Select RAM config `&C0` so the window is in a known state.
 4. `LDIR` the core engine image down to `&0040` (source and destination do not
    overlap) and `JP` into it. There is no way back to BASIC after this.
-   **A second `LDIR` first puts the HIGH image at `&AA00`**: data the
-   core has no room for — the title's two prompt strips, today — stored
-   in the file after the core and assembled for base RAM between
-   `TILE_ATTR` and `LEVEL_IMAGE`, which `main.asm` asserts (§8.7 has why
-   the core ran out).
+   **A second `LDIR` first puts the HIGH image at `&AA00`**: what the
+   core has no room for — the title's two prompt strips, and the code
+   the spike traps run ONCE, at a level install and at an altar
+   (§8.17) — stored in the file after the core and assembled for base
+   RAM between `TILE_ATTR` and `LEVEL_IMAGE`, which `main.asm` asserts
+   (§8.7 has why the core ran out, §8.17 why it ran out again).
 5. The core rewrites `&0038` with `JP IRQ_HANDLER` before the first `EI`, since
    the firmware's handler went out with the lower ROM.
 
@@ -905,9 +946,11 @@ mid-scanline skews the bands.
 &0040-&3FFF  Core engine, scrolling engine, sound driver      (never banked out)
 &4000-&7FFF  Level logic, collision data, entity management   (BANKED WINDOW)
 &8000-&BFFF  Sprite buffers, background restore buffers, temp (never banked out)
-             ... &A000 the map, &A800 the entity table, &A900 the
-             tile flags, &AA00 the HIGH image (4), &B000 the
-             pristine LEVEL_IMAGE the bootstrap lands there (10)
+             ... &A000 the map, &A800 the entity table, &A8C0 the
+             spike traps (8.17), &A900 the tile flags, &AA00 the
+             HIGH image (4) and the traps' pending cells after it,
+             &B100 the pristine LEVEL_IMAGE the bootstrap lands
+             there (10)
 &C000-&FFFF  Primary video RAM
 ```
 
@@ -933,7 +976,7 @@ counted in every level:
 | level | unpacked | banks | packed | set pieces |
 |---|---:|---:|---:|---:|
 | 1 city | 74,184 | 5 | 19,174 | 487 |
-| 2 forest | **80,225** | 5 | 21,297 | — |
+| 2 forest | **79,035** | 5 | 21,116 | — |
 | 3 cave | 77,003 | 5 | 20,740 | — |
 | 4 undersea | 67,588 | 5 | 17,700 | 1,074 |
 | 5 desert | 77,113 | 5 | 19,406 | 2,101 |
@@ -947,8 +990,10 @@ instead, which has 14 KB free after the save-under buffers.
 
 **The heroine is two thirds of it.** `kcore` and `kcore_l` are 12,290
 each, `kextra` and `kextra_l` 7,435, `kact` 11,229 and `kact_l` 8,507:
-**59,186 bytes before a level has drawn a single tile**, and 671 is all
-the room level 2 has left after them. The action
+**59,186 bytes before a level has drawn a single tile**, and 671 was
+all the room level 2 had left after them — 1,861 now, since the altar
+and the spike trap stopped being sprite blobs and became sixteen tiles
+of its tileset (§8.17). The action
 sheet is what moved it — `drop` and `die` added 8,144 to every level at
 once, and at that point level 2 had 65 bytes of slack and level 5 was
 2,029 over. Four rules make it fit, and the last two are new:
@@ -1681,6 +1726,14 @@ pen 0 in them at all** — not an oversight and not a decision, just art
 that has not needed it yet. `station_tiles` is the other case and the
 one to be careful about: 9 of its tiles carry pen 0, every one of them
 `opaque`, and `bg_far_1` is at 126 of 128.
+
+**The forest bakes composites anyway — sixteen, 1,024 bytes — and none
+of them comes out of a tile sheet.** They are the spike trap's four
+cels and the altar's empty and lit pieces, SPRITE sheets cut into
+8×16 cells and composited over the ground they stand on, by the same
+`tilebake.py` (§8.17). It is this section's bake with a sprite as the
+overlay, and the reason is the same: a picture that does not move is
+scenery, and the engine has no masked path for scenery.
 
 **The mask column is what a masked path WOULD store, and nothing
 stores it.** Level 1 spends 640 bytes on 10 composited tiles instead of
@@ -2751,15 +2804,16 @@ image:
 | | sectors |
 |---|---:|
 | the data area, from track 9 of a 42-track image | 297 |
-| the art, the title and the ten maps that exist | **278** |
-| **spare** | **19** |
-| ... staying inside a standard 40-track disc | **1** |
+| the art, the title and the twelve maps that exist | **280** |
+| **spare** | **17** |
+| ... staying inside a standard 40-track disc | **−1** |
 
-Twenty-four maps is fourteen more of those, so four levels an
-environment fits with five to spare **and needs the extended pair of
-tracks**,
+**The twelfth map is the one that crossed it**: the data runs to track
+40, which is the first of the extended pair, by one sector. Twenty-four
+maps is twelve more of those, so four levels an environment fits with
+five to spare **and needs the extended pair of tracks** —
 which is what the image already carries and what many drives will not
-read. `tools/dskdata.py` says so rather than leaving it to the drive:
+read. Today the game does too. `tools/dskdata.py` says so rather than leaving it to the drive:
 past 40 tracks it prints how many sectors are out there, and past 42 it
 is an error with the arithmetic in it.
 
@@ -2824,7 +2878,7 @@ round landed.
 
 The map at `&A000`, the entity table at `&A800` and the tile flags at
 `&A900` are **working** copies, made by `MAP_INSTALL` out of the image
-at `&B000` that came off the disc (§7.5). Play writes on every one of
+at `&B100` that came off the disc (§7.5). Play writes on every one of
 them — a taken pickup's cell goes back to the plain tile, a dead drone's
 record is marked `EF_TAKEN`, a baked pickup owns a scratch tile — and
 **the image is never touched**. So a re-init is `MAP_INSTALL` again, and
@@ -2890,8 +2944,8 @@ is somewhere to go now, and the line was not the interesting part —
 So **several levels share an environment's art**, and a transition
 between two of them reads a sector and nothing else. `LEVELS_PER_ENV`
 is **4**, which is six environments of four levels: 24 maps, 24
-sectors — ten of them on the disc now, and 19 spare for the other
-fourteen (§7.9).
+sectors — twelve of them on the disc now, and 17 spare for the other
+twelve (§7.9).
 
 **`LEVEL_GOTO` IS THE WHOLE OF IT, AND IT READS THE MAP FIRST.**
 
@@ -2956,7 +3010,7 @@ shows in the measurement — the frame after a transition goes from
 **AND OFF THE END IT GOES BACK TO THE TITLE AND STARTS AGAIN**, which
 is also what an UNPAINTED level looks like: `DISC_LEVEL_MAPS` carries a
 zero for every level nobody has made yet and `LEVEL_GOTO` refuses,
-rather than letting `MAP_INSTALL` parse whatever `&B000` held. That is
+rather than letting `MAP_INSTALL` parse whatever `&B100` held. That is
 a full `LEVEL_RESET` and not a transition — starting the game over is
 not walking through a door — and the suite checks both halves.
 
@@ -3288,7 +3342,16 @@ the contract between the two, and the engine reads it:
 
 Tile flags travel separately in `tileflags_<level>.bin`, one byte a
 tile: `Solid 1, Platform 2, Hazard 4, Ladder 8, Water 16, Quicksand 32,
-Deadly 64`.
+Deadly 64` — **and `Advances 128`**, the last free bit, which is the
+engine's own: a tile that carries it is an altar piece's EMPTY cel, and
+`PLACE_STATUE` moves a cell that has it on to the next index (§8.17).
+
+**AND THE LINK SECTION HAS A READER.** `LK_DISABLES` = 1, which is
+docs/editor.md 5.4's own order and the editor's `LinkKind`: a link
+from a receptacle to a hazard, fired when the receptacle is satisfied.
+It is read out of the PRISTINE level image at `&B100`, which nothing
+in play writes, so it costs no RAM and a restart cannot find it half
+spent — and the other five kinds still have no reader.
 
 **THAT BIT ORDER IS THE ENGINE'S TOO, and settling it was half of §11
 step 7's homework.** `collide.asm`'s `TA_*` used to run the other way
@@ -4035,7 +4098,7 @@ text — this is the engine's half of that agreement:
 | `RECEPTACLE` | `PU_*` it takes | how many it still wants |
 | `NPC` | coins asked | which line he says |
 | `ENEMY` | `EN_*` — which character | patrol half-width in tiles |
-| `HAZARD` | damage | period |
+| `HAZARD` | `HZ_*` — which hazard (§8.17) | the cel it starts on |
 
 **`p0` is always "which thing this is".** The enemy row first read
 `p0 = patrol width, p1 = shots a second`, which leaves nowhere to say
@@ -4227,8 +4290,9 @@ whole of what is special is **four rows**:
 **PINNING `hudicon` WOULD ALSO FIX IT AND IS NOT WHAT THIS DOES.**
 `level_banks.py` already pins Kara's three blobs at one address in
 every level (§8.4), and that is why `src/kara.asm` addresses her by
-constant — but a pin is a fixed 763 bytes in an allocation that leaves
-level 2 with **671 bytes spare** (§6.2). Naming the six addresses costs
+constant — but a pin is a fixed 763 bytes in an allocation that left
+level 2 with **671 bytes spare** when this was written (1,861 since
+§8.17, §6.2). Naming the six addresses costs
 **18 bytes** in the engine and nothing in the allocator.
 
 `ENT_ART_FOR` is paid once per pickup at `MAP_INSTALL` and never per
@@ -5311,6 +5375,15 @@ is the check that caught the one mistake in it. Eleven bytes of row 8
 differed, all of them the deco row, because the `DECO` dict had been
 copied from a grep that showed only its first line.
 
+**And then §8.17 moved both altars, on purpose.** The receptacle had
+been a record nobody could see; drawn, level 5's stood under a branch,
+so it went from tile 117 to 107 (the flowers it displaced to 105), and
+level 6's from 116 to 117, so that both stand on an odd column and
+share level 7's composites rather than baking two more. Diffed against
+the files that shipped, what moved is the altar's six map cells, the
+flowers' one in level 5, and the low byte of the receptacle's x —
+nothing else in either file.
+
 ### 8.12 The spikes, and the first reader `TA_HAZARD` has ever had
 
 **A PLAY-TEST WALKED THE FOREST AND NOTHING IN THE GROUND HURT HER.**
@@ -5412,10 +5485,14 @@ two hundred frames fall, and the thing it falls on is the drone". The
 floor the suite actually asserts — 95, the worst of ten — **is 95 on
 all three builds**, and every path with the drones off is exactly 100.
 
-**What is still owed**: `TA_DEADLY` and `EK_HAZARD` have no reader
-either, and `EK_HAZARD` is the one with `p0` = damage and `p1` = period
-in §8.6's table — a hazard that is a RECORD rather than a tile, which
-is what a moving blade or a timed jet wants. Neither is written.
+**What is still owed**: `TA_DEADLY` has no reader either. **`EK_HAZARD`
+has one now** (§8.17), and it did not come out the way §8.6's table
+had it — `p0` = damage, `p1` = period. A hazard is still a TILE: the
+record says which cell goes round a cycle and the cel it starts on,
+and the bite is this section's probe reading the cel's own
+`TA_HAZARD`, so the damage is `TILE_HURT` and the period is the art's.
+`p0` became "which hazard", which is §8.6's rule that `p0` is always
+which thing this is.
 
 ### 8.13 Level 9: the cave, and the first shipped map that is TALL
 
@@ -6119,7 +6196,10 @@ through from level 1 to level 6 now**: `tools/test_flow.py` clears every
 door in the run of painted levels it reads off `build/` — five of them,
 one an environment change — and the coins it put in her pocket on level
 1 are still there on level 6 before level 7, unpainted, sends her back
-to the title.
+to the title. **Since §8.17 there is no gap at all**: levels 7 and 8
+are the forest's last two, level 8's cave leads to level 9, and the
+chain is unbroken from 1 to 12 — eleven doors, three of them an
+environment change, before the undersea's first level, unpainted.
 
 **THE WINDOWS ARE EXACT AT A RUN, AND LEVEL 4 IS WHAT FOUND THE
 INSTRUMENT OUT.** Gap 22 is level 2's gap 22 exactly, and at a run's
@@ -6157,6 +6237,223 @@ for ever: §9's delay-of-a-known-length is the instrument.
 a cutscene, and it is a set piece — loaded for one fixed moment, the
 way §6.2 keeps the other five — which needs the cutscene state that
 §11 step 8 still owes.
+
+### 8.17 Levels 7 and 8: the spike traps, the altar, and the first reader the links have had
+
+`tools/make_forest_map.py` writes both with levels 5 and 6 and
+`tools/test_forest7.py` drives them. Level 6's cave leads to level 7
+and level 7's to level 8 — one sector each, `LEVEL_ENV` unmoved — and
+**level 8's way out is the cave in the mountain** plan.md ends the
+forest at, which `mockup_forest_cave.png` draws: the mountain's face to
+the end of the map and the arch cut into the rock. It leads to level 9,
+the cave, an environment away. **So the game plays straight through
+from level 1 to level 12.**
+
+**THEY ARE THE FOREST'S OWN MECHANIC, WHICH NOTHING HAD EVER DRIVEN.**
+plan.md: *"placing the statuette on the altar to disable the trap"*.
+Levels 5 and 6 already carried an idol and a receptacle — and the
+receptacle was a record nobody could see, `PLACE_STATUE` took the idol
+and set a flag, and the comment beside it said *"the Disables link
+fires off it"*, about a link section `MAP_INSTALL` had never read. Now:
+
+| | |
+|---|---|
+| level 7 | the idol two branches up, the altar past the mountain, then a FIELD OF EIGHT SPIKE TRAPS one every other tile, then the key and the way out |
+| level 8 | two idols, two altars, two fields of four — and **each altar stops only its own field** |
+
+#### A TRAP IS A MAP CELL WHOSE TILE CHANGES
+
+The artist drew the spike trap as a four-cel sprite (retracted, half,
+full, half — *"damage on frames 1-3"*) and the altar as a 24×32 one,
+empty and lit. Neither moves across the screen: what changes is which
+picture is in the cell. That is the pickups' argument (§8.6) and the
+overlays' (§7.3) one step on — **a picture that does not move is
+scenery, scenery is a map cell, and a map cell costs nothing until it
+changes** — so every cel of both is composited over the tile under it
+at build time and appended to the forest's tileset, and the engine
+moves a cell on by writing **one byte of the map** and repainting it.
+
+**THE CONTRACT IS CONSECUTIVE INDEXES AND ONE FLAG BIT**, and it is the
+whole of what the engine and the tool share:
+
+| | |
+|---|---|
+| a trap | cel 0's index is in the map; cels 1-3 are the next three. Cels 1-3 carry `TA_HAZARD` and cel 0 does not |
+| an altar piece | its EMPTY tile is in the map and its LIT one is the next index. Only the empty one carries **`TA_ADVANCE`, bit 7** — the tile flag byte's last free bit |
+
+**AND THE BITE IS THE TILE'S, NOT `hazard.asm`'s.** `HAZARD_HURT` has
+read `TA_HAZARD` under her last line since the spike pits (§8.12), as
+an edge: so she is bitten **the frame a trap she is standing in comes
+up**, and nothing in this file knows she exists except where its
+picture would be drawn over hers. Standing in level 7's field: **7
+bites in 100 game frames against a 14-frame cycle** — and with
+`HAZARD_TICK` poked to `RET`, none.
+
+**THE CYCLE IS `HZ_DUR`: 5, 2, 5 AND 2 GAME FRAMES**, the artist's
+200, 70, 200 and 70 ms at 40 a frame with the 70s rounded up, because a
+cel held for one game frame is on the glass for one sweep in two.
+Measured off the map byte on the machine, eight traps in phase.
+
+**WHY THEY ARE ALL IN PHASE IS THE EDGE.** A field that ripples always
+has a trap up under her six-byte box, so `HAZARD_IN` never drops and
+she is bitten once for the lot; a field that breathes — every trap down
+for five frames together — bites her once a cycle while she is in it.
+
+#### THE ALTAR AND THE LINKS
+
+`PLACE_STATUE` was given its idol on the stroke it always was; what is
+new is `HZ_SATISFIED`, which it now ends in:
+
+* **its links.** Every `Disables` link (`LK_DISABLES` = 1, docs/editor.md
+  5.4's own order, and the editor's `LinkKind`) whose source is this
+  record marks its target `EF_TAKEN`, and `HAZARD_TICK` puts that trap
+  on cel 0 and keeps it there. **The links are read out of the PRISTINE
+  level image** (§8.1), which nothing in play writes — so they cost no
+  RAM, and a restart cannot find them half spent.
+* **its picture.** Every cell of the 3×2 around its own whose tile
+  carries `TA_ADVANCE` moves on one index. It does not need the altar's
+  shape, and an editor's level with a receptacle and no baked altar is
+  not scribbled on.
+
+Measured on level 7 with the idol: the six altar cells go from
+`42 44 46 48 50 52` to `43 45 47 49 51 53`, all eight trap records are
+`EF_TAKEN`, the field is on cel 0 within a frame and stays there, and
+**crossing it costs nothing**, against **five bites, 80 points**,
+walking across it without the idol. Its control is the links: with the
+image's link count zeroed the altar still lights and the field still
+bites — so it is the LINK that stops a trap and not the altar being lit.
+And level 8's two altars are the links' own control: the first idol
+puts the first field down and leaves the second breathing.
+
+#### WHERE THE PICTURE GOES DOWN IS THE WHOLE OF THE DIFFICULTY
+
+It is §10's rule about the background: **not under a sprite whose
+save-under already holds the old cel**, or its erase puts it back. So a
+changed cell is PENDING until it is painted, and three places may paint
+it:
+
+| | where | what |
+|---|---|---|
+| `HAZARD_PAINT_B` | the second sweep's wait for its head gate — 40,468 T the loop always spent doing nothing | every cell that does not meet her box as she was drawn, begun only before **tick 4** |
+| `HAZARD_PAINT_C` | the END of the second sweep, after her erase and the rounds' | what B left, the cells she stands in among them — there is no save-under on the screen to put them back — begun only before tick 6, so a cell is down by ~72,300 T of 79,872 |
+| `HAZARD_PAINT_A` | the top of the first sweep, after the latch and before ANY sprite is drawn | what C had no room for — and only while she is not walking or running |
+
+**B'S TICK IS A MEASUREMENT, AND THE FIRST ONE WAS WRONG.** The field
+changes all at once — that is what makes it breathe — and a cell is
+~5,200 T. Begun only before tick 3, B had room for four or five, and
+walking across level 7's field **26 game frames of 80 showed a trap a
+cel behind that she was nowhere near**; C took that to 18. Before tick
+4 — the head gate's own tick, which is a NO EARLIER THAN, so a head
+that starts a cell late is only further behind the beam — it is **0,
+walking and running**, and the second sweep ends by **72,848 T at
+worst** across the field, against 73,340 at tick 3.
+
+**C IS THE CELLS UNDER HER FEET.** B leaves them for fear of her
+save-under and A will not paint while she moves, so without C the cell
+she stood in was a cel behind the map on **65 game frames** of the walk
+across; with C, **15** — the frames whose sweep ended past its tick.
+The BITE is never behind, because the bite is the map's.
+
+**A IS THE FALLBACK, AND ITS LAST CLAUSE IS A MEASUREMENT.** A cell at
+the top of the first sweep is ~5,200 T in front of her draw, and a run
+has 800 T of room there (§9): with the `ret nz` that waits for her to
+stop poked to a `NOP`, running across the field is **99 game frames in
+200** — it was 98 before C took most of A's cells. Standing on a trap,
+which is when the spikes coming up have to be SEEN, she is planted and
+whatever C had no room for is painted before the beam reaches it.
+Measured with the three: running across, walking across, and standing
+in the field jumping and firing are all **100 of 200**.
+
+**AND C KEEPS OUT OF THE INCOMING COLUMN'S WORDS.** While a horizontal
+step is in flight, `H_HEAD` has already painted the head of the incoming
+column into column 0 of the rows below — or column 39 of the rows above
+— under the start address that is still on the screen (§8.2); a cell
+painted there after it is the incoming column's head, wrong, for as
+long as the cell scrolls. So a tile touching column 0 or 39 is left for
+B, which paints it after the latch. **No shipped level can reach it**: a
+trap on row 8 is below the head's rows, and `H_TAIL` paints over
+whatever was left there. Measured with the level's traps lifted to map
+row 3, inside them, and B off so that C gets the edge cells: **0 frames
+with a cell painted where it must not be, and 89 without the guard** —
+first at column 39, rows 3 and 4, the frame after a step right.
+
+**AND THE PICTURE IS CHECKED WITH NO MODEL OF THE PAINTERS IN IT**:
+every on-screen character cell against the map's own tile, on every
+game frame of a walk across the field, with the idol and without — 0
+frames with a wrong cell. **What it excuses is the whole of the claim**,
+and the first version excused every PENDING cell — which is to say it
+excused a painter that never painted: `HAZARD_PAINT_B` poked to `RET`
+passed it. It excuses only the cells she is standing in now, the one
+place a cel may lag, and that is what found B's tick. Its controls are
+the two ways to get it wrong: `HAZARD_PAINT_B` poked to `RET`, and
+`HZ_UNDER_HER` told she is never there, which paints under her and lets
+her erase put the old cel back.
+
+**What the measuring found**, all of it before a suite existed:
+
+* **`BANK_SET_C4` is `ld bc,&7FC4 : out (c),c`.** The first `HZ_PAINT`
+  paged with the cell's column and row still in C and B, every cell
+  came out at column 196, row 127 — nowhere — and a trap that scrolled
+  in showed cel 0 for as long as it was on the screen while the map
+  went round its cycle under it. §10's rule, one instruction long.
+* **A cell is ONE entry.** Appended at every change, the trap under her
+  was on the list four times a cycle — ten entries for eight traps,
+  each extra one a paint in front of her draw. Deduplicated: five.
+* **The tile is found once, not four times.** Handing each character
+  cell to `DRAW_CELL` was **7,208 T** a tile; `TILE_SRC` once,
+  `SCR_ADDR` per cell and `DRAW_CELL`'s own copy (`CELL_COPY`) is
+  **5,204**.
+* **`ENEMY_SLOT` worked out her drawn box AFTER its hold return**, so on
+  a frame the view steps a row down — a fall — the box was the previous
+  frame's. It is worked out first now; the drone's own logic is
+  unchanged.
+
+| | T |
+|---|---:|
+| `HAZARD_TICK`, eight traps, no cel changes | 1,868 |
+| ... all eight change | 4,844 |
+| `HZ_PAINT`, one on-screen tile | 5,204 |
+| a painter with nothing pending | 24 |
+| a level with no trap | the three tests above, and `HZ_COUNT` 0 |
+
+#### WHAT IT COST THE MEMORY MAP, AND WHAT PAID FOR IT
+
+* **The two sprite blobs left the banks.** `forestaltar` is 1,868
+  bytes and `forestspiketrap` 346, in a bank set that had 671 to spare;
+  the composites are sixteen tiles, 1,024 bytes. `level_banks.py`'s
+  `BAKED` set keeps them out — they are still exported, because
+  `tools/test_spans.py` checks every blob the art makes — and **the
+  forest has 1,861 bytes spare** now, with the bigger tileset in.
+* **The core had 676 bytes left and the traps took 827.** What the
+  frame calls every time stays in it (`src/hazard.asm`); what runs once
+  — `HAZARD_SPAWN` at a level install and `HZ_SATISFIED` at an altar —
+  went into the HIGH image (`src/hazard_high.asm`, §4), and to make
+  room for it **`LEVEL_IMAGE` moved from `&B000` to `&B100`**: the
+  biggest level image is 2,413 bytes, which ends at `&BA6D` against the
+  1 KB the stack is kept clear of.
+* **`HZ_TABLE` is the 64 bytes between the entity table and
+  `TILE_ATTR`** (`&A8C0`), which nothing else used: eight traps of eight
+  bytes. The pending list is past the HIGH image.
+* **The disc goes onto track 40 now**: 280 of 297 data sectors, with
+  the two forest maps (§7.9).
+
+#### What is NOT here
+
+* **A trap and an enemy in one level.** A cell repainted at the end of
+  a sweep under the drone's save-under would come back stale; no
+  forest level has an enemy (§9), and the City has no trap.
+* **A row scrolled in vertically while a trap in it changes** keeps
+  the cel that row was painted with until the next change. The
+  forest's view stays at `WORLD_CR` 0 except in a pit, and no trap is
+  placed beside one.
+* **The idol in the HUD.** `STATUES_HELD` is not drawn; the idol going
+  from the branch is all that says she has it.
+* **The pulse.** The artist's lit altar pulses dim, bright and mid; a
+  tile does not, so it is the middle cel.
+* **The editor cannot make a trap level.** It validates one — five
+  rules, §11 step 7 — but the trap's and altar's composites are baked by
+  `make_forest_map.py`, which is the cave's position on its ladders
+  (§8.13) with a sprite sheet instead of a tile sheet.
 
 ## 9. Performance budget — measured directly, and it closes
 
@@ -7437,6 +7734,23 @@ frame, so this only helps a standing player on a still screen.
   "is this register free here" but **"is it free at every instruction
   between where I set it and where I read it"** — `LDI`, `LDIR`, `CPIR`
   and `OUTI` all count.
+* **`BANK_SET_C4` IS `ld bc,&7FC4 : out (c),c`, SO A CALL TO IT IS A
+  WRITE TO `BC`.** `HZ_PAINT` was handed a cell in C and B and paged the
+  tile bank before it stored them, so every cell came out at column 196,
+  row 127 — off the screen, so nothing was drawn and nothing looked
+  wrong except a trap that never changed (§8.17). Every `BANK_SET_*` and
+  `BANK_RESTORE` is the same two instructions: it is `LDI`'s rule below
+  with a call in place of an instruction, and the test is the same.
+* **A PICTURE CHECK THAT EXCUSES WHAT IS STILL TO BE PAINTED EXCUSES A
+  PAINTER THAT NEVER PAINTS.** The spike traps' check compared every
+  cell with the map and skipped the cells on the painter's pending
+  list, on the reasoning that the next frame paints them — and with the
+  painter poked to `RET` the list simply held everything and the check
+  passed (§8.17). What it may excuse is only what the DESIGN allows to
+  lag, and written that way it found the painter a tick short: 26 game
+  frames of 80 with a trap a cel behind that nothing had any reason to
+  leave. It is the "does changing the number change anything" rule one
+  floor up: **a control that passes is the first thing to distrust.**
 * **A ROUTINE'S WORKING BYTE IS NOT AN OUTPUT, EVEN WHEN IT HOLDS THE
   RIGHT ANSWER MOST OF THE TIME.** `BOX_SOLID_V` publishes the merged
   tile attributes in `PROBE_ACC`, so the hazard bit under her feet is
@@ -7583,7 +7897,7 @@ trailing copies of itself across the roof.
   entity flags, reported 24 live entities instead of 10, and
   `ENT_UPDATE` swept fourteen slots of noise every other frame — 2,728 T,
   which is what took the budget over. The map and the entity table are a
-  separate image now (`LEVEL_IMAGE`, `&B000`) that the bootstrap lands
+  separate image now (`LEVEL_IMAGE`, `&B100`) that the bootstrap lands
   in base RAM directly: they are data, they are copied into their
   working addresses anyway, and there is no reason for them to be in an
   image with a ceiling.
@@ -8225,6 +8539,27 @@ the next one starts.
    measurement also showed is how much of a level's correctness the
    editor was not checking at all, and this is that half.
 
+   **AND THE LINKS AND THE SPIKE TRAPS HAVE RULES NOW, BECAUSE THE
+   ENGINE READS THEM** (§8.17). Five, each one a record the engine reads,
+   quietly does nothing with and carries on past:
+
+   | the level says | the engine does | |
+   |---|---|---|
+   | a hazard whose `p0` is past `HZ_KINDS` | `HAZARD_SPAWN` skips it: its cell stands still and nothing bites | error |
+   | a hazard off the tile grid | the cell that goes round the cycle is the one its top-left falls in, which is not the one the record is at | error |
+   | more than `HZ_MAX` = 8 hazards | the spawn stops at the last slot and the rest stand still | error |
+   | a `Disables` link from anything but a receptacle | only `PLACE_STATUE` reads one, so it never fires | error |
+   | a `Disables` link to anything but a hazard | the engine marks it `EF_TAKEN` and it stops being whatever it was — a key that was never there | error |
+
+   `HazardKind` and `LinkKind` are new enums, `TileFlags.Advances` is
+   bit 7, and `tools/test_forest7.py` reads all three out of the `.cs`
+   files against `HZ_KINDS`, `LK_DISABLES` and `TA_ADVANCE` off the
+   build. **What the editor still cannot do is make a trap level**: the
+   trap's and the altar's composites are `make_forest_map.py`'s bake, and
+   an editor that placed a hazard record over a tile that is not a
+   trap's cel 0 would get a cell that cycles through whatever three tiles
+   come after it.
+
    **AND A PROJECT HAS A LEVEL NUMBER OF ITS OWN NOW, SEPARATE FROM ITS
    ENVIRONMENT.** `EditorProject` always had `LevelId` and `TilesetId`
    as two fields and the controller wrote the same number into both,
@@ -8379,7 +8714,7 @@ the next one starts.
    an accidental Generate over an afternoon's painting is the one
    mistake in this editor nothing else can undo.
 
-   **What is left**: maps. Fourteen of the twenty-four levels have
+   **What is left**: maps. Twelve of the twenty-four levels have
    nobody's work in them yet, and that is a DESIGNER's job rather than
    the editor's or the engine's — the art is there, the editor paints
    it, and `DISC_LEVEL_MAPS` carries a zero until one exists. Phase 4
@@ -8421,7 +8756,7 @@ the next one starts.
 
    **What is still owed**: the cutscenes, which need dialogue tables and
    a screen; the raster-interrupt water rise, which is level 4's; **maps
-   for the other fourteen levels**, which is a designer's work and
+   for the other twelve levels**, which is a designer's work and
    not the engine's — the editor paints them and `DISC_LEVEL_MAPS`
    carries a zero for each one nobody has made.
 

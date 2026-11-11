@@ -106,6 +106,39 @@ public static class LevelValidator
 
         findings.AddRange(EnemiesSharingAScreen(project));
 
+        // A TRAP IS A SLOT OF HZ_TABLE, AND THERE ARE EIGHT. HAZARD_SPAWN
+        // stops at the ninth, and that one is not a trap at all: its cell
+        // stays on cel 0 and nothing ever bites (CLAUDE.md 8.17).
+        var hazards = project.Entities.Count(
+            e => e.Kind == EntityKind.Hazard && e.IsActive);
+        if (hazards > EngineLimits.MaxHazards)
+            findings.Add(new Finding(Severity.Error, "hazard-budget",
+                $"{hazards} hazards against HZ_MAX = {EngineLimits.MaxHazards}: "
+                + "HAZARD_SPAWN stops at the last slot and the rest stand still"));
+
+        // ... AND A Disables LINK IS READ NOW, so what it names has to be
+        // what PLACE_STATUE will treat it as: its source a receptacle and
+        // its target a hazard, both inside the table. A target past the
+        // count is skipped by the engine; one that is not a hazard is
+        // marked EF_TAKEN and stops being whatever it was.
+        for (var i = 0; i < project.Links.Count; i++)
+        {
+            var link = project.Links[i];
+            if (link.Kind != (byte)LinkKind.Disables)
+                continue;
+            if (link.Source >= project.Entities.Count
+                || project.Entities[link.Source].Kind != EntityKind.Receptacle)
+                findings.Add(new Finding(Severity.Error, "link-source",
+                    $"link {i} disables something from entity {link.Source}, which is "
+                    + "not a receptacle: only PLACE_STATUE reads Disables links"));
+            if (link.Target >= project.Entities.Count
+                || project.Entities[link.Target].Kind != EntityKind.Hazard)
+                findings.Add(new Finding(Severity.Error, "link-target",
+                    $"link {i} disables entity {link.Target}, which is not a hazard: "
+                    + "the engine would mark it EF_TAKEN and it would stop being "
+                    + "whatever it was"));
+        }
+
         var starts = project.Entities.Count(e => e.Kind == EntityKind.PlayerStart);
         if (starts == 0)
             findings.Add(new Finding(Severity.Warning, "player-start",
@@ -159,6 +192,22 @@ public static class LevelValidator
                 + $"refuses anything at or past ENT_ART_KINDS = {Enum.GetValues<PickupKind>().Length}: "
                 + "it is drawn nowhere and it goes into no counter when she walks "
                 + "into it");
+
+        if (entity.Kind == EntityKind.Hazard)
+        {
+            if (!Enum.IsDefined((HazardKind)entity.P0))
+                yield return new Finding(Severity.Error, "hazard-kind",
+                    $"entity {i} is a hazard with p0 = {entity.P0}, and HAZARD_SPAWN "
+                    + $"skips anything at or past HZ_KINDS = {Enum.GetValues<HazardKind>().Length}: "
+                    + "its cell stands still and nothing bites");
+            // ... ON THE GRID, BECAUSE ITS CELL IS WHERE IT IS. HAZARD_SPAWN
+            // takes the cell its top-left falls in, like a pickup's.
+            if (entity.X % Entity.TileWidth != 0 || entity.Y % Entity.TileHeight != 0)
+                yield return new Finding(Severity.Error, "hazard-grid",
+                    $"entity {i} is a hazard at ({entity.X},{entity.Y}), which is not a "
+                    + "whole tile: the cell that goes round its cycle is the one its "
+                    + "top-left falls in");
+        }
 
         if (entity.Kind == EntityKind.Enemy && !Enum.IsDefined((EnemyKind)entity.P0))
             yield return new Finding(Severity.Error, "enemy-kind",

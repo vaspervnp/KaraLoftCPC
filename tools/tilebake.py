@@ -37,6 +37,47 @@ def name_of(names, extra, index):
     return names[index] if index < len(names) else extra[index - len(names)]
 
 
+def encode_tile(pens):
+    """A tile's pens -> its 64 bytes, in the COLUMN-MAJOR order every
+    tile blitter reads: for each character column, that column's sixteen
+    lines' two bytes in turn (CLAUDE.md 9, "the tiles were stored
+    column-major")."""
+    import cpclib
+    h, w = len(pens), len(pens[0])
+    out = bytearray()
+    for col in range(w // 4):                   # 4 pixels a character
+        for y in range(h):
+            for x in (col * 4, col * 4 + 2):
+                out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
+    return bytes(out)
+
+
+def sheet_frames(art, stem):
+    """(the sheet as RGBA, [each frame's box]) in the sheet's frame order."""
+    sheet = Image.open(os.path.join(art, f"{stem}.png")).convert("RGBA")
+    fr = json.load(open(os.path.join(art, f"{stem}.json")))["frames"]
+    if isinstance(fr, dict):
+        fr = [fr[k] for k in fr]
+    return sheet, [f["frame"] for f in fr]
+
+
+def box_pens(sheet, x, y, w, h, alpha=False):
+    """The pens of one box of a sheet, quantised against src/palette.asm
+    exactly as tools/aseprite2spans.py does it. With `alpha` a pixel the
+    art left transparent comes back as None - which is how a SPRITE sheet
+    says it, where a TILE sheet says it with pen 0 (CLAUDE.md 7.3)."""
+    import cpclib
+    from aseprite2spans import game_palette
+    crop = sheet.crop((x, y, x + w, y + h))
+    pens = cpclib.quantise(crop, game_palette(
+        os.path.join(ROOT, "src", "palette.asm")))
+    if not alpha:
+        return pens
+    a = crop.getchannel("A").load()
+    return [[pens[j][i] if a[i, j] else None for i in range(w)]
+            for j in range(h)]
+
+
 def bake_overlays(art, sheet_stem, names, BAKED):
     """Composite every (overlay, background) pair into a new tile.
 
@@ -88,12 +129,7 @@ def bake_overlays(art, sheet_stem, names, BAKED):
         return cache[i]
 
     def encode(pens):
-        out = bytearray()
-        for col in range(w // 4):               # 4 pixels a character
-            for y in range(h):
-                for x in (col * 4, col * 4 + 2):
-                    out.append(cpclib.encode_pixels(pens[y][x], pens[y][x + 1]))
-        return bytes(out)
+        return encode_tile(pens)
 
     # AND A PAIR THAT COMPOSITES TO THE OVERLAY ITSELF IS NOT BAKED.
     # Where the background is black in every pixel the overlay's

@@ -18,7 +18,7 @@ CLAUDE.md 11 step 8. Four things that did not exist:
      starts again.
   4. LEVEL_RESET, and it is the dangerous one. A restart is SCROLL_INIT
      - the map, the entity table, the tile flags, the bake and the
-     enemies all come back out of the pristine LEVEL_IMAGE at &B000 -
+     enemies all come back out of the pristine LEVEL_IMAGE at &B100 -
      plus the state that belongs to HER and to the FRAME. A byte
      forgotten there is a level that plays slightly wrong in a way
      nobody can see.

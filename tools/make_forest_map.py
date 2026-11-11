@@ -49,6 +49,9 @@ ROOT = os.path.join(HERE, "..")
 BUILD = os.path.join(ROOT, "build")
 sys.path.insert(0, HERE)
 from make_level import pack, read                              # noqa: E402
+from tilebake import box_pens, encode_tile, sheet_frames       # noqa: E402
+
+ART = os.path.join(ROOT, "assets", "sprites", "level2_forest")
 
 MAP_W, MAP_H = 128, 16          # 6.4 screens across, one down - the City's
 LEVEL_ID, TILESET_ID = 5, 2     # level 5 of 24, environment 2
@@ -58,6 +61,12 @@ ROW_TRUNKS = range(3, 8)
 ROW_BASE, ROW_GROUND = 8, 9
 
 SOLID, PLATFORM, HAZARD, LADDER = 1, 2, 4, 8
+# THE ONE NEW BIT, and the tile flag byte's last free one: "a satisfied
+# receptacle over this cell moves it on to the next tile". The altar's
+# empty cells carry it and its lit cells do not, so PLACE_STATUE can
+# light an altar without knowing its shape - and a cell that is not an
+# altar's is left alone whatever stands on it (CLAUDE.md 8.17).
+ADVANCES = 128
 
 # WHAT A TILE DOES, and there is no file in the package to import it
 # from (CLAUDE.md 11 step 7): tile_table.json says how a tile is DRAWN
@@ -86,7 +95,9 @@ TILE_FLAGS = {
 }
 
 EK_PLAYER_START, EK_ENEMY, EK_NPC, EK_PICKUP = 0, 2, 3, 4
-EK_DOOR, EK_RECEPTACLE = 6, 7
+EK_HAZARD, EK_DOOR, EK_RECEPTACLE = 5, 6, 7
+HZ_SPIKETRAP = 0                # p0 of a hazard: WHICH hazard (8.6)
+LK_DISABLES = 1                 # docs/editor.md 5.4's own order
 EF_ACTIVE, EF_TAKEN, EF_SOLID, EF_TOUCH = 1, 2, 4, 8
 PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN, PU_IDOL, PU_BOOK = range(6)
 EN_AGENT, EN_DRONE, EN_SNIPER = 0, 1, 2
@@ -122,6 +133,118 @@ def tile_names():
 
 
 # ---------------------------------------------------------------------
+# THE ALTAR AND THE SPIKE TRAP ARE TILES, BAKED HERE - NOT SPRITES.
+#
+# Both stand still. The altar is 24x32 - three tiles by two - and the
+# trap is 8x16, exactly one tile, and neither moves across the screen:
+# what changes is WHICH picture is in the cell, the altar's twice (empty,
+# then lit) and the trap's four times a cycle. That is the pickup's
+# argument (CLAUDE.md 8.6) and the overlays' (7.3) one step further: a
+# picture that does not move is scenery, scenery is a map cell, and a
+# map cell costs nothing until it changes. So every cel of both is
+# composited over the tile it stands on, here, and appended to the
+# forest's tileset - and the engine moves a cell from one to the next by
+# writing one byte of the map and repainting it.
+#
+# THE CELS OF A THING ARE CONSECUTIVE INDEXES, and that is the whole
+# contract with the engine. A trap's four cels are base..base+3, so the
+# animator needs the base and nothing else (src/hazard.asm); an altar
+# piece's lit cel is its empty cel + 1, and only the empty one carries
+# ADVANCES, so PLACE_STATUE can light whatever is around it without
+# being told its shape.
+#
+# AND THE TWO SPRITE BLOBS STOP GOING INTO THE BANKS, which is what pays
+# for this. forestaltar is 1,868 bytes and forestspiketrap 346, in a
+# bank set with 671 to spare (CLAUDE.md 6.2); the composites are 64
+# bytes a tile. tools/level_banks.py's BAKED says so.
+# ---------------------------------------------------------------------
+TRAP_SHEET = "forest_spiketrap_cpc_mode0_sheet"
+ALTAR_SHEET = "forest_altar_cpc_mode0_sheet"
+TILES_SHEET = "forest_tiles_cpc_mode0_sheet"
+TRAP_CELS = 4                           # retracted, half, full, half
+TRAP_BITES = (False, True, True, True)  # "Damage on frames 1-3"
+ALTAR_EMPTY, ALTAR_LIT = 0, 3           # `empty`, and the last of
+                                        # `idol_placed`'s three - the eye
+                                        # at its middle brightness, since
+                                        # a tile cannot pulse
+ALTAR_W, ALTAR_H = 3, 2                 # tiles: 24 x 32 pixels
+# What an altar or a trap may be composited over: the bands, and nothing
+# a designer put there. A prop over a tree trunk would be a pair nothing
+# else places, and a bank set with 671 bytes spare cannot afford pairs
+# for their own sake.
+PROP_GROUND = {"far_trunks_a", "far_trunks_b", "far_base"}
+BAKE_LIMIT = 240                        # ENT_BAKE's scratch tiles start
+                                        # here (CLAUDE.md 8.6)
+
+
+class Bake:
+    """Every composite the forest's levels place, numbered from the end
+    of the tileset in the order they are first placed - so the levels
+    SHARE them, because a tileset is the environment's (8.13)."""
+
+    def __init__(self, t):
+        self.t = t
+        self.name = {i: n for n, i in t.items()}
+        self.n = len(t)
+        self.tiles, self.tile_boxes = sheet_frames(ART, TILES_SHEET)
+        self.trap_sheet, self.trap_boxes = sheet_frames(ART, TRAP_SHEET)
+        self.altar_sheet, self.altar_boxes = sheet_frames(ART, ALTAR_SHEET)
+        assert len(self.trap_boxes) == TRAP_CELS, "the trap's cycle moved"
+        self.blob = bytearray()
+        self.extra = []                     # (name, flags) per composite
+        self.traps = {}                     # background -> its first cel
+        self.altars = {}                    # (piece, background) -> empty
+
+    def _under(self, bg):
+        b = self.tile_boxes[bg]
+        return box_pens(self.tiles, b["x"], b["y"], b["w"], b["h"])
+
+    def _add(self, name, over, bg, flags):
+        under = self._under(bg)
+        pens = [[o if o is not None else u for o, u in zip(ro, ru)]
+                for ro, ru in zip(over, under)]
+        i = self.n + len(self.extra)
+        assert i < BAKE_LIMIT, "the bake reached ENT_BAKE's scratch tiles"
+        self.blob += encode_tile(pens)
+        self.extra.append((name, flags))
+        return i
+
+    def trap(self, bg):
+        """A trap over `bg`: its cel 0's index, the other three after it."""
+        if bg not in self.traps:
+            ground = TILE_FLAGS.get(self.name[bg], 0)
+            first = None
+            for c, b in enumerate(self.trap_boxes):
+                over = box_pens(self.trap_sheet, b["x"], b["y"], b["w"],
+                                b["h"], alpha=True)
+                i = self._add(f"spiketrap_{c}_on_{self.name[bg]}", over, bg,
+                              ground | (HAZARD if TRAP_BITES[c] else 0))
+                first = i if first is None else first
+            self.traps[bg] = first
+        return self.traps[bg]
+
+    def altar(self, col, row, bg):
+        """One piece of an altar - column 0-2 and row 0-1 of its 3x2 -
+        over `bg`. Returns the EMPTY piece's index; the lit one is the
+        next."""
+        key = ((col, row), bg)
+        if key not in self.altars:
+            ground = TILE_FLAGS.get(self.name[bg], 0)
+            got = []
+            for cel, extra in ((ALTAR_EMPTY, ADVANCES), (ALTAR_LIT, 0)):
+                b = self.altar_boxes[cel]
+                over = box_pens(self.altar_sheet, b["x"] + col * 8,
+                                b["y"] + row * 16, 8, 16, alpha=True)
+                state = "empty" if cel == ALTAR_EMPTY else "lit"
+                got.append(self._add(
+                    f"altar_{state}_{col}{row}_on_{self.name[bg]}", over, bg,
+                    ground | extra))
+            assert got[1] == got[0] + 1
+            self.altars[key] = got[0]
+        return self.altars[key]
+
+
+# ---------------------------------------------------------------------
 # THE LEVEL, left to right. Every number here is a TILE column, and the
 # sections are written in the order she meets them.
 # ---------------------------------------------------------------------
@@ -151,7 +274,7 @@ LEVEL_5 = dict(
                                         # the DOOR goes in the last one
     deco={6: "bush_l", 7: "bush_r", 21: "rock", 28: "flowers",
           34: "mushrooms", 44: "bush_l", 45: "bush_r", 69: "rock",
-          75: "flowers", 84: "mushrooms", 93: "rock", 107: "flowers"},
+          75: "flowers", 84: "mushrooms", 93: "rock", 105: "flowers"},
     snipers=(),
     entities=[
         # kind, tile x, the row it STANDS on, flags, p0, p1
@@ -166,7 +289,15 @@ LEVEL_5 = dict(
         ("idol", 100, None, 0, 0),
         # The altar takes it: level 2's signature, and PLACE_STATUE is
         # the handler that has been waiting for a level with one in it.
-        ("altar", 117, None, 0, 0),
+        # IT WAS AT 117, under the end of the row-7 branch at 114, and
+        # nothing could see that while a receptacle was not drawn. It is
+        # drawn now (the bake above), so it stands where the art has
+        # room for it: on the grass the far side of the last pit, the
+        # flowers moved two along to make the space, and at an ODD
+        # column like every altar - the trunks behind its top row
+        # alternate a/b by column, so an odd column is one set of six
+        # composites for every altar in the forest.
+        ("altar", 107, None, 0, 0),
         ("door", None, None, 0, 0),     # in the last cave mouth
     ],
 )
@@ -212,15 +343,104 @@ LEVEL_6 = dict(
         ("key", 67, 5, 0, 0),           # the top of the climb
         ("medkit", 72, None, 0, 0),
         ("idol", 98, None, 0, 0),
-        ("altar", 116, None, 0, 0),
+        ("altar", 117, None, 0, 0),     # odd, like every altar - see 5
         ("door", None, None, 0, 0),
     ],
 )
 
-LAYOUTS = (LEVEL_5, LEVEL_6)
+# ---------------------------------------------------------------------
+# LEVEL 7 - THE FOREST'S OWN MECHANIC, which is where level 6's cave
+# leads: plan.md's "placing the statuette on the altar to disable the
+# trap", and the first level in which the altar does something.
+#
+# THE IDOL IS TWO BRANCHES UP and the altar is on the ground past the
+# mountain; past the altar is a FIELD OF EIGHT SPIKE TRAPS, one every
+# other tile, and past the field is the key and the way out. The traps
+# all start on cel 0, so they come up together and go down together -
+# a field that breathes - and a field whose traps are all down at once
+# is one she is bitten in once a cycle, where a rippling one would hold
+# HAZARD_IN up and bite her once for the lot (src/player.asm, 8.12).
+#
+# SO THE ALTAR IS A CHOICE AND ITS PRICE IS MEASURED, not hoped: carry
+# the idol to it and the whole field goes down and stays down; walk on
+# without it and the field is paid for in bites. Her box is six bytes
+# against a trap every eight, so wherever she stands in the field she is
+# in at least one; what crossing it costs at a walk and at a run is
+# tools/test_forest7.py's to say, with the altar as its control.
+#
+# A medkit at the start and none after: she comes in from level 6 with
+# whatever its pits left her, and a medkit past the field would make the
+# field a toll she could pay twice.
+LEVEL_7 = dict(
+    level_id=7,
+    start_x=3,                          # out of the cave she came in by
+    trees=(12, 34, 82, 108),
+    pits=((18, 2), (88, 3)),
+    branches=((22, 5, 7), (25, 5, 5),  # the idol's climb, level 6's shape
+              (96, 4, 7)),              # ... and the key's one step
+    mountain=(40, 50),
+    caves=(1, 120),
+    deco={8: "flowers", 30: "rock", 52: "bush_l", 53: "bush_r",
+          78: "mushrooms", 92: "rock", 104: "flowers", 114: "rock"},
+    snipers=(),
+    entities=[
+        ("start", 3, None, 0, 0),
+        ("medkit", 7, None, 0, 0),
+        ("idol", 27, 5, 0, 0),          # the top of the climb
+        ("ammo", 46, None, 14, 0),
+        ("altar", 57, None, 0, 0),      # odd, like every altar
+        ("key", 98, 7, 0, 0),
+        ("door", None, None, 0, 0),
+    ],
+    # (column, the cel it starts on, which altar stops it)
+    traps=tuple((x, 0, 0) for x in range(62, 78, 2)),
+)
+
+# ---------------------------------------------------------------------
+# LEVEL 8 - THE FOREST'S LAST, which is where level 7's cave leads, and
+# the way out of the forest: plan.md ends it at "a dark cave opening at
+# the root of a mountain", and mockup_forest_cave.png draws exactly
+# that - the mountain's face, and the arch IN the rock. The cave mouths
+# of levels 5-7 stand in the trees; this one is cut into the mountain,
+# and its door leads to level 9, the cave - an environment away.
+#
+# TWO ALTARS AND TWO FIELDS, AND EACH ALTAR STOPS ONLY ITS OWN. That is
+# what the LINKS are for: a Disables link names its source and its
+# target, so the first idol on the first altar puts the first field down
+# and leaves the second one breathing. Two idols, either one on either
+# altar - an idol is an idol - and the key past the second field.
+LEVEL_8 = dict(
+    level_id=8,
+    start_x=3,
+    trees=(8, 50, 102),
+    pits=((44, 3), (96, 3)),
+    branches=((14, 5, 7), (17, 5, 5),   # the first idol's climb
+              (60, 5, 7), (63, 5, 5),   # ... and the second's
+              (89, 4, 7)),              # and the key's step
+    mountain=(108, 127),                # the mountain to the end of the
+    caves=(1, 118),                     # map, and the way out IN it
+    deco={5: "rock", 22: "flowers", 41: "mushrooms", 55: "bush_l",
+          56: "bush_r", 69: "rock", 93: "flowers", 105: "mushrooms"},
+    snipers=(),
+    entities=[
+        ("start", 3, None, 0, 0),
+        ("idol", 19, 5, 0, 0),
+        ("altar", 27, None, 0, 0),      # the first altar, entity 2
+        ("ammo", 48, None, 14, 0),
+        ("idol", 65, 5, 0, 0),
+        ("medkit", 70, None, 0, 0),
+        ("altar", 73, None, 0, 0),      # the second, entity 6
+        ("key", 91, 7, 0, 0),
+        ("door", None, None, 0, 0),
+    ],
+    traps=tuple((x, 0, 0) for x in range(32, 40, 2))
+          + tuple((x, 0, 1) for x in range(78, 86, 2)),
+)
+
+LAYOUTS = (LEVEL_5, LEVEL_6, LEVEL_7, LEVEL_8)
 
 
-def build_map(t, L):
+def build_map(t, L, bake):
     """The 128x16 grid, as the artist's bands with the level cut into it."""
     g = [[t["far_trunks_a"]] * MAP_W for _ in range(MAP_H)]
     for x in range(MAP_W):
@@ -285,6 +505,29 @@ def build_map(t, L):
     for x, name in L["deco"].items():
         g[ROW_BASE][x] = t[name]
 
+    # ---- the altar, standing on the grass ------------------------
+    # The record is its BOTTOM-CENTRE cell, so the 3x2 is one column
+    # either side of it and the two rows above the ground.
+    solid = {t[n] for n, f in TILE_FLAGS.items() if f & SOLID}
+    names = {i: n for n, i in t.items()}
+    for x in altar_columns(L):
+        for row in range(ALTAR_H):
+            r = ROW_GROUND - ALTAR_H + row
+            for col in range(ALTAR_W):
+                c = x - 1 + col
+                assert names[g[r][c]] in PROP_GROUND, (
+                    f"the altar at {x} stands over {names[g[r][c]]}")
+                g[r][c] = bake.altar(col, row, g[r][c])
+        assert all(g[ROW_GROUND][x - 1 + col] in solid
+                   for col in range(ALTAR_W)), f"the altar at {x} is on air"
+
+    # ---- and the spike traps, one tile each, on the grass --------
+    for x, _, _ in L.get("traps", ()):
+        assert names[g[ROW_BASE][x]] == "far_base", (
+            f"the trap at {x} stands over {names[g[ROW_BASE][x]]}")
+        assert g[ROW_GROUND][x] in solid, f"the trap at {x} is over a pit"
+        g[ROW_BASE][x] = bake.trap(g[ROW_BASE][x])
+
     # ---- and the cave mouths --------------------------------------
     # 4 wide x 6 high, ending IN the ground row: arch, four rows of
     # sides, floor. Level 5 has one and it is the way OUT; level 6 has
@@ -304,6 +547,11 @@ def build_map(t, L):
                                   "cave_floor", "cave_floor_r")):
             g[ROW_GROUND][cave + i] = t[name]
     return bytes(b for row in g for b in row)
+
+
+def altar_columns(L):
+    """Where a LAYOUT puts its altars - each one's bottom-centre column."""
+    return [x for name, x, *_ in L["entities"] if name == "altar"]
 
 
 def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
@@ -349,15 +597,23 @@ ENTITY_KINDS = {
     "idol":   (EK_PICKUP, EF_ACTIVE | EF_TOUCH, PU_IDOL),
     "altar":  (EK_RECEPTACLE, EF_ACTIVE, PU_IDOL),
     "door":   (EK_DOOR, EF_ACTIVE | EF_SOLID, 0),
+    # NOT EF_TOUCH: a trap is not something she takes, and the touch
+    # sweep publishes the first box it meets - a trap there would hide
+    # the idol lying next to it (CLAUDE.md 8.6). What it does to her is
+    # the TILE's: cels 1-3 carry HAZARD and HAZARD_HURT reads the flag.
+    "trap":   (EK_HAZARD, EF_ACTIVE, HZ_SPIKETRAP),
 }
 
 
 def build_entities(t, L):
-    """A LAYOUT's records, in the order it lists them.
+    """A LAYOUT's records, in the order it lists them, then its traps -
+    and the LINKS that say which altar stops which trap.
 
     The order is the FILE's order and it matters: the engine clears its
     24 slots and LDIRs count * 8 bytes over the front, so the records
-    have to be contiguous from zero (CLAUDE.md 8.3).
+    have to be contiguous from zero (CLAUDE.md 8.3). A link names its
+    source and target by that position, so the traps go LAST and every
+    index before them is the one the layout wrote.
     """
     recs = []
     for name, x, row, p1, _ in L["entities"]:
@@ -376,7 +632,21 @@ def build_entities(t, L):
     for x in L["snipers"]:
         recs.append(entity(EK_ENEMY, x, ROW_GROUND, EF_ACTIVE,
                            EN_SNIPER, PATROL))
-    return b"".join(recs)
+
+    # THE TRAPS, AND WHAT STOPS EACH ONE. `traps` is (column, phase,
+    # which altar): the phase is the cel it starts on, so a field can be
+    # set to breathe together or to ripple, and the altar is the LINK -
+    # docs/editor.md 5.4's `Disables`, receptacle -> hazard, read by
+    # PLACE_STATUE (src/hazard.asm).
+    altars = [i for i, (name, *_) in enumerate(L["entities"])
+              if name == "altar"]
+    links = bytearray()
+    for x, phase, which in L.get("traps", ()):
+        assert 0 <= phase < TRAP_CELS
+        links += bytes([LK_DISABLES, altars[which], len(recs), 0])
+        recs.append(entity(EK_HAZARD, x, ROW_GROUND, EF_ACTIVE,
+                           HZ_SPIKETRAP, phase))
+    return b"".join(recs), bytes(links)
 
 
 def reachable(m, t, L):
@@ -474,32 +744,64 @@ def checks(m, t, ents, L):
 def main():
     t = tile_names()
 
+    # THE MAPS FIRST AND THE BAKE AFTER, because the levels share it: a
+    # composite takes its index the first time ANY of them places it, so
+    # the tileset is only known once every map is built - the cave's own
+    # order (tools/make_cave_map.py), for the cave's own reason.
+    bake = Bake(t)
+    built = []
+    for L in LAYOUTS:
+        m = build_map(t, L, bake)
+        ents, links = build_entities(t, L)
+        counts = checks(m, t, ents, L)
+        built.append((L, m, ents, links, counts))
+
     # ONE FLAG TABLE FOR THE ENVIRONMENT, NOT ONE PER LEVEL. What a tile
     # DOES is a property of the tileset and the tileset is the forest's;
     # MAP_INSTALL LDIRs it over all 256 entries of TILE_ATTR whichever
-    # of the environment's levels is loading (CLAUDE.md 8.3).
+    # of the environment's levels is loading (CLAUDE.md 8.3). The baked
+    # tiles' flags are the bake's: what is under them, plus HAZARD on a
+    # trap's biting cels and ADVANCES on an altar's empty ones.
     flags = bytes(TILE_FLAGS.get(n, 0)
                   for n, _ in sorted(t.items(), key=lambda kv: kv[1]))
+    flags += bytes(f for _, f in bake.extra)
     out = os.path.join(BUILD, "tileflags_level2_forest.bin")
     open(out, "wb").write(flags)
     print(f"-> tileflags_level2_forest.bin  {len(flags)} tiles, "
           f"{sum(1 for f in flags if f)} with anything on")
 
-    for L in LAYOUTS:
-        n = L["level_id"]
-        m = build_map(t, L)
-        ents = build_entities(t, L)
-        pickups, enemies, pit_tiles = checks(m, t, ents, L)
+    # THE BLOB IS TRUNCATED TO THE TILESET'S OWN TILES FIRST, so running
+    # this twice bakes the same pieces rather than stacking a second copy
+    # - make_city_map.py's rule and the cave's. build.sh runs this AFTER
+    # build_levels.py exported the blob and BEFORE level_banks.py lays it
+    # into a bank, and the ZX0 goes with it: build_levels packed the
+    # blob before anything was appended, and tools/test_spans.py depacks
+    # the stream on the emulator.
+    tiles = os.path.join(BUILD, "levels", "level2_forest", "foresttiles.bin")
+    base = open(tiles, "rb").read()[:64 * len(t)]
+    assert len(base) == 64 * len(t), "the tile blob is short"
+    open(tiles, "wb").write(base + bytes(bake.blob))
+    from build_levels import zx0
+    zx0(tiles)
+    print(f"-> foresttiles.bin  {len(t)} tiles + {len(bake.extra)} baked "
+          f"({len(bake.traps)} trap set{'s' if len(bake.traps) != 1 else ''}"
+          f" of {TRAP_CELS}, {len(bake.altars)} altar pieces x 2) = "
+          f"{len(base) + len(bake.blob)} bytes")
 
+    for L, m, ents, links, (pickups, enemies, pit_tiles) in built:
+        n = L["level_id"]
         blob = pack(level_id=n, tileset_id=TILESET_ID,
-                    width=MAP_W, height=MAP_H, map_bytes=m, entities=ents)
+                    width=MAP_W, height=MAP_H, map_bytes=m, entities=ents,
+                    links=links)
         out = os.path.join(BUILD, f"level_{n}.lvl")
         open(out, "wb").write(blob)
         back = read(blob)
         assert back["map"] == m and back["entities"] == len(ents) // 8
+        traps = len(L.get("traps", ()))
         print(f"-> level_{n}.lvl     {len(blob)} bytes: {back['width']}x"
               f"{back['height']}, {back['entities']} entities "
-              f"({pickups} pickups, {enemies} snipers), tileset {TILESET_ID}")
+              f"({pickups} pickups, {enemies} snipers, {traps} traps), "
+              f"{len(links) // 4} links, tileset {TILESET_ID}")
         print(f"   {len(L['trees'])} trees, {len(L['branches'])} branch "
               f"platforms, {len(L['pits'])} pits ({pit_tiles} tiles of "
               f"spike), a mountain and {len(L['caves'])} cave "

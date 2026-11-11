@@ -91,7 +91,7 @@ def image(lvl_path, flags_path):
 def write_inc(biggest, which):
     """The one number main.asm needs, generated rather than written.
 
-    LEVEL_IMAGE is at &B000 with the stack at &BFFF above it, and a
+    LEVEL_IMAGE is at &B100 with the stack at &BFFF above it, and a
     level that outgrew the gap would corrupt the stack at the moment it
     loaded - silently, and only for that level. So the largest image the
     build actually made goes into an include and RASM does the checking,

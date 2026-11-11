@@ -1963,28 +1963,20 @@ EN_EARLY_TOP    equ 24          ; lines, in the view before the latch:
 
 EN_HOLD         equ 2           ; ENEMY_EARLY: not redrawn, not moved
 
-ENEMY_SLOT:     ld   a,(V_PHASE)            ; does SCROLL_VBLANK latch a row
-                cp   V_PARTS                ; step this sweep ...
-                jr   nz,.slot
-                ld   a,(WORLD_CR)
-                ld   b,a
-                ld   a,(V_WCR)
-                cp   b
-                jr   z,.slot
-                jr   c,.slot                ; ... DOWN?
-                ld   a,EN_HOLD
-                ld   (ENEMY_EARLY),a
-                ret
-.slot:          xor  a
-                ld   (ENEMY_EARLY),a        ; the end, unless all of it says
-                                            ; the top
-                ; HER BOX, AS SHE WAS DRAWN, in world units
+ENEMY_SLOT:     ; HER BOX, AS SHE WAS DRAWN, in world units - FIRST,
+                ; before the hold below can return, because the spike
+                ; traps read it too (src/hazard.asm) and a frame the view
+                ; steps a row down is a frame she is falling: a trap's
+                ; cell under her has to be told from one that is not on
+                ; exactly the frames this used to skip. It is worked out
+                ; in the view she was drawn in, which is the one before
+                ; SCROLL_VBLANK latches.
                 ld   a,KARA_W_BYTES
                 ld   (EN_KW),a
                 ld   a,(KARA_LAST_CNT)
                 ld   (EN_KH),a
                 or   a
-                jr   z,.new                 ; she was not drawn: nothing
+                jr   z,.hold                ; she was not drawn: nothing
                                             ; of hers to meet
                 ld   a,(KARA_X)             ; SIGNED: the clipped lane's
                 ld   l,a
@@ -2008,6 +2000,21 @@ ENEMY_SLOT:     ld   a,(V_PHASE)            ; does SCROLL_VBLANK latch a row
                 ld   d,0
                 add  hl,de
                 ld   (EN_KY),hl
+.hold:          ld   a,(V_PHASE)            ; does SCROLL_VBLANK latch a row
+                cp   V_PARTS                ; step this sweep ...
+                jr   nz,.slot
+                ld   a,(WORLD_CR)
+                ld   b,a
+                ld   a,(V_WCR)
+                cp   b
+                jr   z,.slot
+                jr   c,.slot                ; ... DOWN?
+                ld   a,EN_HOLD
+                ld   (ENEMY_EARLY),a
+                ret
+.slot:          xor  a
+                ld   (ENEMY_EARLY),a        ; the end, unless all of it says
+                                            ; the top
 .new:           ; THE BOX IT WILL BE DRAWN IN
                 ld   hl,(ENEMY_CUR)
                 ld   a,h

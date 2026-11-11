@@ -320,6 +320,15 @@ ENTITY_COLLISION_CHECK:
                 ld   a,(hl)                 ; the kind, read now that the
                 or   a                      ; flags have had their say
                 jr   z,.skip
+                ; ... AND A TRAP IS NOT A THING SHE ASKS FOR OR TAKES. Its
+                ; record overlaps her for as long as she stands in it,
+                ; which is exactly when she is reaching for the altar
+                ; beside it - and this check stops at the first box it
+                ; meets. What a trap does to her is its TILE's
+                ; (src/hazard.asm), so the record is skipped like her
+                ; own start (CLAUDE.md 8.6, 8.17).
+                cp   EK_HAZARD
+                jr   z,.skip
                 ; A CHEAP X REJECT BEFORE THE REAL ONE. ENT_OVERLAP looks
                 ; the hitbox up and then tests both axes, which is about
                 ; 450 T to discover that something twenty tiles away is
@@ -604,8 +613,9 @@ PLACE_STATUE:   ld   a,(STATUES_HELD)
                 ld   bc,ENT_FLAGS
                 add  hl,bc
                 set  1,(hl)                 ; EF_TAKEN: satisfied, and the
-                pop  hl                     ; Disables link fires off it
-                ret
+                pop  hl                     ; Disables link fires off it -
+                jp   HZ_SATISFIED           ; which it does now, and the
+                                            ; altar lights (src/hazard.asm)
 .empty_handed:  ld   a,ER_EMPTY
                 ld   (ENT_RESULT),a
                 ret

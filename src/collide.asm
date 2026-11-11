@@ -45,6 +45,10 @@ TA_CLIMB        equ %00001000   ; a ladder: UP and DOWN move her along it
 TA_WATER        equ %00010000   ; RESERVED, level 4 - defined, never read
 TA_SINK         equ %00100000   ; RESERVED, level 5 - quicksand
 TA_DEADLY       equ %01000000   ; RESERVED - a fall that does not end well
+TA_ADVANCE      equ %10000000   ; a satisfied receptacle over this cell
+                                ; moves it on to the next tile: an altar's
+                                ; empty pieces carry it and its lit ones,
+                                ; one index along, do not (8.17)
 TA_BLOCK        equ TA_SOLID + TA_PLATFORM
 
 ; ---------------------------------------------------------------------

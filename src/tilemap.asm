@@ -345,6 +345,8 @@ MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
 MAP_DERIVE:     call HAZARD_SCAN            ; can any tile hurt her
                 call KACT_FOR_ENV           ; where THIS environment keeps
                                             ; her action cels (kara.asm)
+                call HAZARD_SPAWN           ; the traps, each on its own
+                                            ; phase (src/hazard.asm)
                 call ENT_BAKE               ; each pickup onto the tile it
                 jp   ENEMY_SPAWN            ; stands on, and the level's
                                             ; characters onto their feet
@@ -484,7 +486,10 @@ DRAW_CELL:      ld   a,(CELL_WC)
                 ld   h,a
                 ex   de,hl                  ; DE = screen, raster 0
                 pop  hl                     ; HL = tile source
-
+; CELL_COPY - the copy on its own: HL = a character cell's first source
+; byte in the paged tile bank, DE = its raster 0 on the screen. The
+; spike traps' painter finds both itself (src/hazard.asm).
+CELL_COPY:
                 repeat 8
                 ld   a,(hl)                 ; 8
                 ld   (de),a                 ; 8

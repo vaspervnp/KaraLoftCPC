@@ -49,6 +49,11 @@ public class EngineRuleTests
     [InlineData("enemy-kind")]
     [InlineData("enemy-spacing")]
     [InlineData("touch-not-pickup")]
+    [InlineData("hazard-kind")]
+    [InlineData("hazard-grid")]
+    [InlineData("hazard-budget")]
+    [InlineData("link-source")]
+    [InlineData("link-target")]
     public void The_shipped_city_breaks_none_of_them(string rule)
     {
         var project = CitySource.Open();
@@ -227,5 +232,73 @@ public class EngineRuleTests
             P1 = 0,
         };
         Assert.False(Fires(project, "enemy-spacing", Severity.Error));
+    }
+
+    /// <summary>
+    /// <c>HZ_MAX</c> is 8: <c>HAZARD_SPAWN</c> takes eight traps out of a
+    /// level's table and stops, and the ninth is a record whose cell never
+    /// moves and never bites (CLAUDE.md 8.17).
+    /// </summary>
+    [Fact]
+    public void More_traps_than_the_table_holds()
+    {
+        var project = CitySource.Open();
+        for (var i = 0; i < EngineLimits.MaxHazards; i++)
+            project.Entities.Add(Entity.AtTile(EntityKind.Hazard, 40 + 2 * i, 6,
+                Entity.DefaultFlagsFor(EntityKind.Hazard)));
+        Assert.False(Fires(project, "hazard-budget", Severity.Error));
+        project.Entities.Add(Entity.AtTile(EntityKind.Hazard, 60, 6,
+            Entity.DefaultFlagsFor(EntityKind.Hazard)));
+        Assert.True(Fires(project, "hazard-budget", Severity.Error));
+    }
+
+    /// <summary>
+    /// A trap is the cell its top-left falls in, like a pickup, and
+    /// <c>p0</c> is which hazard against <c>HZ_KINDS</c>.
+    /// </summary>
+    [Fact]
+    public void A_trap_off_the_grid_or_past_its_table()
+    {
+        var project = CitySource.Open();
+        var trap = Entity.AtTile(EntityKind.Hazard, 40, 6,
+            Entity.DefaultFlagsFor(EntityKind.Hazard));
+        project.Entities.Add(trap);
+        var i = project.Entities.Count - 1;
+        Assert.False(Fires(project, "hazard-grid", Severity.Error));
+        Assert.False(Fires(project, "hazard-kind", Severity.Error));
+
+        project.Entities[i] = trap with { X = (ushort)(trap.X + 4) };
+        Assert.True(Fires(project, "hazard-grid", Severity.Error));
+        project.Entities[i] = trap with { P0 = (byte)Enum.GetValues<HazardKind>().Length };
+        Assert.True(Fires(project, "hazard-kind", Severity.Error));
+    }
+
+    /// <summary>
+    /// <b>A <c>Disables</c> link has a reader now</b>: <c>PLACE_STATUE</c>
+    /// marks its target <c>EF_TAKEN</c> when its source is given its idol.
+    /// So the source has to be a receptacle and the target a hazard - the
+    /// one link a level carries is checked from both ends.
+    /// </summary>
+    [Fact]
+    public void A_disables_link_from_an_altar_to_a_trap()
+    {
+        var project = CitySource.Open();
+        project.Entities.Add(Entity.AtTile(EntityKind.Receptacle, 30, 6,
+            Entity.DefaultFlagsFor(EntityKind.Receptacle)) with { P0 = (byte)PickupKind.Idol });
+        var altar = (byte)(project.Entities.Count - 1);
+        project.Entities.Add(Entity.AtTile(EntityKind.Hazard, 40, 6,
+            Entity.DefaultFlagsFor(EntityKind.Hazard)));
+        var trap = (byte)(project.Entities.Count - 1);
+
+        project.Links.Add(new Link((byte)LinkKind.Disables, altar, trap, 0));
+        Assert.False(Fires(project, "link-source", Severity.Error));
+        Assert.False(Fires(project, "link-target", Severity.Error));
+
+        project.Links[0] = new Link((byte)LinkKind.Disables, trap, trap, 0);
+        Assert.True(Fires(project, "link-source", Severity.Error));
+        project.Links[0] = new Link((byte)LinkKind.Disables, altar, altar, 0);
+        Assert.True(Fires(project, "link-target", Severity.Error));
+        project.Links[0] = new Link((byte)LinkKind.Disables, altar, 200, 0);
+        Assert.True(Fires(project, "link-target", Severity.Error));
     }
 }

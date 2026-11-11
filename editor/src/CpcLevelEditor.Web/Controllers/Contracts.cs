@@ -65,6 +65,7 @@ public sealed record VocabularyView(
 {
     private const string Pickups = nameof(PickupKind);
     private const string Enemies = nameof(EnemyKind);
+    private const string Hazards = nameof(HazardKind);
 
     public static VocabularyView Current { get; } = new(
         new Dictionary<string, IReadOnlyList<string>>
@@ -76,6 +77,8 @@ public sealed record VocabularyView(
             [Pickups] = Enum.GetNames<PickupKind>(),
             [Enemies] = Enum.GetNames<EnemyKind>(),
             [nameof(RegionKind)] = Enum.GetNames<RegionKind>(),
+            [Hazards] = Enum.GetNames<HazardKind>(),
+            [nameof(LinkKind)] = Enum.GetNames<LinkKind>(),
         },
         new Dictionary<string, ParamView[]>
         {
@@ -94,7 +97,12 @@ public sealed record VocabularyView(
             // it is one ENEMY_ADD can refuse without anybody being told.
             [nameof(EntityKind.Enemy)] =
                 [new("which character", Enemies), new("patrol half-width in tiles")],
-            [nameof(EntityKind.Hazard)] = [new("damage"), new("period")],
+            // ... AND THE HAZARD ROW TOO, now that something reads it: a
+            // spike trap's damage and period are the TYPE's, and what the
+            // record says is which hazard and which cel it starts on
+            // (CLAUDE.md 8.17).
+            [nameof(EntityKind.Hazard)] =
+                [new("which hazard", Hazards), new("the cel it starts on")],
         },
         Enum.GetValues<EntityKind>().ToDictionary(
             k => k.ToString(), k => Entity.DefaultFlagsFor(k).ToString()),

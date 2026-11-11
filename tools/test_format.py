@@ -132,7 +132,7 @@ def disc_checks(sym, lvl):
           subprocess.run(["grep", "-c", "incbin \"level_", 
                           os.path.join(ROOT, "src", "main.asm")],
                          capture_output=True, text=True).stdout.strip() == "0",
-          "main.asm INCBINs no level file, so &B000 is whatever the disc "
+          "main.asm INCBINs no level file, so &B100 is whatever the disc "
           "put there")
 
 

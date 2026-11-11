@@ -88,6 +88,16 @@ def has_ladder(level):
 SETPIECE = {"citycar", "desertshuttle", "desertbasedoor",
             "stationpod", "stationcomputer", "seasiphon"}
 
+# COMPOSITED INTO THE TILESET AT BUILD TIME, so the span blob is never
+# drawn and never paged in. The forest's altar and its spike trap stand
+# still - what changes is which picture is in the cell - so
+# tools/make_forest_map.py bakes every cel of both over the tile it
+# stands on and the engine moves a map cell from one to the next
+# (CLAUDE.md 8.17). They are still EXPORTED, because tools/test_spans.py
+# checks every blob the art makes; they just do not go in a bank, which
+# is 2,214 bytes back in a set that had 671 to spare.
+BAKED = {"forestaltar", "forestspiketrap"}
+
 
 def blobs(level):
     """The level's own ART - not the bank images this tool writes, and
@@ -221,7 +231,7 @@ def build(level, setpieces=False):
         # prefix, not equality: a sheet too big for a bank was split by
         # tag, so the shuttle is desertshuttle_idle / _launch
         is_set = any(stem(f).startswith(sp) for sp in SETPIECE)
-        if is_set != setpieces:
+        if is_set != setpieces or stem(f) in BAKED:
             continue
         p = os.path.join(d, f)
         items.append((stem(f), os.path.getsize(p)))
