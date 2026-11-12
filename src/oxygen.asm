@@ -70,14 +70,8 @@ OXY_STEP:       call OXY_IN_AIR
                 cp   DROWN_RATE
                 ret  c
                 ld   (hl),0
-                ld   a,(PLAYER_HP)
-                sub  DROWN_HURT
-                jr   nc,.hp
-                xor  a
-.hp:            ld   (PLAYER_HP),a
-                ld   a,HURT_FRAMES          ; the border, the way every
-                ld   (HURT_FLASH),a         ; other hurt does
-                ret
+                ld   a,DROWN_HURT           ; the border too, the way every
+                jp   HURT_HER               ; other hurt does
 .digit:         ld   a,(OXYGEN)             ; / 11, by subtraction: nine
                 ld   b,-1                   ; at most
 .div:           inc  b
@@ -89,61 +83,13 @@ OXY_STEP:       call OXY_IN_AIR
 
 ; ---------------------------------------------------------------------
 ; OXY_IN_AIR - NZ if the middle of her box is inside a region of air.
+; The walk is REGION_AT's, in src/vortex.asm and the HIGH image: it was
+; this routine's, and moving it out is what made room in the TOP image
+; for the current's call (8.21).
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-OXY_IN_AIR:     ld   a,(LEVEL_LVL + LVL_REGIONS)
-                or   a
-                ret  z                      ; a level with no air at all
-                ld   b,a
-                push ix
-                ld   hl,(LEVEL_LVL + LVL_OFF_REGION)
-                ld   de,LEVEL_LVL
-                add  hl,de
-                push hl
-                pop  ix                     ; the first region
-                ld   hl,(KARA_WX)
-                ld   de,SWIM_BOX_W / 2
-                add  hl,de
-                srl  h                      ; bytes -> tiles, four a tile
-                rr   l
-                srl  h
-                rr   l
-                ld   c,l                    ; C = her middle's column
-                ld   hl,(KARA_WY)
-                ld   de,SWIM_BOX_H / 2
-                add  hl,de
-                ld   a,l                    ; lines -> rows, sixteen a row
-                srl  h
-                rra
-                srl  h
-                rra
-                srl  h
-                rra
-                srl  h
-                rra
-                ld   l,a                    ; L = her middle's row
-.reg:           ld   a,(ix + 0)
-                cp   RG_OXYGEN
-                jr   nz,.next
-                ld   a,c
-                sub  (ix + 1)
-                jr   c,.next                ; left of it
-                cp   (ix + 5)
-                jr   nc,.next               ; right of it
-                ld   a,l
-                sub  (ix + 3)
-                jr   c,.next                ; above it
-                cp   (ix + 6)
-                jr   nc,.next               ; below it
-                pop  ix
-                or   1                      ; NZ: she is breathing
-                ret
-.next:          ld   de,RG_STRIDE
-                add  ix,de
-                djnz .reg
-                pop  ix
-                xor  a                      ; Z: she is not
-                ret
+OXY_IN_AIR:     ld   a,RG_OXYGEN
+                jp   REGION_AT
 
 OXYGEN:         db OXY_MAX      ; her breath - and OXY_T straight after it,
 OXY_T:          db 0            ; so BOX_SET fills both with one word

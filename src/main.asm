@@ -514,6 +514,9 @@ SCROLL_DEMO:    di
                 ; and walking across level 7's field 12 game frames of 80
                 ; showed a trap a cel behind (tools/test_forest7.py).
                 call SOUND_TICK
+                ; ... AND A PIECE OF AN INCOMING ROW, if the first sweep
+                ; had no room for it and this one has (src/tilemap.asm).
+                call SCROLL_SERVICE_B
 
                 ; AND WAIT FOR THE INTERRUPT TO STAMP THIS FRAME'S ANCHOR
                 ; BEFORE USING ANY GATE THAT COUNTS FROM IT. THIS WAS THE
@@ -972,7 +975,6 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "sprite.asm"
                 include "spanblit.asm"
                 include "unpack.asm"
-                include "intro.asm"
                 include "disc.asm"
                 include "levels/disc.inc"
                 include "levels/banks.inc"
@@ -989,6 +991,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "levels/level1_city/citypickups.inc"
                 include "levels/level2_forest/forestpickups.inc"
                 include "levels/level4_underwater/seapickups.inc"
+                include "levels/level6_station/stationpickups.inc"
                 ; ... and the CHARACTERS, for ENEMY_TYPES. One row a
                 ; character in the game, not a row a level: an enemy
                 ; record names which character it is (CLAUDE.md 8.6), so
@@ -996,6 +999,7 @@ BANK_STORE:     ld   a,PEN_GREEN
                 include "levels/level1_city/cityagent.inc"
                 include "levels/level1_city/citydrone.inc"
                 include "levels/level2_forest/forestsniper.inc"
+                include "levels/level4_underwater/seadrone.inc"
                 include "levels/_shared/kcore.inc"
                 include "levels/_shared/kact.inc"
                 include "kara.asm"
@@ -1064,20 +1068,16 @@ BANK_STORE:     ld   a,PEN_GREEN
                 ; in the SAME PAGE as the label, not merely aligned.
                 assert (ENT_ART_CEL AND 255) + ENT_ART_KINDS <= 256
                 assert (ENT_HITBOX AND 255) + EK_COUNT * 2 <= 256
-                ; the traps' table is the 64 bytes between the entity
-                ; table and TILE_ATTR, and an altar cell's attribute is
-                ; looked up with TILE_ATTR's page in D (src/hazard.asm)
-                assert HZ_TABLE + HZ_MAX * HZ_STRIDE <= TILE_ATTR
-                assert (HZ_TABLE AND 255) + HZ_MAX * HZ_STRIDE <= 256
+                ; an altar cell's attribute is looked up with
+                ; TILE_ATTR's page in D (src/hazard.asm)
                 assert (TILE_ATTR AND 255) == 0
                 ; ENEMY_TYPE_AT does the same with a 32-byte stride, and
                 ; the WHOLE table has to sit in one page: ADD A,low
                 ; discards the carry, so a table that straddles a page
                 ; boundary silently reads the wrong row.
+                ; (asserted after the HIGH image, where the table is)
                 assert EN_T_STRIDE == 32
-                assert (ENEMY_TYPES AND 255) + EN_KINDS * EN_T_STRIDE <= 256
                 assert EN_T_USED <= EN_T_STRIDE
-                assert ENEMY_TYPES_END - ENEMY_TYPES == EN_KINDS * EN_T_STRIDE
                 ; The enemy's script sits above hers and below the round
                 ; saves' ceiling, like every other buffer up there.
                 assert ENEMY_SCRIPT >= SPAN_SCRIPT + SPAN_SCRIPT_MAX
@@ -1246,11 +1246,13 @@ LEVEL_LVL       equ  LEVEL_IMAGE + LEVEL_TILEFLAGS_N
 ; is full: assembled for HIGH_ADDR, stored straight after the core in
 ; the file, and put there by the bootstrap's second LDIR.
 ;
-; WHAT GOES HERE IS WHAT NOTHING CALLS IN PLAY: the title's palette and
-; the two 608-byte strips its prompt blinks between (src/intro.asm).
-; They were 1,216 bytes of the core image, and the drone that follows
-; her (src/enemy.asm) took CORE_END past &4000 by 359 bytes - so they
-; moved, rather than anything the frame runs.
+; WHAT GOES HERE IS WHAT NOTHING CALLS IN PLAY: the title - its palette,
+; its code and the mask its prompt is made from (src/intro.asm) - and
+; what the spike traps run once (src/hazard_high.asm). The title's two
+; 608-byte strips were the first thing here, when the drone that
+; follows her (src/enemy.asm) took CORE_END past &4000 by 359 bytes;
+; they are made out of the picture at the title now, which is 1,064
+; bytes back, and the title's code followed them out of the core.
 ;
 ; HIGH_ADDR IS THE BASE RAM BETWEEN TILE_ATTR AND LEVEL_IMAGE, which
 ; nothing else uses and nothing in play writes: a level transition
@@ -1262,16 +1264,30 @@ HIGH_ADDR       equ  TILE_ATTR + TILE_ATTR_N
 HIGH_IMAGE      equ  BOOT_END + CORE_SIZE   ; where its bytes sit in the file
                 org  HIGH_ADDR, HIGH_IMAGE
 HIGH_START:
+                include "enemy_types.asm"   ; FIRST: &AA00 is a page (8.20)
                 include "intro.inc"
+                include "intro.asm"
                 include "hazard_high.asm"
+                include "vortex.asm"        ; the regions' walk and the
+                                            ; siphon's current, per frame
+                                            ; (8.21)
+                include "music_high.inc"    ; the tunes the SOUND image
+                                            ; has no room for (6.7)
 HIGH_END:
 HIGH_SIZE       equ  HIGH_END - HIGH_START
+                assert (ENEMY_TYPES AND 255) + EN_KINDS * EN_T_STRIDE <= 256
+                assert ENEMY_TYPES_END - ENEMY_TYPES == EN_KINDS * EN_T_STRIDE
                 assert HIGH_END <= LEVEL_IMAGE
 ; ... AND PAST IT, THE SPIKE TRAPS' PENDING CELLS: two bytes a cell, in
 ; the base RAM nothing else uses, written before anything reads it -
 ; HAZARD_SPAWN empties the list at every level install (src/hazard.asm).
 HZ_PEND         equ  HIGH_END
-                assert HZ_PEND + HZ_PEND_MAX * 2 <= LEVEL_IMAGE
+; ... AND THE TRAPS THEMSELVES, at the last 128 bytes below the level
+; image: a page boundary cannot fall inside them, which HAZARD_SPAWN's
+; slot arithmetic needs, and the pending list must end before them.
+HZ_TABLE        equ  LEVEL_IMAGE - HZ_MAX * HZ_STRIDE
+                assert HZ_PEND + HZ_PEND_MAX * 2 <= HZ_TABLE
+                assert (HZ_TABLE AND 255) + HZ_MAX * HZ_STRIDE <= 256
 
 ; =====================================================================
 ; THE SOUND IMAGE - the player, its tunes and its effects (src/sound.asm,

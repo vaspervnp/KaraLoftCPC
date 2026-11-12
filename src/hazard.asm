@@ -23,40 +23,46 @@
 ; CLAUDE.md 10's rule about anything that changes the background: it
 ; must not be painted under a sprite whose save-under has already taken
 ; the old pixels, or that sprite's erase puts them back. So a changed
-; cell is PENDING until it is painted, and it is painted in one of two
-; places:
+; cell is PENDING until it is painted, and four passes may paint it
+; (CLAUDE.md 8.17, 8.18):
 ;
+;   HAZARD_PAINT_E  the top of the second sweep, before the HUD strip -
+;                   a row step leaves the later passes no time, so a few
+;                   cells go down here first
 ;   HAZARD_PAINT_B  the second sweep's wait for its head gate - 40,468 T
-;                   the loop had always spent doing nothing. Every cell
-;                   that does not meet her box as she was drawn goes down
-;                   here, ahead of the beam for any cell low enough to be
-;                   on the ground, and costs the frame nothing at all.
-;   HAZARD_PAINT_A  the top of the first sweep, after the horizontal latch
-;                   and before ANY sprite is drawn - so no save-under can
-;                   hold the old cel. What is left goes down here: the
-;                   cells she is standing in. It costs her lead, ~320 T a
-;                   scanline (9), so it is capped at HZ_A_MAX a frame.
+;                   the loop had always spent doing nothing - every cell
+;                   that does not meet her box as she was drawn
+;   HAZARD_PAINT_C  the END of the second sweep, after her erase: the
+;                   cells she is standing in
+;   HAZARD_PAINT_A  the top of the first sweep, before any sprite is
+;                   drawn, and only while she is not moving: what C had
+;                   no room for
 ;
-; THE END OF THE SECOND SWEEP, where a taken pickup's cell is repainted,
-; is NOT one of them, and that is a measurement: on level 5 her erase
-; ends as late as 72,256 T of 79,872, and one cell is ~3,900.
+; A MINE (8.19) IS THE THIRD KIND, AND THE FIRST THAT HOLDS. It does not
+; go round a cycle: armed until her box meets it, then the fireball and
+; the bubbles, then gone for good - a duration of 0 in HZ_DUR is a hold,
+; and HZ_TOUCHED is what lets an armed one go. Its picture is a 2 x 2
+; block, so a cel is four tiles and HZ_WRITE writes a second column.
 ; =====================================================================
 
 HZ_SPIKETRAP    equ 0           ; p0 of a hazard record: WHICH hazard (8.6)
 HZ_CABLE        equ 1           ; ... the sea's live cable (8.18)
-HZ_KINDS        equ 2           ; ... and how many this engine knows
+HZ_MINE         equ 2           ; ... and its moored mine (8.19)
+HZ_LASER        equ 3           ; ... and the station's laser (8.23)
+HZ_KINDS        equ 4           ; ... and how many this engine knows
 HZ_CELS         equ 4           ; a trap's cycle, cel 0 the safe one
-HZ_MAX          equ 8           ; traps a level may have
-HZ_STRIDE       equ 8
+HZ_MAX          equ 16          ; traps a level may have - a minefield
+HZ_STRIDE       equ 8           ; is more than the eight it was (8.19)
 HZ_REC          equ 0           ; dw the record
 HZ_CELL         equ 2           ; dw its map byte
 HZ_WC           equ 4           ; db world character column, 2 * tile
 HZ_WR           equ 5           ; db world character row, 2 * tile
 HZ_BASE         equ 6           ; db cel 0's tile index
 HZ_TC           equ 7           ; db timer << 2 | cel
-HZ_TABLE        equ ENT_TABLE + ENT_MAX * ENT_STRIDE   ; &A8C0 - the 64
-                                ; bytes between the entity table and
-                                ; TILE_ATTR, which nothing else uses
+                                ; HZ_TABLE is in base RAM past the HIGH
+                                ; image (main.asm): sixteen slots are 128
+                                ; bytes, and the 64 between the entity
+                                ; table and TILE_ATTR held eight
 
 HZ_PEND_MAX     equ 16          ; cells waiting to be painted
 HZ_A_MAX        equ 1           ; ... and how many of them may cost her
@@ -105,9 +111,30 @@ LK_DISABLES     equ 1
 ; - off, the warning flash (which does not bite), off again for the
 ; 250 ms, and live (tools/make_sea_map.py). 30 + 2 + 6 + 25 is 63 game
 ; frames, 2.5 s, and each is inside HZ_TC's six bits.
+; The mine: gone, armed, the fireball and the fireball breaking into
+; bubbles (tools/make_sea_map.py). A DURATION OF 0 HOLDS - a running
+; timer is never stored at 0, because the frame it would reach 0 it moves
+; the cel on and reloads - so a gone mine stays gone and an armed one
+; stays armed until HZ_TOUCHED says otherwise. The explosion is the
+; artist's four frames in two cels: the flash's 60 ms with the fireball's
+; 80 and the bubbles' 120 with the breaking's 100, 140 and 220 ms.
 HZ_DUR:         db 5, 2, 5, 2               ; HZ_SPIKETRAP
                 db 30, 2, 6, 25             ; HZ_CABLE
+                db 0, 0, 4, 5               ; HZ_MINE
+                db 20, 10, 10, 10           ; HZ_LASER: off, on, the
+                                            ; flicker, on - the artist's
+                                            ; 0.8 s and 1.2 s (8.23)
                 assert $ - HZ_DUR == HZ_KINDS * HZ_CELS
+
+; WHERE A MINE CAN BE TOUCHED, in bytes and lines of its 2 x 2 tiles: the
+; artist's "contact radius about 5 columns x 9 rows around the sphere
+; centre (8,11)" - pixels 3..13 across, lines 2..20 down - and her box
+; is the swimmer's, because a mine is a thing of the water.
+MINE_X0         equ 1
+MINE_X1         equ 7
+MINE_Y0         equ 2
+MINE_Y1         equ 21
+MINE_HURT       equ 32              ; two cells of the bar (7.8)
 
 ; ---------------------------------------------------------------------
 ; HAZARD_TICK - one game frame of every trap's cycle. In the second
@@ -124,8 +151,27 @@ HAZARD_TICK:    ld   a,(HZ_COUNT)
                 or   a
                 ret  z
                 ld   b,a
+                ld   hl,(KARA_WY)           ; HER TOP CHARACTER ROW, once:
+                srl  h                      ; HZ_TOUCHED's cheap reject
+                rr   l
+                srl  h
+                rr   l
+                srl  h
+                rr   l
+                ld   a,l
+                ld   (HZ_KROW),a
                 ld   iy,HZ_TABLE
-.slot:          push bc
+.slot:          ld   a,(iy + HZ_TC)         ; 0 IS FOR GOOD: a trap its altar
+                or   a                      ; has put down, and a mine that
+                jr   z,.next_slot           ; has gone up - nothing moves it
+                dec  a                      ; 1 IS AN ARMED MINE, and one more
+                jr   nz,.busy               ; than four character rows from
+                ld   a,(HZ_KROW)            ; her is all it costs: her box
+                sub  (iy + HZ_WR)           ; spans four rows at most and its
+                add  a,4                    ; contact box three, so only
+                cp   8                      ; -3..2 can meet. An altar that
+                jr   nc,.next_slot          ; disarmed one far off is honoured
+.busy:          push bc                     ; when she comes this near
                 ld   l,(iy + HZ_REC)
                 ld   h,(iy + HZ_REC + 1)
                 ld   de,ENT_FLAGS
@@ -137,10 +183,12 @@ HAZARD_TICK:    ld   a,(HZ_COUNT)
                 jr   z,.done                ; ... and it is down already
                 xor  a                      ; down, and no timer
                 jr   .set
-.live:          sub  4                      ; timer - 1, in the top six bits
+.live:          cp   4
+                jr   c,.held                ; a timer of 0: a mine's hold
+                sub  4                      ; timer - 1, in the top six bits
                 cp   4
                 jr   nc,.store              ; ... still running
-                inc  a                      ; the next cel
+.next:          inc  a                      ; the next cel
                 and  HZ_CELS - 1
                 ld   c,a
                 inc  hl                     ; HL was the record's flags, and
@@ -158,19 +206,75 @@ HAZARD_TICK:    ld   a,(HZ_COUNT)
                 or   c                      ; its own timer
 .set:           ld   (iy + HZ_TC),a
                 and  HZ_CELS - 1
-                add  a,(iy + HZ_BASE)
                 call HZ_WRITE               ; the map - and so the bite
                 jr   .done
+.held:          dec  a                      ; cel 1 is the ARMED mine, and
+                jr   nz,.done               ; cel 0 the one that has gone
+                push hl
+                call HZ_TOUCHED
+                pop  hl
+                ld   a,1
+                jr   c,.next                ; ... and it goes up
 .store:         ld   (iy + HZ_TC),a
-.done:          ld   de,HZ_STRIDE
+.done:          pop  bc
+.next_slot:     ld   de,HZ_STRIDE
                 add  iy,de
-                pop  bc
                 djnz .slot
                 ret
 
 ; ---------------------------------------------------------------------
-; HZ_WRITE - A = the tile a trap is now showing: into its map cell, and
-; into every cell of its RUN, each one pending a paint.
+; HZ_TOUCHED - IY = an armed mine's slot. Carry: her box meets where it
+; can be touched (MINE_X0..MINE_Y1, above), and she has paid for it.
+;
+; It is HER box against ITS, in the world and as they are now - not her
+; box as she was drawn, which is the painter's question - and the box is
+; the swimmer's whatever the level, because only the sea has mines.
+; Both differences are one subtraction and one unsigned bound:
+; her - it lies in [x0 - W + 1, x1 - 1] exactly when the two meet.
+;                                destroys AF,BC,DE,HL; keeps IY
+; ---------------------------------------------------------------------
+HZ_TOUCHED:     ld   de,(KARA_WY)         ; DOWN FIRST: the sea is a
+                ld   l,(iy + HZ_WR)         ; vertical level, so that is
+                ld   h,0                    ; the one that is usually far
+                add  hl,hl
+                add  hl,hl
+                add  hl,hl                  ; its top line
+                ld   bc,SWIM_BOX_H - 1 - MINE_Y0
+                call .near
+                ret  nc
+                ld   a,l
+                cp   MINE_Y1 - MINE_Y0 + SWIM_BOX_H - 1
+                ret  nc
+                ld   de,(KARA_WX)
+                ld   l,(iy + HZ_WC)
+                ld   h,0
+                add  hl,hl                  ; its left byte
+                ld   bc,SWIM_BOX_W - 1 - MINE_X0
+                call .near
+                ret  nc
+                ld   a,l
+                cp   MINE_X1 - MINE_X0 + SWIM_BOX_W - 1
+                ret  nc
+                ld   a,MINE_HURT
+                call HURT_HER
+                scf
+                ret
+; HL = it, DE = her, BC = the offset -> L = her - it + BC; NC if that is
+; not a byte
+.near:          ex   de,hl
+                or   a
+                sbc  hl,de
+                add  hl,bc
+                ld   a,h
+                or   a
+                scf
+                ret  z
+                ccf
+                ret
+
+; ---------------------------------------------------------------------
+; HZ_WRITE - A = the cel a trap is now showing: its tile into its map
+; cell, and into every cell of its RUN, each one pending a paint.
 ;
 ; A TRAP IS A COLUMN OF CELLS, NOT ONE, since the sea (8.18). The
 ; forest's spike trap is one tile; the sea's cable hangs between two
@@ -181,23 +285,44 @@ HAZARD_TICK:    ld   a,(HZ_COUNT)
 ; Every spike trap in the forest has a top nibble of 0, so the forest is
 ; byte for byte the trap it was.
 ;
-; IN : A = the tile, IY = the trap's slot     destroys AF,BC,DE,HL
+; AND A MINE IS TWO COLUMNS AS WELL AS TWO ROWS (8.19). Its picture is
+; four different tiles, not one tile four times, so a cel is FOUR
+; consecutive indexes - top left, top right, bottom left, bottom right -
+; and cel c's top left is its base + 4c. Its p1 says one cell below, the
+; way a cable's does, which is what puts a level with mines on the long
+; way here; the second column is this routine's own, and the tool keeps
+; a mine off the map's last column so the cell to its right is the next
+; byte.
+;
+; IN : A = the cel, IY = the trap's slot     destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-HZ_WRITE:       ld   e,a                    ; E = the tile
+HZ_WRITE:       ld   e,a                    ; E = the cel
                 ld   a,(HZ_RUNS)            ; ... AND A LEVEL WITH NO RUN IN
                 or   a                      ; IT PAYS NOTHING FOR THEM: the
                 jr   nz,.runs               ; forest's field changes eight
-                ld   l,(iy + HZ_CELL)       ; cells at once, and the painter
-                ld   h,(iy + HZ_CELL + 1)   ; had no time to give a record
-                ld   (hl),e                 ; read for each (8.17's margin)
+                ld   a,e                    ; cells at once, and the painter
+                add  a,(iy + HZ_BASE)       ; had no time to give a record
+                ld   l,(iy + HZ_CELL)       ; read for each (8.17's margin)
+                ld   h,(iy + HZ_CELL + 1)
+                ld   (hl),a
                 ld   c,(iy + HZ_WC)
                 ld   b,(iy + HZ_WR)
                 jp   HZ_PEND_ADD
 .runs:          ld   l,(iy + HZ_REC)
                 ld   h,(iy + HZ_REC + 1)
-                ld   bc,ENT_P1
+                ld   bc,ENT_P0
                 add  hl,bc
-                ld   a,(hl)
+                ld   a,(hl)                 ; which hazard
+                sub  HZ_MINE
+                ld   (HZ_WIDE),a            ; 0 for a mine: two columns
+                jr   nz,.tall
+                sla  e                      ; ... and four tiles a cel
+                sla  e
+.tall:          ld   a,e
+                add  a,(iy + HZ_BASE)
+                ld   e,a                    ; E = the tile
+                inc  hl
+                ld   a,(hl)                 ; p1
                 rrca
                 rrca
                 rrca
@@ -213,7 +338,22 @@ HZ_WRITE:       ld   e,a                    ; E = the tile
                 push hl
                 call HZ_PEND_ADD            ; BC and DE survive it
                 pop  hl
-                dec  d
+                ld   a,(HZ_WIDE)
+                or   a
+                jr   nz,.down
+                inc  hl                     ; its right-hand cell, which
+                inc  e                      ; is the next tile
+                ld   (hl),e
+                inc  c
+                inc  c
+                push hl
+                call HZ_PEND_ADD
+                pop  hl
+                dec  hl
+                dec  c
+                dec  c
+                inc  e                      ; ... and the row below starts
+.down:          dec  d                      ; at the next one again
                 ret  z
                 inc  b                      ; a tile is two character rows
                 inc  b
@@ -347,23 +487,28 @@ HZ_LIMIT        equ  $ - 1                  ; the entry's tick, patched
                 sub  e                      ; HZ_WHERE only for the rest
                 cp   SCR_CHAR_ROWS - 1
                 jr   nc,.where              ; out of line: the rare case
-.on:            ld   a,(HZ_DODGE)
+.on:            ld   a,(WORLD_X)            ; WHOLLY OFF THE LEFT OR THE
+                ld   e,a                    ; RIGHT, it is off the list: its
+                ld   a,c                    ; column comes in from the map,
+                sub  e                      ; which has the new cel, and a
+                inc  a                      ; paint of it is 1,868 T that
+                cp   SCR_CHARS + 1          ; draws nothing (CLAUDE.md 8.23)
+HZ_OFF_COL      equ  $ - 1                  ; (test_station's control)
+                jp   nc,.off                ; -1, 0 -> 0, 1 and 38, 39 -> 39, 40
+                ld   e,a
+                ld   a,(HZ_DODGE)
                 or   a
                 jr   nz,.her
                 ld   a,(H_PENDING)
                 or   a
                 jr   z,.paint               ; no column in flight
-                ld   a,(WORLD_X)
-                ld   e,a
-                ld   a,c
-                sub  e
-                inc  a                      ; -1, 0 -> 0, 1 and 38, 39 -> 39, 40
+                ld   a,e
                 cp   2
 HZ_GUARD_L      equ  $ - 1                  ; (named for test_forest7's control)
                 jr   c,.keep                ; touches column 0
                 cp   39
 HZ_GUARD_R      equ  $ - 1
-                jr   nc,.keep               ; ... or 39, or is off the screen
+                jr   nc,.keep               ; ... or 39
                 jr   .paint
 .her:           call HZ_UNDER_HER
                 jr   c,.keep                ; hers to save: C or A paints it
@@ -437,6 +582,9 @@ HZ_BUDGET       equ  $ - 1                  ; three for the one before the
                 jp   z,.on
                 ld   (HZ_HALF),a            ; half on: paint it, and keep it
                 jp   .on
+.off:           xor  a                      ; it may have been half on up
+                ld   (HZ_HALF),a            ; or down (.where): no flag left
+                jp   .drop                  ; for the next one
 
 ; ---------------------------------------------------------------------
 ; HAZARD_PAINT_A - what C had no room for, at the top of the first
@@ -726,6 +874,8 @@ HZ_HALF:        db 0            ; non-zero: the cell being painted is half on
                                 ; the screen and stays on the list - set by
                                 ; HZ_PAINT_LIST's .where, cleared at its .keep
 HZ_RUNS:        db 0            ; non-zero: some trap here is a run of cells
+HZ_WIDE:        db 0            ; HZ_WRITE's: 0 while it writes a mine
+HZ_KROW:        db 0            ; her top character row, this tick
 HZ_PEND_N:      db 0            ; cells on HZ_PEND, which is base RAM past
                                 ; the HIGH image (main.asm)
 HZ_WC0:         db 0            ; HZ_ADVANCE_ROW's cell in world characters,

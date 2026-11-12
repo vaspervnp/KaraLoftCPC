@@ -39,6 +39,14 @@ SWIM_BOX_H      equ KSWIM_BOX_H                     ; 24
 SWIM_W_BYTES    equ KSWIM_BOX_W                     ; 32
 SWIM_ART_X      equ (SWIM_W_BYTES - SWIM_BOX_W) / 2 ; 8
 SWIM_CAM_LEAD   equ SCR_CHARS * 2 - CAM_TRAIL - SWIM_BOX_W   ; 37
+; A drone that follows her in the water (8.20): its middle this many
+; bytes from hers - her half-sprite is 16 and the sea drone's 8, so 30
+; leaves six bytes of water between them - and never nearer than the
+; two sprites allow, (32 + 16) / 2; and its top level with hers, so its
+; 16 lines are across her muzzle's lines 5 and 10.
+SWIM_EN_DIST    equ 30
+SWIM_EN_MIN     equ (SWIM_W_BYTES + SEADRONE_BOX_W) / 2
+SWIM_EN_DY      equ 0
 
                 ; her widest line fits the unrolled run, and a whole cel
                 ; of them fits the script SPAN_SCRIPT_MAX sized for the
@@ -95,6 +103,16 @@ BOX_SITES:      BOXSITE  BX_SOLID_H,   KARA_BOX_H - 1, SWIM_BOX_H - 1
                 BOXSITEW BX_VIEW_MID,  CAM_BOT - KARA_BOX_H / 2, CAM_BOT - SWIM_BOX_H / 2
                 BOXSITEW BX_SPAWN,     0 - KARA_BOX_H, 0 - SWIM_BOX_H
                 BOXSITE  BX_TO_SCREEN, KARA_ART_X, SWIM_ART_X
+                ; ... and where a drone that follows her keeps itself
+                ; (src/enemy.asm's ENEMY_FOLLOW): its middle EN_DIST from
+                ; hers, never nearer than the two sprites allow, and its
+                ; top EN_DY below hers - her sprite is 32 bytes across
+                ; and 24 lines down in the water, and her muzzle is on
+                ; lines 5 and 10 of it (KSWIM_SPAWNS)
+                BOXSITEW BX_EN_DIST,   EN_DIST, SWIM_EN_DIST
+                BOXSITEW BX_EN_DISTN,  0 - EN_DIST, 0 - SWIM_EN_DIST
+                BOXSITEW BX_EN_MIN,    EN_MIN, SWIM_EN_MIN
+                BOXSITEW BX_EN_DY,     EN_DY, SWIM_EN_DY
 BOX_SITES_END:  dw  0
 BOX_SITES_N     equ (BOX_SITES_END - BOX_SITES) / 4
 
@@ -230,6 +248,8 @@ PLAYER_SWIM:    xor  a
                 ld   c,0                    ; dead: nothing held
                 jr   z,.vertical
                 call OXY_STEP               ; her air, alive
+                call VORTEX_PULL            ; ... and the siphon's current
+                                            ; on her stick (vortex.asm)
                 ld   hl,INPUT_NOW
                 res  7,(hl)                 ; IN_RUN: she does not run in the
                                             ; water, and the run's cels are

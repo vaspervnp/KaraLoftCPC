@@ -52,7 +52,9 @@
 EN_AGENT        equ 0
 EN_DRONE        equ 1
 EN_SNIPER       equ 2           ; the forest's, and the first row here that
-EN_KINDS        equ 3           ; is not the city's
+                                ; is not the city's
+EN_SEADRONE     equ 3           ; the sea's security drone (8.20)
+EN_KINDS        equ 4
 
 EN_T_BANK       equ 0           ; the RIGHT-facing blob's bank ...
 EN_T_RIGHT      equ 1           ; dw
@@ -79,75 +81,11 @@ EN_T_USED       equ 19
 EN_T_STRIDE     equ 32          ; a power of two, because ENEMY_TYPE_AT
                                 ; indexes it with ADD A,ENEMY_TYPES AND 255
 
-; ALIGNED TO THE WHOLE TABLE, NOT TO ONE ROW. `align 32` put it at
-; &17E0, its 64 bytes crossed &1800, and ADD A,ENEMY_TYPES AND 255
-; wrapped: every type but the first read the first one's padding, so a
-; drone was 135 lines tall with 23 hit points. The assert in main.asm is
-; what keeps it from happening again as the table grows.
-;
-; AND `align 64` WAS NOT ENOUGH EITHER, which the third row is what
-; showed: 3 * 32 is 96 bytes, and an align of 64 can put those at
-; offset 192 of a page, where they end at 288. The rule in CLAUDE.md 10
-; says align to the WHOLE table and this is the table's own size
-; rounded up - 128 holds four rows exactly, and the assert is what will
-; say so on the fifth.
-;
-; AND THEN `align 128` WAS TOO MUCH, which the sea is what showed. What
-; the indexing needs is that the table does not CROSS a page, and an
-; align is only one way to get that: every byte the code in front of it
-; grows by is free until the table would cross, and then the align
-; costs up to 127 bytes at once. The cable's runs took the hazard code
-; five bytes past &1B00 and the core past &4000 by about a hundred. So
-; it moves to the next page only when it has to - here, and asserted in
-; main.asm, which is the same rule written once more.
-                if ($ AND 255) + EN_KINDS * EN_T_STRIDE > 256
-                align 256
-                endif
-ENEMY_TYPES:
-                db L1_CITYAGENT_BANK
-                dw L1_CITYAGENT_ADDR
-                db L1_CITYAGENT_L_BANK
-                dw L1_CITYAGENT_L_ADDR
-                db CITYAGENT_WALK_FIRST, CITYAGENT_WALK_COUNT
-                db CITYAGENT_FIRE_FIRST, CITYAGENT_FIRE_COUNT
-                db CITYAGENT_BOX_W, CITYAGENT_BOX_H
-                db 2, 45, 3     ; speed, fire period, hit points - the
-                                ; first two doubled and halved for the
-                                ; 25 Hz game frame (src/main.asm)
-                dw CITYAGENT_DURATION
-                dw CITYAGENT_SPAWNS
-                ds EN_T_STRIDE - EN_T_USED
-
-                db L1_CITYDRONE_BANK
-                dw L1_CITYDRONE_ADDR
-                db L1_CITYDRONE_L_BANK
-                dw L1_CITYDRONE_L_ADDR
-                db CITYDRONE_FLY_FIRST, CITYDRONE_FLY_COUNT
-                db CITYDRONE_FIRE_FIRST, CITYDRONE_FIRE_COUNT
-                db CITYDRONE_BOX_W, CITYDRONE_BOX_H
-                db 2, 35, 2     ; ... and the same on this one
-                dw CITYDRONE_DURATION
-                dw 0                    ; the drone sheet has no spawn point:
-                ds EN_T_STRIDE - EN_T_USED  ; its shot leaves the box's nose
-
-                ; THE FOREST'S SNIPER, AND IT IS AN AGENT-CLASS SPRITE.
-                ; 12x64 like the cityagent, which 8.7 measured at
-                ; 40,760-48,820 T drawn and erased against a 79,872 T
-                ; frame and called unaffordable - and 9 says that at
-                ; 25 Hz it is affordable ON PAPER, with nothing having
-                ; measured it. Placing one is that measurement.
-                db L2_FORESTSNIPER_BANK
-                dw L2_FORESTSNIPER_ADDR
-                db L2_FORESTSNIPER_L_BANK
-                dw L2_FORESTSNIPER_L_ADDR
-                db FORESTSNIPER_WALK_FIRST, FORESTSNIPER_WALK_COUNT
-                db FORESTSNIPER_FIRE_FIRST, FORESTSNIPER_FIRE_COUNT
-                db FORESTSNIPER_BOX_W, FORESTSNIPER_BOX_H
-                db 2, 45, 3     ; speed, fire period, hit points
-                dw FORESTSNIPER_DURATION
-                dw FORESTSNIPER_SPAWNS
-                ds EN_T_STRIDE - EN_T_USED
-ENEMY_TYPES_END:
+; THE TABLE ITSELF IS IN THE HIGH IMAGE, at its very start (src/
+; enemy_types.asm): HIGH_ADDR is &AA00, a page boundary, so the rule
+; below costs nothing there - and four rows in the core cost a page's
+; alignment, 130 bytes the core had not got, the day the sea's drone
+; made it four (CLAUDE.md 8.20).
 
 ; ---------------------------------------------------------------------
 ; One live enemy. Seventeen bytes, one per EK_ENEMY record in the level.
@@ -904,10 +842,12 @@ BX_FOLLOW       equ  $ - 2                  ; AFTER the instruction it names:
 .side:          push bc
                 ld   hl,(EN_HERMID)
                 ld   de,EN_DIST
+BX_EN_DIST      equ  $ - 2                  ; the swimmer's own (swim.asm)
                 ld   a,(ENEMY_SIDE)
                 or   a
                 jr   z,.right
                 ld   de,-EN_DIST
+BX_EN_DISTN     equ  $ - 2
 .right:         add  hl,de                  ; the middle it wants
                 call EN_HALF_W
                 or   a
@@ -927,6 +867,7 @@ BX_FOLLOW       equ  $ - 2                  ; AFTER the instruction it names:
                 or   a
                 sbc  hl,de
 .gap:           ld   de,EN_MIN
+BX_EN_MIN       equ  $ - 2
                 or   a
                 sbc  hl,de                  ; the gap less the least it may be
                 pop  bc
@@ -990,6 +931,7 @@ BX_FOLLOW       equ  $ - 2                  ; AFTER the instruction it names:
                 ; ---- down: to her chest, EN_VY lines a frame --------
                 ld   hl,(KARA_WY)
                 ld   de,EN_DY
+BX_EN_DY        equ  $ - 2
                 add  hl,de                  ; where its top wants to be
                 ld   e,(ix + ES_Y)
                 ld   d,(ix + ES_Y + 1)
@@ -1569,13 +1511,8 @@ BX_EB_H         equ  $ - 1
                 cp   KARA_CROUCH_TOP
                 jr   c,.miss                ; over her head, and she ducked
 .body:
-                ld   a,(PLAYER_HP)
-                sub  EBUL_DAMAGE
-                jr   nc,.alive
-                xor  a
-.alive:         ld   (PLAYER_HP),a
-                ld   a,HURT_FRAMES          ; and the border says so, because
-                ld   (HURT_FLASH),a         ; there is no HUD yet (main.asm)
+                ld   a,EBUL_DAMAGE          ; ... and the border says so
+                call HURT_HER
                 pop  hl
                 scf
                 ret

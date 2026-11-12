@@ -137,11 +137,12 @@ public static class EngineLimits
 
     /// <summary>
     /// <c>HZ_MAX</c>: the timed hazards <c>HAZARD_SPAWN</c> takes out of a
-    /// level's table. It stops at the ninth and that one is simply not a
-    /// trap — its cell stays on cel 0 and nothing bites — so the validator
-    /// refuses a level with more (CLAUDE.md 8.17).
+    /// level's table. It stops at the seventeenth and that one is simply
+    /// not a trap — its cell stays on cel 0 and nothing bites — so the
+    /// validator refuses a level with more (CLAUDE.md 8.17). It was 8 until
+    /// the sea's mines (8.19): a minefield is more than eight things.
     /// </summary>
-    public const int MaxHazards = 8;
+    public const int MaxHazards = 16;
 
     /// <summary>
     /// Play area in tiles, 20 across by 11 down = 176 lines = 22 character

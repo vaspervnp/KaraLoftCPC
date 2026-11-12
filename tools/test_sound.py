@@ -427,6 +427,41 @@ def levels_tunes(m, sym):
           f"environment's (8.1)")
 
 
+def sea_tune(sym):
+    """The sea's tune is the first whose bars are NOT in the SOUND image -
+    they are in the HIGH image, past the table (tools/make_music.py's
+    FAR_TUNES) - so it is held to the model on the chip, in the sea."""
+    print("\n  the sea, on the chip - out of the HIGH image:")
+    import test_sea
+    test_sea.LEVEL = 13
+    p = test_sea.Sea()
+    m = p.m
+    tune = m.peek(sym["SND_TUNE"])
+    ti = MM.TUNE_ID["sea"]
+    hdr = word(m, sym["TUNE_TABLE"] + 2 * ti)
+    check("level 13 plays the sea's, and its bars are past the SOUND image",
+          tune == ti and hdr >= sym["HIGH_START"] and hdr < sym["HIGH_END"],
+          f"SND_TUNE {tune}, its header at &{hdr:04X}, the HIGH image "
+          f"&{sym['HIGH_START']:04X}-&{sym['HIGH_END']:04X}")
+    m.poke(sym["SND_TUNE"], 0xFF)
+    call_a(m, sym, "SOUND_TUNE", ti)
+    clock = Clock(m, sym)
+    model = MM.simulate(ti, 4000)
+    samples, sfx = [], 0
+    for _ in range(220):
+        n = clock.next()
+        sfx += m.peek(sym["SX_PRIO"]) != 0
+        samples.append((n, regs(m)))
+    bad, first = against_model(samples, model)
+    out, _ = against_model(samples, model, shift=1)
+    check("treading water, the chip is the model - and a tick out it is not",
+          bad == 0 and len(samples) >= 200 and sfx == 0 and out > 0,
+          f"{len(samples)} ticks, {bad} registers wrong, {out} with the "
+          f"model a tick out, {sfx} with an effect"
+          + (f"; first at tick {first[0]}: R{first[1]} {first[2]} against "
+             f"{first[3]}" if first else ""))
+
+
 def keyboard(m, sym):
     print("\n  the keyboard, through the chip the music is writing:")
     t0 = m.peek(sym["SND_TICKS"])
@@ -458,13 +493,20 @@ def disc_and_fade(m, sym):
     loud, quiet, atten, fade_ticks = 0, 0, set(), 0
     t = m.peek(sym["SND_TICKS"])
     door = False
+    # THE CALL THAT MUTES IT IS NOT INSIDE THE READ. DISC_READ's first
+    # instruction is `call SOUND_MUTE`, and a sample that lands on it -
+    # one in 7,775 at a 20 us stride, depending on where the stride
+    # meets the code - finds the note still sounding, because the mute
+    # has not run yet. It did the day the station's levels moved the
+    # code under it: DISC_READ+2, with the City's tune on all three voices.
+    mute = sym["DISC_READ"]
     for _ in range(140000):
         m.run_us(20)
         pc = m.pc
         atten.add(m.peek(sym["SND_ATTEN"]))
         if m.peek(sym["SX_PRIO"]) == MM.SFX_ID["door"]:
             door = True
-        if lo <= pc < hi:
+        if lo <= pc < hi and not mute <= pc < mute + 3:
             v = m.psg_regs()[8:11]
             if any(v):
                 loud += 1
@@ -566,6 +608,7 @@ def main():
     watch_control(m, sym, clock, model)
     requests(m, sym)
     levels_tunes(m, sym)
+    sea_tune(sym)
     keyboard(m, sym)
     disc_and_fade(bench.boot(sym, scroll=True), sym)
     mute_control(sym)

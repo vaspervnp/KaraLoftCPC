@@ -89,6 +89,17 @@ gen python3 "$ROOT/tools/make_cave_map.py"
 # seatiles.bin - so it runs where the other bakes do, before the banks.
 gen python3 "$ROOT/tools/make_sea_map.py"
 
+# ... and the desert's: 128x16 like the forest's, with quicksand and
+# NPCs who sell the code to the next door (CLAUDE.md 8.22). The NPCs and
+# the shuttle stand still, so they are composited over the bands and
+# appended to deserttiles.bin - before the banks, like every bake.
+gen python3 "$ROOT/tools/make_desert_map.py"
+
+# ... and the station's, the last four: the same 128x16, its lasers a
+# trap's four cels over the wall and its keycard doors pairs of shut and
+# open tiles, baked like every other (CLAUDE.md 8.23).
+gen python3 "$ROOT/tools/make_station_map.py"
+
 python3 "$ROOT/tools/level_banks.py"
 
 # A level's OWN bytes - its map, its entity table and its tile flags -

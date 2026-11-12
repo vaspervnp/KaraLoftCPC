@@ -120,8 +120,14 @@ def hang_and_drop(c):
     c.m.joystick(0)
     for _ in range(2):
         c.step()
+    # THE PRESS GOES IN AT THE TOP OF A GAME FRAME (CLAUDE.md 10). Held
+    # for one step() it was read or not by where the emulator's frame
+    # happened to end; the day the vertical row's paint moved (8.22) the
+    # third ledge's let-go was not read, she pulled herself back up, and
+    # the drive walked her off the roof.
+    sync(c.m, c.sym, half=0)
     c.m.joystick(JOY["down"])
-    c.step()
+    tc.tick(c)
     c.m.joystick(0)
     top = None
     for _ in range(200):

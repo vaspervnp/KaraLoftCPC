@@ -13,21 +13,26 @@
 ; up first would be a lie for a second and a half. Put up after, it
 ; means what it says: the press starts the game on the next frame.
 ;
-; The words blink, and they blink by being two pre-rendered strips
-; rather than a font and a save-under - tools/make_intro.py knows both
-; the picture and where the words go, so it emits the picture with them
-; and the picture without, and the blink is one LDIR either way.
+; The words blink, and they blink by being two strips rather than a font
+; and a save-under: the blink is one LDIR either way.
+;
+; NEITHER STRIP IS IN THE IMAGE. They were 1,216 bytes of the HIGH image
+; and the one without the words is the picture itself, so INTRO_SHOW
+; copies it out of video RAM the moment the picture is up; the one WITH
+; them is that copy with the lit pixels set to the prompt's pen, and
+; which pixels are lit is INTRO_TEXT_MASK - two bits a byte, 152 bytes,
+; out of tools/make_intro.py. Both go in the MAP's working copy, which
+; nothing reads from the title until the next MAP_INSTALL copies the
+; level over it (SCROLL_INIT, after INTRO_WAIT on both of the paths
+; that reach here). This whole file is in the HIGH image now (main.asm):
+; nothing in play calls it.
 ; =====================================================================
 
-                ; The picture's palette, the prompt's two strips and
-                ; the eight screen addresses they go to, all written by
-                ; tools/make_intro.py, are NOT included here: they are
-                ; 1,248 bytes the frame never touches, and they live in
-                ; the HIGH image at the end of src/main.asm, outside the
-                ; core. Everything below names them as operands only,
-                ; which RASM resolves in its second pass.
-
 INTRO_BLINK_MASK equ 15         ; frames a state: 16 on, 16 off
+INTRO_TEXT_OFF  equ MAP_ADDR    ; the picture as it is, out of VRAM ...
+INTRO_TEXT_ON   equ MAP_ADDR + INTRO_TEXT_BYTES * INTRO_TEXT_LINES
+                                ; ... and with the words on it
+                assert INTRO_TEXT_ON + INTRO_TEXT_BYTES * INTRO_TEXT_LINES <= MAP_ADDR + MAP_BYTES
 
 ; ---------------------------------------------------------------------
 ; INTRO_SHOW - the picture, off the disc and onto the screen.
@@ -66,7 +71,64 @@ INTRO_SHOW:     di
                 ld   hl,LEVEL_STAGE
                 ld   de,&C000
                 call UNPACK_AT
+                call INTRO_STRIPS
                 scf
+                ret
+
+; ---------------------------------------------------------------------
+; INTRO_STRIPS - the prompt's two strips, out of the picture on the
+; screen: the eight lines it covers copied as they are, and then again
+; with every pixel INTRO_TEXT_MASK lights set to the prompt's pen. Mode
+; 0's left pixel is the byte's &AA bits and its right one the &55 (CLAUDE.md
+; 6.3), so a byte is (picture AND NOT lit) OR (pen AND lit).
+;                                destroys AF,BC,DE,HL,IX
+; ---------------------------------------------------------------------
+INTRO_STRIPS:   ld   ix,INTRO_TEXT_ADDR
+                ld   de,INTRO_TEXT_OFF
+                ld   b,INTRO_TEXT_LINES
+.line:          ld   l,(ix + 0)
+                ld   h,(ix + 1)
+                inc  ix
+                inc  ix
+                push bc
+                ld   bc,INTRO_TEXT_BYTES
+                ldir
+                pop  bc
+                djnz .line
+                ld   hl,INTRO_TEXT_OFF      ; DE is INTRO_TEXT_ON, which
+                ld   ix,INTRO_TEXT_MASK     ; is straight after it
+                ld   c,INTRO_TEXT_BYTES * INTRO_TEXT_LINES / 4
+.quad:          ld   a,(ix + 0)
+                inc  ix
+                ld   b,4
+.byte:          rlca                        ; this byte's two bits, into
+                rlca                        ; bits 1 and 0
+                push af
+                push bc
+                ld   c,0
+                rrca                        ; bit 0: the right pixel
+                jr   nc,.left
+                ld   c,&55
+.left:          rrca                        ; bit 1: the left one
+                jr   nc,.mix
+                ld   a,c
+                or   &AA
+                ld   c,a
+.mix:           ld   a,c                    ; C = the pen's bits
+                cpl
+                and  (hl)                   ; the picture where it is not
+                ld   b,a
+                ld   a,c
+                and  INTRO_TEXT_PEN         ; ... and the pen where it is
+                or   b
+                ld   (de),a
+                inc  hl
+                inc  de
+                pop  bc
+                pop  af
+                djnz .byte
+                dec  c
+                jr   nz,.quad
                 ret
 
 ; ---------------------------------------------------------------------

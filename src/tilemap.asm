@@ -343,6 +343,7 @@ MAP_INSTALL:    ; ---- is it a level, and is it THIS engine's? --------
 ;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
 MAP_DERIVE:     call HAZARD_SCAN            ; can any tile hurt her
+                call VORTEX_SCAN            ; is there a current (vortex.asm)
                 call KACT_FOR_ENV           ; where THIS environment keeps
                                             ; her action cels (kara.asm)
                 call HAZARD_SPAWN           ; the traps, each on its own
@@ -1171,8 +1172,8 @@ SCROLL_V_STEP:  or   a
                 ld   (ROW_FIRST),a          ; part 0: columns 0-9
                 ld   a,V_PART_CELLS
                 ld   (ROW_N),a
-                jr   V_PAINT
-
+                jp   V_PAINT                ; JP: the gates below took it
+                                            ; past a JR's reach
 ; ---------------------------------------------------------------------
 ; SCROLL_V_PART - the next piece of the incoming row.
 ;
@@ -1216,14 +1217,67 @@ SCROLL_VBLANK:  ld   a,(V_PHASE)
                 jp   SCROLL_APPLY
 
 ; ---------------------------------------------------------------------
-; SCROLL_SERVICE - advance a vertical step that is in flight.
+; SCROLL_SERVICE   - advance a vertical step that is in flight: the end
+;                    of the FIRST sweep, after the logic.
+; SCROLL_SERVICE_B - ... and again in the SECOND sweep's wait for its
+;                    head gate, after the sound.
 ;
-; Call once per frame, after SCROLL_VBLANK. Phases 1 to V_PARTS-1 have a
-; piece of the row to put down; phase V_PARTS belongs to SCROLL_VBLANK,
-; because it writes R12/R13.
+; Phases 1 to V_PARTS-1 have a piece of the row to put down; phase
+; V_PARTS belongs to SCROLL_VBLANK, because it writes R12/R13.
+;
+; EACH ONLY BEGINS A PIECE WITH THE TIME TO FINISH IT. A piece is half a
+; row, ~19,300 T, and the first sweep reaches here after her draw, the
+; column's tail, the strip and the logic: on the frame she takes off or
+; lands with the view stepping down - a hop in the desert's quicksand,
+; a fall in the City - that was 62,600 T in, the piece ended at 81,900
+; of 79,872, and the game frame took three hardware frames, one of them
+; with no heroine in it (CLAUDE.md 8.16 found three of them in 340 and
+; left the cause to be found; 8.22 is where it was). So the first sweep
+; begins one only before tick V_A_TICKS, and the second sweep's wait -
+; 40,468 T the loop spends doing nothing - takes what it left, begun only
+; before tick V_B_TICKS so that it is down well before the head gate and
+; her erase, the earliest of which is tick 4. Where both have room, both
+; paint, and the row is whole a sweep sooner than it was.
 ;                                Clobbers AF, BC, DE, HL
 ; ---------------------------------------------------------------------
-SCROLL_SERVICE: ld   a,(V_PHASE)
+V_A_TICKS       equ 5           ; 53,780 T + a piece < 79,872
+V_B_TICKS       equ 2           ; 13,844 T + a piece < 40,468
+
+SCROLL_SERVICE_B:
+                ld   a,(HEAD_ANCHOR)        ; the second sweep's own anchor
+                ld   l,a
+                ld   a,(IRQ_TICKS)
+                sub  l
+                cp   V_B_TICKS
+                ret  nc                     ; too late to begin a piece
+                jr   SCROLL_SERVE
+
+SCROLL_SERVICE: ld   a,(FRAME_TICK0)
+                ld   l,a
+                ld   a,(IRQ_TICKS)
+                sub  l
+                cp   V_A_TICKS
+V_A_LIMIT       equ  $ - 1                  ; named for the suite's control
+                jr   c,SCROLL_SERVE
+                ; ... BUT ONLY ONCE. The second sweep's wait is not idle
+                ; on a level with a drone - its refresh is there (8.7) -
+                ; and while a vertical step is in flight the camera holds
+                ; the horizontal axis, so in the push zone she does not
+                ; move (8.2): deferred for as long as the frames stay
+                ; heavy, a fall stalled her on the City's roofs and a
+                ; walking take-off lost a frame of its window. A piece
+                ; put off once is painted the next time, late or not.
+                ld   hl,V_LATE
+                ld   a,(hl)
+                or   a
+                jr   nz,SCROLL_SERVE
+                inc  (hl)
+                ret
+V_LATE:         db 0            ; a piece was put off: the next is not
+
+SCROLL_SERVE:   xor  a
+                ld   (V_LATE),a
+                ld   a,(V_PHASE)
                 or   a
                 jr   z,.idle
                 cp   V_PARTS

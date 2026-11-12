@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The undersea's maps - level 13 first - and the cables baked into its
-tileset. CLAUDE.md 8.18.
+"""The undersea's maps - levels 13 and 14 - and the cables and the mines
+baked into its tileset. CLAUDE.md 8.18, 8.19.
 
 THE ARTIST COMPOSED THIS ENVIRONMENT AND THIS TOOL ONLY LAYS IT OUT.
 `assets/sprites/level4_underwater/manifest.json` describes every piece,
@@ -43,6 +43,14 @@ warning 250 ms before going live", and a trap has four cels, so:
     cel 3   spark frame 3            live, and TA_HAZARD
 
 and the durations are HZ_DUR's second row, in game frames.
+
+THE MINE IS A TRAP TOO, and the first that HOLDS (8.19): a 2 x 2 block
+of composites a cel - gone, armed, the fireball, the fireball breaking -
+moored on a chain to the rock under it, armed until her box meets it.
+Level 14 is sixteen of them and no cable. The fill below is a tile
+across and a CHARACTER ROW down, because her box is a tile and a half
+tall and the way past a mine that guards a gate is the 27 lines between
+its sphere and the ledge.
 """
 import json
 import os
@@ -58,6 +66,9 @@ from tilebake import box_pens, encode_tile, sheet_frames         # noqa: E402
 ART = os.path.join(ROOT, "assets", "sprites", "level4_underwater")
 TILES_SHEET = "sea_tiles_cpc_mode0_sheet"
 CABLE_SHEET = "sea_cable_cpc_mode0_sheet"
+MINE_SHEET = "sea_mine_cpc_mode0_sheet"
+SIPHON_SHEET = "sea_siphon_cpc_mode0_sheet"
+BLAST_SHEET = "sea_explosion_cpc_mode0_sheet"
 
 MAP_W, MAP_H = 32, 64           # 1.6 screens across, 5.3 DOWN
 TILESET_ID = 4                  # environment 4, levels 13-16
@@ -133,17 +144,45 @@ ALIAS = {
 EK_PLAYER_START, EK_PICKUP, EK_HAZARD, EK_DOOR = 0, 4, 5, 6
 EF_ACTIVE, EF_TOUCH, EF_SOLID = 1, 8, 4
 PU_KEY, PU_AMMO, PU_MEDKIT, PU_OXYGEN = 0, 1, 2, 6
+EK_ENEMY = 2
+EN_SEADRONE = 3                 # p0 of an enemy: which character (8.7)
+DRONE_H = 16                    # its box, lines
 HZ_CABLE = 1                    # p0 of a hazard: WHICH hazard (8.6)
-HZ_MAX = 8
+HZ_MINE = 2
+HZ_MAX = 16
 ENT_MAX = 24
 BAKE_LIMIT = 240                # ENT_BAKE's scratch tiles start here (8.6)
 
 # THE CABLE'S FOUR CELS, out of the sheet's `off` and `spark` tags.
 CABLE_CELS = ((0, False), (1, False), (0, False), (3, True))
 
+# THE MINE (8.19) is a 2 x 2 block of tiles - the sprite is 16 x 24 and
+# its chain goes on below it - and a cel is FOUR tiles, top left, top
+# right, bottom left, bottom right, at consecutive indexes:
+#
+#   cel 0   gone        the water, and the chain that moored it
+#   cel 1   armed       bob frame 0, its red light on ("on in frames
+#                       1-2"), and the chain under it
+#   cel 2   fireball    sea_explosion's frame 1 ...
+#   cel 3   breaking    ... and frame 2 - "harmful in frames 1-2 only"
+#
+# The explosion is 24 wide and centred on the sphere's (8,11), so it is
+# drawn 4 columns left and a line up of the block and cropped to it: the
+# fireball is columns 7-16 of its 24, all of it inside, and what goes is
+# four stray bubbles. NOTHING ON A MINE'S TILES CARRIES A FLAG: it is
+# water to her box, her box meeting it is src/hazard.asm's HZ_TOUCHED,
+# and what she pays is MINE_HURT there, once - not a tile's bite.
+MINE_FRAME, MINE_CHAIN = 0, 4           # the sheet's bob 0 and chain
+BLAST_FRAMES = (1, 2)
+BLAST_DX, BLAST_DY = -4, -1             # its (12,12) on the sphere's (8,11)
+CHAIN_FROM = 24                         # the block's lines from here down
+
 # RG_OXYGEN is docs/editor.md 5.5's OxygenVent - the format's region
 # kind 2, which nothing read until the sea (src/swim.asm).
 RG_OXYGEN = 2
+# RG_VORTEX is the siphon's current (src/vortex.asm, 8.21) - the editor's
+# RegionKind.Vortex, after docs/editor.md 5.5's six.
+RG_VORTEX = 6
 
 
 def tile_names():
@@ -170,6 +209,9 @@ class Bake:
         self.blob = bytearray()
         self.extra = []                     # (name, flags) per composite
         self.cables = {}                    # background -> its cel 0
+        self.mines = {}                     # ... and a mine's
+        self.chains = {}                    # ... and a chain's left tile
+        self.swirl = None                   # the whirlpool's six, once
 
     def _add(self, name, over, bg, flags):
         b = self.tile_boxes[bg]
@@ -181,6 +223,97 @@ class Bake:
         self.blob += encode_tile(pens)
         self.extra.append((name, flags))
         return i
+
+    def _block(self, name, over, bg):
+        """A 32-line x 16-pixel picture over `bg`, as its four tiles:
+        top left, top right, bottom left, bottom right."""
+        first = None
+        for k, (r0, c0) in enumerate(((0, 0), (0, 8), (16, 0), (16, 8))):
+            part = [row[c0:c0 + 8] for row in over[r0:r0 + 16]]
+            i = self._add(f"{name}_{k}_on_{self.names[bg]}", part, bg,
+                          TILE_FLAGS.get(self.names[bg], 0))
+            first = i if first is None else first
+        return first
+
+    def _sheets(self):
+        if not hasattr(self, "mine_sheet"):
+            self.mine_sheet, self.mine_boxes = sheet_frames(ART, MINE_SHEET)
+            self.blast_sheet, self.blast_boxes = sheet_frames(ART, BLAST_SHEET)
+
+    def mine(self, bg):
+        """A mine over `bg`: cel 0's top left, the fifteen after it."""
+        if bg not in self.mines:
+            self._sheets()
+
+            def frame(sheet, boxes, n):
+                b = boxes[n]
+                return box_pens(sheet, b["x"], b["y"], b["w"], b["h"],
+                                alpha=True)
+            chain = frame(self.mine_sheet, self.mine_boxes, MINE_CHAIN)
+
+            def base():
+                g = [[None] * 16 for _ in range(32)]
+                for y in range(CHAIN_FROM, 32):
+                    g[y] = list(chain[y - CHAIN_FROM])
+                return g
+
+            def over(g, pic, dx, dy):
+                for y, row in enumerate(pic):
+                    for x, v in enumerate(row):
+                        if v is not None and 0 <= x + dx < 16 and 0 <= y + dy < 32:
+                            g[y + dy][x + dx] = v
+                return g
+            gone = base()
+            armed = over(base(), frame(self.mine_sheet, self.mine_boxes,
+                                       MINE_FRAME), 0, 0)
+            cels = [gone, armed] + [
+                over(base(), frame(self.blast_sheet, self.blast_boxes, f),
+                     BLAST_DX, BLAST_DY) for f in BLAST_FRAMES]
+            first = None
+            for c, g in enumerate(cels):
+                i = self._block(f"mine_{c}", g, bg)
+                first = i if first is None else first
+            assert self.n + len(self.extra) - first == 16
+            self.mines[bg] = first
+        return self.mines[bg]
+
+    def chain(self, bg):
+        """The chain alone over `bg`: its left tile, the right after it.
+        The chain's pattern is four lines long, so any sixteen of it is
+        the same tile and it meets the mine's own at line 24."""
+        if bg not in self.chains:
+            self._sheets()
+            b = self.mine_boxes[MINE_CHAIN]
+            pic = box_pens(self.mine_sheet, b["x"], b["y"], b["w"], b["h"],
+                           alpha=True)[:16]
+            first = None
+            for c0 in (0, 8):
+                i = self._add(f"chain_{c0 // 8}_on_{self.names[bg]}",
+                              [row[c0:c0 + 8] for row in pic], bg,
+                              TILE_FLAGS.get(self.names[bg], 0))
+                first = i if first is None else first
+            self.chains[bg] = first
+        return self.chains[bg]
+
+    def whirlpool(self, bg):
+        """THE WHIRLPOOL'S TOP HALF over `bg`: six tiles, left to right,
+        out of the artist's swirl frame 0 - the 48 x 16 above the rim
+        row. Its bottom half narrows into the throat the sand row
+        already draws, and the sea's bank C4 has room for six tiles and
+        not ten (8.21). One cel: a tile does not animate here (7.3)."""
+        if self.swirl is None:
+            sheet, boxes = sheet_frames(ART, SIPHON_SHEET)
+            b = boxes[0]
+            pic = box_pens(sheet, b["x"], b["y"], b["w"], b["h"],
+                           alpha=True)[:16]
+            first = None
+            for k in range(6):
+                i = self._add(f"swirl_{k}_on_{self.names[bg]}",
+                              [row[8 * k:8 * k + 8] for row in pic], bg,
+                              TILE_FLAGS.get(self.names[bg], 0))
+                first = i if first is None else first
+            self.swirl = first
+        return self.swirl
 
     def cable(self, bg):
         """A cable segment over `bg`: cel 0's index, the other three
@@ -242,10 +375,115 @@ LEVEL_13 = dict(
     # (left, top, width, height) in tiles.
     regions=((3, 2, 26, 1), (6, 27, 3, 2)),
 )
-LAYOUTS = (LEVEL_13,)
+# LEVEL 14 IS THE MINEFIELD (8.19). Level 13 taught the cable, a hazard
+# that is timed; a mine is one that is AVOIDED - it stays where it is
+# until she touches it - so this level is a route rather than a rhythm:
+# four chambers, a ledge pair across the water between each two with a
+# gate in it on alternating sides, and mines moored on chains to each
+# chamber's floor at every height, so the way across is a slalom and the
+# way down is through a gap a mine half fills. Her air is the clock: it
+# is a longer swim than level 13's, with a vent in each of the two
+# middle chambers and two tanks.
+LEVEL_14 = dict(
+    level=14,
+    about="the minefield",
+    ledges=((16, "L", 15), (16, "R", 5),        # gate: columns 18-23
+            (28, "L", 5), (28, "R", 14),        # gate: columns 8-14
+            (40, "L", 14), (40, "R", 5)),       # gate: columns 17-23
+    cables=(),
+    # (column, row) of each block's top left. EVERY GATE HAS ONE OVER IT,
+    # moored down through the gate to the chamber below: (20,13), (10,25)
+    # and (19,37) leave the gate open only UNDER themselves, so the way
+    # down is to slide in sideways beneath a mine - with the water
+    # lifting her into it the moment she lets go.
+    mines=((14, 3), (5, 6), (10, 8), (25, 9), (20, 13),    # A
+           (4, 21), (15, 22), (23, 22), (10, 25),          # B
+           (14, 31), (6, 33), (25, 34), (19, 37),          # C
+           (24, 49), (9, 53), (15, 57)),                   # D, on the sand
+    guards=((20, 13), (10, 25), (19, 37)),
+    vents=((26, 27), (4, 39)),
+    rays=((5, 3), (14, 2), (22, 4), (9, 7), (26, 9)),
+    floor_props=((4, "coral_a"), (12, "weed_0"), (17, "coral_b"),
+                 (26, "weed_1")),
+    ruins=(21, 4),
+    siphon=5,
+    start=(6, 2),
+    pickups=((22, 14, "ammo"), (18, 26, "oxygen"), (13, 38, "medkit"),
+             (27, 45, "oxygen"), (27, 61, "key")),
+    regions=((3, 2, 26, 1), (25, 25, 3, 2), (3, 37, 3, 2)),
+)
+# LEVEL 15 IS THE PATROL (8.20): the sea's security drones, one to a
+# chamber, and nothing in the water but them - a trap and an enemy in
+# one level is still a thing this engine does not do (8.17). The engine
+# takes one enemy at a time and the first in the table that is near, and
+# on a map 32 tiles wide every one of them is near across, so they come
+# in the order they are written: top to bottom, each one following her
+# down until she has put it out of the water. The ledges are cover: a
+# torpedo stops on rock, and so does her round.
+LEVEL_15 = dict(
+    level=15,
+    about="the patrol",
+    ledges=((18, "R", 18), (30, "L", 18), (42, "R", 18)),
+    cables=(),
+    # (column, row of its box's top, half its patrol in tiles)
+    drones=((16, 8, 4), (13, 23, 4), (17, 35, 4), (14, 51, 4)),
+    vents=((8, 29), (24, 41)),
+    rays=((4, 3), (13, 2), (21, 4), (8, 8), (25, 10)),
+    floor_props=((4, "weed_0"), (9, "coral_a"), (13, "weed_1"),
+                 (27, "coral_b")),
+    ruins=(15, 3),
+    siphon=20,
+    start=(6, 2),
+    pickups=((24, 15, "ammo"), (5, 26, "oxygen"), (26, 37, "ammo"),
+             (6, 47, "medkit"), (5, 61, "key"), (11, 61, "oxygen")),
+    regions=((3, 2, 26, 1), (7, 27, 3, 2), (23, 39, 3, 2)),
+)
+# LEVEL 16 IS THE SIPHON (8.21): the sea's way out, and everything the
+# sea has taught on the way down to it but the drones - two cables, each
+# in a corridor between two ledges, and mines in the chamber under them -
+# and at the bottom the CURRENT. The artist's note is that within about
+# three tiles the whirlpool pulls her toward the hole and touching the
+# throat flushes her out; so the hole is the way out and the current is
+# the last thing in the level: two mines are moored in it either side of
+# the hole, and one who comes into it from the side at their height is
+# carried into one. From above the hole it is the way home. The key is on
+# the floor past it, so the first crossing is made without one - held at
+# the grate and swum out of - and the second with.
+LEVEL_16 = dict(
+    level=16,
+    about="the siphon",
+    # THE LEDGES ARE SEVEN ROWS APART, AS LEVEL 13'S ARE, and it is the
+    # painter's number and not a look: a cable between them is three
+    # cells, which is what the pass before the strip paints on a frame
+    # the view steps a row. The first draft had them ten apart - six
+    # cells - and walking down past one, its lower three were a cel
+    # behind the map for a game frame (8.21). The assert below keeps it.
+    ledges=((16, "L", 18), (23, "R", 18), (30, "L", 18)),
+    cables=((15, 16, 0, 0), (16, 23, 2, 2)),
+    mines=((6, 40), (22, 36), (10, 56), (20, 56)),
+    vents=((6, 15), (5, 29)),
+    rays=((5, 3), (14, 2), (22, 4), (9, 7), (26, 9)),
+    floor_props=((3, "weed_0"), (8, "coral_a"), (24, "weed_1")),
+    ruins=(26, 3),
+    siphon=13,
+    # (left, top, width, height) in tiles: cols 7-24, rows 54-61, and its
+    # middle column 16 is the hole's.
+    vortex=(7, 54, 18, 8),
+    start=(6, 2),
+    pickups=((24, 12, "oxygen"), (8, 27, "medkit"), (26, 43, "oxygen"),
+             (4, 61, "key")),
+    regions=((3, 2, 26, 1), (5, 13, 3, 2), (4, 27, 3, 2)),
+)
+LAYOUTS = (LEVEL_13, LEVEL_14, LEVEL_15, LEVEL_16)
 
 
 def build_map(t, L, bake):
+    def flags_of(tile):
+        """What a tile does, baked or not."""
+        if tile < bake.n:
+            return TILE_FLAGS.get(bake.names[tile], 0)
+        return bake.extra[tile - bake.n][1]
+
     g = [[0] * MAP_W for _ in range(MAP_H)]
     for r in range(MAP_H):
         band = ("light" if r in LIGHT else "mid" if r in MID else "deep")
@@ -302,6 +540,16 @@ def build_map(t, L, bake):
     g[ROW_FILL][s], g[ROW_FILL][s + 5] = t["rock_fill"], t["rock_fill"]
     for x in range(s + 1, s + 5):
         g[ROW_SAND][x], g[ROW_FILL][x] = t["throat_top"], t["throat"]
+    # THE WHIRLPOOL, where a level has the current: its top half over the
+    # water above the rim, rim_l's column to rim_r's, which is where the
+    # artist's anchor puts the sprite (manifest.json).
+    if L.get("vortex"):
+        for x in range(s, s + 6):
+            assert g[ROW_SAND - 1][x] == t["bg_deep"], \
+                f"the whirlpool at {x} is not over open water"
+        w0 = bake.whirlpool(t["bg_deep"])
+        for k in range(6):
+            g[ROW_SAND - 1][s + k] = w0 + k
 
     # ---- the vents, standing on a ledge or the floor -----------------
     for x, r in L["vents"]:
@@ -322,14 +570,48 @@ def build_map(t, L, bake):
         g[r + 2][x] = t["anchor_top"]
         g[below - 1][x] = t["anchor_bot"]
         cells = range(r + 3, below - 1)
-        assert 1 <= len(cells) <= 16
+        # AT MOST THREE CELLS: HAZARD_PAINT_E, the pass before the strip,
+        # paints three on a frame the view steps a row (8.18), and a
+        # longer cable's tail is a cel behind the map for a game frame -
+        # measured on level 16's first draft, six cells and three pending.
+        assert 1 <= len(cells) <= 3, \
+            f"the cable at {x},{r} is {len(cells)} cells, the painter's 3"
         assert len({g[rr][x] for rr in cells}) == 1, "a cable across two bands"
         cel0 = bake.cable(g[r + 3][x])
         for rr in cells:
             g[rr][x] = cel0
         hz.append((x, r + 3, phase | (len(cells) - 1) << 4, len(cells)))
-    assert len(hz) <= HZ_MAX, f"{len(hz)} cables, HZ_MAX is {HZ_MAX}"
-    return g, hz
+
+    # ---- the mines, each moored on a chain to what is under it ---------
+    # A mine is the 2 x 2 block at (x, r) and the chain from row r + 2
+    # down to the first rock - a ledge's top or the sand. The block is in
+    # one band and so is every cell of the chain in a column, which is
+    # what lets one composite serve all of them. Its record goes in `mn`.
+    mn = []
+    for x, r in L.get("mines", ()):
+        assert WALL_L < x and x + 1 < WALL_R, f"the mine at {x},{r} is in a wall"
+        bgs = {g[rr][xx] for rr in (r, r + 1) for xx in (x, x + 1)}
+        assert len(bgs) == 1 and next(iter(bgs)) in (
+            t["bg_light"], t["bg_mid"], t["bg_deep"], t["bg_ray"]), \
+            f"the mine at {x},{r} is not in open water of one band"
+        bg = next(iter(bgs))
+        under = r + 2
+        while not flags_of(g[under][x]) & SOLID:
+            assert g[under][x] == g[under][x + 1], f"the chain at {x},{under}"
+            assert g[under][x] in (t["bg_light"], t["bg_mid"], t["bg_deep"],
+                                   t["bg_ray"]), f"the chain at {x},{under}"
+            under += 1
+        assert flags_of(g[under][x + 1]) & SOLID, f"the mine at {x},{r} hangs"
+        for rr in range(r + 2, under):
+            c = bake.chain(g[rr][x])
+            g[rr][x], g[rr][x + 1] = c, c + 1
+        c0 = bake.mine(bg)
+        g[r][x], g[r][x + 1] = c0, c0 + 1          # the map holds cel 0:
+        g[r + 1][x], g[r + 1][x + 1] = c0 + 2, c0 + 3   # the spawn arms it
+        mn.append((x, r))
+    assert len(hz) + len(mn) <= HZ_MAX, \
+        f"{len(hz)} cables and {len(mn)} mines, HZ_MAX is {HZ_MAX}"
+    return g, hz, mn
 
 
 def entity(kind, x_px, y_base, flags, p0=0, p1=0):
@@ -341,7 +623,7 @@ PICKUPS = {"key": (PU_KEY, 0), "ammo": (PU_AMMO, 14),
            "medkit": (PU_MEDKIT, 0), "oxygen": (PU_OXYGEN, 0)}
 
 
-def build_entities(L, hz):
+def build_entities(L, hz, mn=()):
     """The records, in file order. Her start is given as the row of her
     box's TOP - she is 24 lines tall in the water and the record's y is
     the BASE (8.6) - and everything else is on the tile grid."""
@@ -359,6 +641,19 @@ def build_entities(L, hz):
     for x, r, p1, _ in hz:
         recs.append(entity(EK_HAZARD, x * 8, (r + 1) * 16, EF_ACTIVE,
                            HZ_CABLE, p1))
+    # A MINE'S p1 IS 0x11: one cell below its own, which is the run's top
+    # nibble and what puts it on HZ_WRITE's long way, and cel 1 - armed -
+    # to start on. The map holds cel 0, so what the pristine image shows
+    # an editor is the water; the spawn arms it.
+    for x, r in mn:
+        recs.append(entity(EK_HAZARD, x * 8, (r + 1) * 16, EF_ACTIVE,
+                           HZ_MINE, 0x11))
+    # A DRONE'S RECORD IS ITS BOX'S BASE (8.6, 8.7): 16 lines under the
+    # row its top is on. In the order the level writes them, which is the
+    # order they come at her (LEVEL_15's note).
+    for x, r, half in L.get("drones", ()):
+        recs.append(entity(EK_ENEMY, x * 8, r * 16 + DRONE_H, EF_ACTIVE,
+                           EN_SEADRONE, half))
     assert len(recs) <= ENT_MAX, f"{len(recs)} records, ENT_MAX is {ENT_MAX}"
     return b"".join(recs)
 
@@ -367,66 +662,124 @@ def build_regions(L):
     out = bytearray()
     for x, y, w, h in L["regions"]:
         out += bytes([RG_OXYGEN, x & 255, x >> 8, y & 255, y >> 8, w, h])
+    if L.get("vortex"):
+        x, y, w, h = L["vortex"]
+        out += bytes([RG_VORTEX, x & 255, x >> 8, y & 255, y >> 8, w, h])
     return bytes(out)
 
 
+# THE FILL'S GRID IS A TILE ACROSS AND A CHARACTER ROW DOWN. Her box is
+# 16 bytes - four tiles exactly - and 24 lines, which is three character
+# rows and a tile and a HALF: filled by whole tiles it was two rows of
+# them, 32 lines, and a passage of 24 to 31 lines read as a wall. Level
+# 14's gates are exactly that - the way in is to slide along the ledge
+# under a mine's sphere, in the 27 lines between where it can be touched
+# and the rock - so down is counted in eights.
+BOX_TILES, BOX_ROWS = 4, 3          # her box: tiles across, char rows down
+
+
 def reachable(g, t, flags):
-    """Every cell her 4x2-tile box can occupy, flood-filled from where
-    she starts, by whole tiles. She swims, so every direction is the
+    """free(c, rr): her box with its top left at tile column c and
+    CHARACTER row rr is all water. She swims, so every direction is the
     same move - this is the sea's whole difference from the forest's
     reachable(): there is no gravity to model."""
-    def free(c, r):
-        return all(0 <= r + j < MAP_H and 0 <= c + i < MAP_W
-                   and not flags[g[r + j][c + i]] & SOLID
-                   for j in range(2) for i in range(4))
+    def free(c, rr):
+        for j in range(BOX_ROWS):
+            r = (rr + j) >> 1
+            if not 0 <= r < MAP_H:
+                return False
+            for i in range(BOX_TILES):
+                if not 0 <= c + i < MAP_W or flags[g[r][c + i]] & SOLID:
+                    return False
+        return True
     return free
 
 
-def checks(g, t, flags, L, hz):
-    free = reachable(g, t, flags)
-    col, row = L["start"]
-    assert free(col, row), "she starts inside rock"
-    seen, todo = {(col, row)}, [(col, row)]
+def fill(free, start):
+    seen, todo = {start}, [start]
     while todo:
-        c, r = todo.pop()
+        c, rr = todo.pop()
         for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            n = (c + dc, r + dr)
+            n = (c + dc, rr + dr)
             if n not in seen and free(*n):
                 seen.add(n)
                 todo.append(n)
+    return seen
 
-    def touches(x, row):
-        # a box of 4x2 tiles overlaps tile (x, row)
-        return any((c, r) in seen for c in range(x - 3, x + 1)
-                   for r in range(row - 1, row + 1))
+
+def without(free, cells):
+    """`free`, with the character cells in `cells` - (tile column, char
+    row) - taken out as well."""
+    def f(c, rr):
+        return free(c, rr) and not any(
+            (c + i, rr + j) in cells
+            for j in range(BOX_ROWS) for i in range(BOX_TILES))
+    return f
+
+
+def mine_cells(mn):
+    """Where a mine can be touched, as character cells: its contact box
+    is lines 2-20 of the block's 32 (MINE_Y0, MINE_Y1 in src/hazard.asm)
+    - character rows 0, 1 and 2 - and bytes 1-6 of its 8, which reach
+    into both of its tiles."""
+    return {(x + i, 2 * r + j) for x, r in mn for i in (0, 1)
+            for j in (0, 1, 2)}
+
+
+def touches(seen, x, row):
+    """Her box overlaps tile (x, row) from some place in `seen`."""
+    return any((c, rr) in seen for c in range(x - BOX_TILES + 1, x + 1)
+               for rr in range(2 * row - BOX_ROWS + 1, 2 * row + 2))
+
+
+def checks(g, t, flags, L, hz, mn=()):
+    # A MINE IS A WALL TO THE FILL: what is asked is that she can do the
+    # level without touching one.
+    free = without(reachable(g, t, flags), mine_cells(mn))
+    col, row = L["start"]
+    start = (col, 2 * row)
+    assert free(*start), "she starts inside rock, or on a mine"
+    seen = fill(free, start)
     for x, prow, kind in L["pickups"]:
-        assert touches(x, prow), f"the {kind} at {x},{prow} cannot be reached"
+        assert touches(seen, x, prow), \
+            f"the {kind} at {x},{prow} cannot be reached"
     s = L["siphon"]
-    assert any(touches(x, ROW_SAND - 1) for x in range(s + 1, s + 5)), \
+    assert any(touches(seen, x, ROW_SAND - 1) for x in range(s + 1, s + 5)), \
         "the siphon cannot be reached"
     # AND EVERY CABLE IS IN THE WAY. A cable a player can swim round is
     # scenery, so the fill is run again with each one's cells taken as
     # rock: the key must then be out of reach. One cable at a time, so
     # a cable that is bypassed is caught even when the others are not.
-    key = next((x, row) for x, row, kind in L["pickups"] if kind == "key")
+    kx, kr = next((x, row) for x, row, kind in L["pickups"] if kind == "key")
     for x, r, _, n in hz:
-        wall = {(x, rr) for rr in range(r, r + n)}
-
-        def free2(c, rr):
-            return free(c, rr) and not any(
-                (c + i, rr + j) in wall for j in range(2) for i in range(4))
-        seen2, todo = {(col, row)}, [(col, row)]
-        while todo:
-            c, rr = todo.pop()
-            for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                nb = (c + dc, rr + dr)
-                if nb not in seen2 and free2(*nb):
-                    seen2.add(nb)
-                    todo.append(nb)
-        kx, kr = key
-        assert not any((c, rr) in seen2 for c in range(kx - 3, kx + 1)
-                       for rr in range(kr - 1, kr + 1)), \
+        wall = {(x, rr) for rr in range(2 * r, 2 * (r + n))}
+        seen2 = fill(without(free, wall), start)
+        assert not touches(seen2, kx, kr), \
             f"the cable at column {x}, row {r} can be swum round"
+    # AND EVERY GATE'S MINE IS IN THE WAY, where a level says one is: the
+    # fill again with that mine's whole block as rock - no sliding under
+    # its sphere - must not reach the key. A guard she can go round is a
+    # decoration.
+    for x, r in L.get("guards", ()):
+        assert (x, r) in mn, f"the guard at {x},{r} is not a mine"
+        block = {(x + i, 2 * r + j) for i in (0, 1) for j in range(4)}
+        seen2 = fill(without(free, block), start)
+        assert not touches(seen2, kx, kr), \
+            f"the mine over the gate at {x},{r} can be swum round"
+    # THE CURRENT IS CENTRED ON THE HOLE AND REACHES THE SAND, or it
+    # pulls her somewhere that is not the way out (src/vortex.asm takes
+    # the region's middle column as the hole's). And its mines are IN
+    # it, one either side of the hole, at a height her box can reach -
+    # which is what makes coming in from the side a mistake.
+    if L.get("vortex"):
+        vx, vy, vw, vh = L["vortex"]
+        assert vx + vw // 2 == s + 3, \
+            f"the current's middle {vx + vw // 2} is not the hole's {s + 3}"
+        assert vy + vh == ROW_SAND, "the current does not reach the sand"
+        inside = [(x, r) for x, r in mn
+                  if vx <= x < vx + vw and vy <= r < vy + vh]
+        assert len(inside) == 2 and inside[0][0] < s + 3 < inside[1][0], \
+            f"the current's mines: {inside}"
     return len(seen)
 
 
@@ -435,8 +788,8 @@ def main():
     bake = Bake(names)
     built = []
     for L in LAYOUTS:
-        g, hz = build_map(t, L, bake)
-        built.append((L, g, hz))
+        g, hz, mn = build_map(t, L, bake)
+        built.append((L, g, hz, mn))
 
     flags = bytes(TILE_FLAGS.get(n, 0) for n in names)
     flags += bytes(f for _, f in bake.extra)
@@ -455,12 +808,14 @@ def main():
     from build_levels import zx0
     zx0(tiles)
     print(f"-> seatiles.bin  {len(names)} tiles + {len(bake.extra)} baked "
-          f"({len(bake.cables)} cable set(s) of {len(CABLE_CELS)}) = "
+          f"({len(bake.cables)} cable set(s) of {len(CABLE_CELS)}, "
+          f"{len(bake.mines)} mine set(s) of 16, {len(bake.chains)} chain "
+          f"pair(s)) = "
           f"{len(base) + len(bake.blob)} bytes")
 
-    for L, g, hz in built:
-        reach = checks(g, t, flags, L, hz)
-        ents = build_entities(L, hz)
+    for L, g, hz, mn in built:
+        reach = checks(g, t, flags, L, hz, mn)
+        ents = build_entities(L, hz, mn)
         regions = build_regions(L)
         m = bytes(b for row in g for b in row)
         lvl = pack(level_id=L["level"], tileset_id=TILESET_ID,
@@ -470,10 +825,11 @@ def main():
         open(out, "wb").write(lvl)
         back = read(lvl)
         assert back["map"] == m and back["entities"] == len(ents) // 8
-        assert back["regions"] == len(L["regions"])
+        assert back["regions"] == len(L["regions"]) + bool(L.get("vortex"))
         print(f"-> level_{L['level']}.lvl    {len(lvl)} bytes: {MAP_W}x"
               f"{MAP_H}, underwater, {back['entities']} entities, "
-              f"{len(hz)} cables of {sum(h[3] for h in hz)} cells, {back['regions']} air regions, "
+              f"{len(hz)} cables of {sum(h[3] for h in hz)} cells, "
+              f"{len(mn)} mines, {back['regions']} regions, "
               f"tileset {TILESET_ID} - {L['about']}; {reach} places her "
               f"box can be")
     return 0

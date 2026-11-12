@@ -31,4 +31,12 @@ public enum RegionKind : byte
 
     /// <summary>She crosses it and something starts: the quake, the siphon.</summary>
     Trigger = 5,
+
+    /// <summary>
+    /// <c>RG_VORTEX</c> — the siphon's current (CLAUDE.md 8.21). Inside
+    /// it the engine takes her stick two game frames in four, toward the
+    /// region's middle column and down, and with a key the throat under it
+    /// opens on contact. Its middle column is the hole's.
+    /// </summary>
+    Vortex = 6,
 }

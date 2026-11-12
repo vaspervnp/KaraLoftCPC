@@ -181,6 +181,48 @@ def walk(m, sym, tile, tiles=None, run=False, limit=900, stop=None,
     return bites, wrong
 
 
+def edge_walk(m, sym, tile, tiles, row):
+    """walk() to `tile`, with every trap's cell that is at the LEFT edge
+    - screen column -1 or 0 - put on the painter's pending list on each
+    frame a step right is in flight: between the two sweeps, after the
+    camera has asked for the step and before HAZARD_TICK and the passes
+    run. `row` is the traps' character row. Returns (frames whose
+    picture was wrong, frames a cell was put on the list)."""
+    t0, cols = sym["HZ_TABLE"], []
+    for k in range(m.peek(sym["HZ_COUNT"])):
+        cols.append((word(m, t0 + 8 * k + 2) - sym["MAP_ADDR"]) % MAP_W)
+    wrong, made, stuck, was = [], 0, 0, -1
+    for _ in range(900):
+        t = tile_of(m, sym)
+        if t >= tile:
+            break
+        wx = word(m, sym["KARA_WX"])
+        stuck = stuck + 1 if wx == was else 0
+        was = wx
+        m.joystick(JOY_RIGHT | (JOY_UP if stuck >= 8 else 0))
+        if stuck >= 8:
+            stuck = 0
+        sync(m, sym, 1)
+        if m.peek(sym["H_PENDING"]):
+            v, n = m.peek(sym["WORLD_X"]), m.peek(sym["HZ_PEND_N"])
+            have = set(pending(m, sym))
+            for c in cols:
+                if 2 * c - v in (-1, 0) and (2 * c, row) not in have \
+                        and n < 16:
+                    m.poke(sym["HZ_PEND"] + 2 * n, 2 * c)
+                    m.poke(sym["HZ_PEND"] + 2 * n + 1, row)
+                    n += 1
+                    made += 1
+            m.poke(sym["HZ_PEND_N"], n)
+        sync(m, sym, 0)
+        b = wrong_cells(m, sym, tiles, "all")
+        if b:
+            wrong.append((t, b[:3]))
+    m.joystick(0)
+    gframe(m, sym, 0)
+    return wrong, made
+
+
 def climb(m, sym, ground, branch7, until):
     """Up two branches: UP under the row-7 one and UP again on it, which
     is test_forest.py's level-6 drive with this level's columns."""
@@ -501,6 +543,17 @@ def level7(sym, tiles, trap0):
     # map row 3 it is inside them, and with B off C gets the edge cells.
     # The model excuses EVERY pending cell, so what it can see is a cell
     # painted where it must not be.
+    #
+    # AND THE CELL AT THE EDGE IS PUT ON THE LIST, NOT WAITED FOR. What
+    # the guard is for is a trap's cell at column -1 or 0 still on C's
+    # list on a frame a step right is in flight. This control used to
+    # get one for free, because C was late: it spent 1,868 T painting
+    # every cell wholly off the screen, and the eighth trap's waited for
+    # the next frame. Those cells are off the list now (CLAUDE.md 8.23),
+    # C is on time, and the same walk without the guard was 0 frames
+    # wrong - a control that had gone blind, not a guard that was not
+    # needed: traced, the frame it failed on was C painting the cell at
+    # column -1 with H_PENDING set.
     seen = {}
     for name, guard in (("with the guard", True), ("without it", False)):
         mx, _ = to_level(sym, 7, to_level(sym, 6)[0])
@@ -528,13 +581,16 @@ def level7(sym, tiles, trap0):
             mx.poke(sym["HZ_GUARD_R"], 255)
         walk(mx, sym, 50)
         mx.poke(sym["PLAYER_HP"], 100)
-        _, wx = walk(mx, sym, 96, tiles, excuse="all")
+        wx, made = edge_walk(mx, sym, 96, tiles, 6)
         seen[name] = wx
+        seen[name + " made"] = made
     check("HAZARD_PAINT_C keeps out of the incoming column's words",
           not seen["with the guard"] and seen["without it"],
           f"traps lifted into the head's rows: {len(seen['with the guard'])} "
           f"frames with a cell painted where it must not be, "
-          f"{len(seen['without it'])} without the guard"
+          f"{len(seen['without it'])} without the guard, with a cell at "
+          f"the edge put on the list on {seen['without it made']} frames a "
+          f"step was in flight"
           + (f", first {seen['without it'][0]}" if seen["without it"] else ""))
 
     # ---- the lock, and the rule that holds it

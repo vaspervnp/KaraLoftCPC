@@ -431,20 +431,83 @@ FALL_DAMAGE:    ld   hl,(FALL_TOP)
                 ld   a,h
                 or   a
                 ld   a,255                  ; LD does not touch the flags
-                jr   nz,.hurt
+                jr   nz,HURT_HER
                 ld   a,l
                 cp   FALL_FREE + 1
                 ret  c                      ; a step, a jump, a ledge: free
                 sub  FALL_FREE              ; only the excess is paid for,
-.hurt:          ld   c,a                    ; a point a pixel
-                ld   hl,PLAYER_HP
-                ld   a,(hl)
-                sub  c
-                jr   nc,.store
+                                            ; a point a pixel - and falls in
+; ---------------------------------------------------------------------
+; HURT_HER - A = points (1-255) off her health, and no further than
+; dead; and the border says so for HURT_FRAMES, the same way for a fall,
+; a drone's round, the spikes, the water and a mine. One routine and not
+; five copies of it: NEG and an ADD, whose carry is "she had that many".
+;                                destroys AF,HL
+; ---------------------------------------------------------------------
+HURT_HER:       ld   hl,PLAYER_HP
+                neg
+                add  a,(hl)
+                jr   c,.store
                 xor  a                      ; ... and no further than dead
 .store:         ld   (hl),a
-                ld   a,HURT_FRAMES          ; the border says so, the same way
-                ld   (HURT_FLASH),a         ; a drone's round does (enemy.asm)
+                ld   a,HURT_FRAMES
+                ld   (HURT_FLASH),a
+                ret
+
+; ---------------------------------------------------------------------
+; SINK_STEP - she is standing on nothing solid: is it quicksand? If it
+; is, she goes a line deeper on one game frame in two, and once it is
+; over her chest she is swallowed. NZ if she is in it and held.
+;
+; IN: PROBE_ACC is the line under her feet - the TA_BLOCK probe the
+;     caller has JUST made of it, so the question costs a byte.
+;
+; THE FIRST READER TA_SINK HAS HAD, and the desert's (8.22). Quicksand is
+; not solid and it is not air: standing on it she is held - grounded, so
+; she can walk and jump - and it lets her down a line on every other game
+; frame, 12.5 lines a second. Its walls are the sand either side, so
+; once her feet are below the lip she cannot walk out of it, only jump:
+; her jump lifts her 28 lines and the lip is a wall until her feet clear
+; it, so past 28 lines down there is no way out, and at SINK_CHEST it has
+; her.
+;
+; THE FEET'S QUESTION IS THE PROBE THE CALLER HAS JUST MADE. BOX_SOLID_V
+; publishes the merged attributes of the line it was asked about in
+; PROBE_ACC, and both callers have asked about exactly this line - the
+; standing branch to find no floor, the falling one to find nothing to
+; land on - on the instruction before. Asked again, of her middle, it was
+; 412 T; the box probe 636; and with the chest the pair was 1,664, and a
+; hop in the sand dropped a game frame in 200 where the same hop on solid
+; sand did not. PROBE_ACC read from ANYWHERE ELSE is whatever probe ran
+; last (CLAUDE.md 10); read here it is the answer to this question, and a
+; tileset with no quicksand in it pays the AND and the RET.
+;
+; THE CHEST IS ONE COLUMN, HER MIDDLE (CLIMB_AT), and only on the frame
+; she goes down: on the off frame she has not moved, and a landing puts
+; her feet at most P_VY_MAX into it.
+;                                destroys AF,BC,DE,HL
+; ---------------------------------------------------------------------
+SINK_CHEST      equ 24          ; the line of her box that is her chest
+
+SINK_STEP:      ld   a,(PROBE_ACC)
+                and  TA_SINK
+                ret  z                      ; nothing under her at all
+                ld   a,(FRAME_COUNT)
+                and  1
+                jr   nz,.held               ; the sand's off frame
+                ld   hl,(KARA_WY)
+                inc  hl
+                ld   (KARA_WY),hl
+                ld   de,SINK_CHEST
+                add  hl,de
+                ex   de,hl
+                call CLIMB_AT
+                and  TA_SINK
+                jr   z,.held
+                ld   a,(PLAYER_HP)          ; over her chest: all of it
+                or   a
+                call nz,HURT_HER
+.held:          or   1                      ; NZ: she is in it, and held
                 ret
 
 ; ---------------------------------------------------------------------
@@ -509,14 +572,8 @@ BX_LAST_LINE    equ  $ - 2
                                             ; entry, see above
                 ld   a,1
                 ld   (HAZARD_IN),a
-                ld   a,(PLAYER_HP)
-                sub  TILE_HURT
-                jr   nc,.store
-                xor  a                      ; ... and no further than dead
-.store:         ld   (PLAYER_HP),a
-                ld   a,HURT_FRAMES          ; the border, the same way a fall
-                ld   (HURT_FLASH),a         ; and a drone's round do
-                ret
+                ld   a,TILE_HURT
+                jp   HURT_HER
 
 .clear:         xor  a
                 ld   (HAZARD_IN),a
@@ -553,6 +610,8 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 ld   b,TA_BLOCK
                 call BOX_SOLID_V
                 ret  nz                     ; still on something
+                call SINK_STEP              ; ... or IN something (8.22)
+                ret  nz
                 xor  a
                 ld   (KARA_GROUND),a        ; walked off an edge - which is
                 ld   (KARA_VY),a            ; a DROP and not a jump, and this
@@ -627,6 +686,20 @@ PLAYER_Y:       ld   a,(KARA_GROUND)
                 pop  de
                 jr   nz,.land
                 ld   (KARA_WY),de
+                ; ---- or into quicksand, which she stops IN ---------
+                ; Not on: a snap to the tile's top would make a jump on
+                ; the spot a way back to the surface. Where the fall put
+                ; her feet is where she is, and the sinking goes on from
+                ; there (8.22). No fall damage: it is soft.
+                ld   a,(PROBE_ACC)          ; the probe just made, of
+                and  TA_SINK                ; the line she has moved to
+                ret  z
+                xor  a
+                ld   (KARA_VY),a
+                ld   (KARA_FELL),a
+                ld   (KARA_COYOTE),a
+                inc  a
+                ld   (KARA_GROUND),a
                 ret
 
 .land:          ; Snap her feet ONTO the tile rather than into it: the

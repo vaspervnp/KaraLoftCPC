@@ -186,7 +186,7 @@ def cables():
 
 # =====================================================================
 def the_box():
-    print("\nTHE BOX: twenty-seven immediates, patched at install")
+    print("\nTHE BOX: her size in the engine's immediates, patched at install")
     m = boot(sym, scroll=True)
     table = sym["BOX_SITES"]
     sites = []
@@ -516,13 +516,17 @@ def the_route():
     p.frame(U)
     p.frame(0)
     check("UP at the siphon opens the way out", p.b("GAME_STATE") == GS_CLEAR)
-    for _ in range(400):
+    took = None
+    for f in range(400):
         p.m.run_frames(1)
-        if p.m.pc in range(sym["INTRO_WAIT"], sym["INTRO_WAIT"] + 0x80):
+        if p.b("GAME_STATE") == GS_PLAY and p.b("LEVEL_CUR") == LEVEL:
+            took = f + 1
             break
-    check("... and level 14 is not painted, so the game goes back to its "
-          "title", p.m.pc in range(sym["INTRO_WAIT"], sym["INTRO_WAIT"] + 0x80)
-          or p.b("LEVEL_CUR") == 0, f"LEVEL_CUR {p.b('LEVEL_CUR')}")
+    check("... and it leads to level 14, the minefield, inside one "
+          "environment", took is not None and p.b("LEVEL_ENV") == 3
+          and took < 100,
+          f"{took} hardware frames - one sector, no art - LEVEL_ENV "
+          f"{p.b('LEVEL_ENV')}, LEVEL_CUR {p.b('LEVEL_CUR')}")
     # NOT "every cell is on the screen": a cell one row below the view is
     # then painted into the margin the incoming row is painted in, which
     # is right by accident. What HZ_WHERE replaced DROPPED them.

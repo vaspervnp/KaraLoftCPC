@@ -136,7 +136,6 @@ HZ_SPAWN_ONE:   ld   c,a
                 ; down the whole of its run (src/hazard.asm)
                 ld   a,(iy + HZ_TC)
                 and  HZ_CELS - 1
-                add  a,(iy + HZ_BASE)
                 jp   HZ_WRITE
 
 ; ---------------------------------------------------------------------
@@ -149,14 +148,19 @@ HZ_SPAWN_ONE:   ld   c,a
 ;   nothing in play writes - so they cost no RAM and a restart cannot
 ;   find them half-spent.
 ;
-;   ITS PICTURE. Every cell of the 3 x 2 around its own - its own and
-;   the one either side, on its row and the row above - whose tile
+;   ITS PICTURE. Every cell of the 3 x 5 around its own - its own and
+;   the one either side, on its row and the four above - whose tile
 ;   carries TA_ADVANCE moves on to the next tile: the altar's empty
-;   pieces carry it and its lit ones are the next index. A cell that is
+;   pieces carry it and its lit ones are the next index; and the
+;   station's reader and the four shut tiles of the door beside it,
+;   which is her height and its lintel (8.23). It was 3 x 2, the
+;   altar's own size, and a cell above an altar carries nothing. A cell that is
 ;   not an altar's is left alone, so an editor's level with a receptacle
 ;   and no baked altar is not scribbled on (CLAUDE.md 8.17).
 ;                                destroys AF,BC,DE,HL,IX
 ; ---------------------------------------------------------------------
+HZ_ADV_ROWS     equ 5           ; a door's lintel and body: her height + 1
+
 HZ_SATISFIED:   push hl
                 pop  ix
                 ; ---- which record this is ----------------------------
@@ -234,16 +238,21 @@ HZ_SATISFIED:   push hl
                 ld   (HZ_WR0),a             ; its own row
                 ld   hl,(HZ_CELLP)
                 dec  hl                     ; the cell to its left
+                ld   b,HZ_ADV_ROWS
+HZ_ADV_LIMIT    equ  $ - 1                  ; named for test_station's control
+.row:           push bc
+                push hl
                 call HZ_ADVANCE_ROW
+                pop  hl
+                pop  bc
                 ld   a,(HZ_WR0)
                 sub  2                      ; a tile is two character rows
                 ld   (HZ_WR0),a
-                ld   hl,(HZ_CELLP)
                 ld   de,(LEVEL_LVL + LVL_W) ; the map's own width: the row
                 or   a                      ; above, in any of the shapes
                 sbc  hl,de
-                dec  hl
-                ; fall through for the row above
+                djnz .row
+                ret
 
 ; HL = the leftmost of three cells, (HZ_WC0)/(HZ_WR0) its world
 ; character column and row.

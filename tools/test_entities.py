@@ -621,7 +621,8 @@ def art_checks(sym):
     over = {(0, PU_KEY):    ("CITYPICKUPS", "KEY", 1),
             (0, PU_AMMO):   ("CITYPICKUPS", "AMMO", 1),
             (1, PU_IDOL):   ("FORESTPICKUPS", "IDOL", 2),
-            (3, PU_MEDKIT): ("SEAPICKUPS", "MEDKIT", 4)}
+            (3, PU_MEDKIT): ("SEAPICKUPS", "MEDKIT", 4),
+            (5, PU_KEY):    ("STATIONPICKUPS", "KEYCARD", 6)}
     HUD_CEL = {PU_KEY: "KEY", PU_AMMO: "AMMO", PU_MEDKIT: "HEART",
                PU_COIN: "COIN", PU_IDOL: "IDOL", PU_BOOK: "BOOK"}
 

@@ -243,7 +243,14 @@ def main():
     x0 = (W_BYTES * 2 - len(TEXT) * GLYPH_W) // 2
     assert x0 % 2 == 0 and x0 >= 0, x0
     n_bytes = len(TEXT) * GLYPH_W // 2
-    on, off = bytearray(), bytearray()
+    # THE ENGINE KEEPS NEITHER STRIP. The one without the words is the
+    # picture itself, and src/intro.asm copies it out of video RAM the
+    # moment the picture is up; the one with them is that copy with the
+    # lit pixels set to TEXT_PEN, and which pixels are lit is two bits a
+    # byte - INTRO_TEXT_MASK, 152 bytes where the two strips were 1,216.
+    # The strips still go into build/intro_strips.bin, ON then OFF, for
+    # tools/test_intro.py to hold the engine's own against.
+    on, off, mask = bytearray(), bytearray(), []
     for row in range(8):
         y = TEXT_Y + row
         lit = [False] * (len(TEXT) * GLYPH_W)
@@ -255,26 +262,32 @@ def main():
             off.append(cpclib.encode_pixels(p[0], p[1]))
             q = [TEXT_PEN if lit[b * 2 + k] else p[k] for k in (0, 1)]
             on.append(cpclib.encode_pixels(q[0], q[1]))
+            mask.append(lit[b * 2] << 1 | lit[b * 2 + 1])
+    assert len(mask) % 4 == 0
+    packed_mask = bytes(mask[i] << 6 | mask[i + 1] << 4 | mask[i + 2] << 2
+                        | mask[i + 3] for i in range(0, len(mask), 4))
     lines += ["", f"INTRO_TEXT_BYTES equ {n_bytes}",
-              f"INTRO_TEXT_LINES equ 8", "INTRO_TEXT_ADDR:"]
+              f"INTRO_TEXT_LINES equ 8",
+              f"INTRO_TEXT_PEN  equ &{cpclib.encode_pixels(TEXT_PEN, TEXT_PEN):02X}"
+              f"      ; pen {TEXT_PEN} in both pixels",
+              "INTRO_TEXT_ADDR:"]
     for row in range(8):
         y = TEXT_Y + row
         addr = 0xC000 + (y & 7) * 0x800 + (y >> 3) * W_BYTES + x0 // 2
         lines.append(f"                dw &{addr:04X}          ; line {y}")
-    for name, blob in (("INTRO_TEXT_ON", on), ("INTRO_TEXT_OFF", off)):
-        lines.append(f"{name}:")
-        for row in range(8):
-            r = blob[row * n_bytes:(row + 1) * n_bytes]
-            lines.append("                db " +
-                         ",".join(f"&{v:02X}" for v in r))
+    lines.append("INTRO_TEXT_MASK:     ; 2 bits a strip byte, left pixel high")
+    for i in range(0, len(packed_mask), 19):
+        lines.append("                db " + ",".join(
+            f"&{v:02X}" for v in packed_mask[i:i + 19]))
     open(os.path.join(BUILD, "intro.inc"), "w").write("\n".join(lines) + "\n")
+    open(os.path.join(BUILD, "intro_strips.bin"), "wb").write(bytes(on + off))
 
     print(f"-> intro.bin          {len(native)} bytes -> {packed} packed "
           f"({100 * packed // len(native)}%), "
           f"{(packed + 511) // 512} sectors, with \"{TITLE}\" baked in")
     print(f"   intro.inc         palette 17 bytes, prompt "
           f"\"{TEXT}\" {len(TEXT) * GLYPH_W}x8 at ({x0},{TEXT_Y}), "
-          f"2 x {n_bytes * 8} bytes")
+          f"a mask of {len(packed_mask)} bytes for its {n_bytes * 8}")
 
 
 if __name__ == "__main__":

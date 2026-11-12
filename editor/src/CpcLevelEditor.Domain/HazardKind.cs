@@ -33,4 +33,22 @@ public enum HazardKind : byte
     /// change on the same frame. The spike trap's top six bits are 0.
     /// </summary>
     Cable = 1,
+
+    /// <summary>
+    /// The sea's moored mine (CLAUDE.md 8.19): TWO tiles wide and two tall,
+    /// and a cel is four consecutive tiles — top left, top right, bottom
+    /// left, bottom right — so cel <c>c</c>'s top left is the base plus
+    /// <c>4c</c>. Gone, armed, the fireball, the fireball breaking: the
+    /// first two HOLD, and her box meeting an armed one sets it off and
+    /// costs her 32. <c>p1</c> is <c>0x11</c> — one cell below, armed.
+    /// </summary>
+    Mine = 2,
+
+    /// <summary>
+    /// The station's laser (CLAUDE.md 8.23): a COLUMN like the cable, from
+    /// an emitter in a bulkhead's ceiling to one in the floor — off, on, the
+    /// flicker, on, 20, 10, 10 and 10 game frames. The on cels bite, and
+    /// <c>p1</c> carries the run and the head start as the cable's does.
+    /// </summary>
+    Laser = 3,
 }

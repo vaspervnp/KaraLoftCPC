@@ -96,7 +96,28 @@ SETPIECE = {"citycar", "desertshuttle", "desertbasedoor",
 # (CLAUDE.md 8.17). They are still EXPORTED, because tools/test_spans.py
 # checks every blob the art makes; they just do not go in a bank, which
 # is 2,214 bytes back in a set that had 671 to spare.
-BAKED = {"forestaltar", "forestspiketrap", "seacable"}
+BAKED = {"forestaltar", "forestspiketrap", "seacable", "seamine",
+         "seaexplosion", "desertnomad", "desertinformant"}
+
+# ... AND WHAT NOTHING DRAWS AT ALL. The mercenary is 24x64, agent class,
+# which the frame cannot carry (CLAUDE.md 9), so no desert level places
+# one and it is in no row of ENEMY_TYPES; the quicksand's churn is four
+# cels of a tile that does not animate here, and its first cel IS the
+# tileset's own quicksand; and a desert coin is drawn out of hudicon,
+# the fallback every environment without a pickup sheet takes (8.6).
+# 8,340 bytes the desert's banks paid for and never read, which is what
+# makes room for its NPCs and its shuttle as composites (8.22).
+BAKED |= {"desertmercenary", "desertmercenary_l", "desertquicksand",
+          "desertcoin"}
+
+# ... AND THE STATION'S, for the same two reasons (8.23). Its laser is
+# baked into the tileset as a trap's four cels; the guard and his plasma
+# bolt are agent class; and the turret and its shot are not placed - an
+# enemy that does not move is a row of ENEMY_TYPES the follow would have
+# to be taught to leave alone.
+BAKED |= {"stationlaser", "stationcyber", "stationcyber_l", "stationplasma",
+          "stationplasma_l", "stationturret", "stationturret_l",
+          "stationturretshot", "stationturretshot_l"}
 
 
 def blobs(level):

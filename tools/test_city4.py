@@ -397,28 +397,40 @@ def main():
     # is that routine poked to RET: the copy comes back, in the same
     # cells, and scrolls up the picture with the wall it is painted on.
     print("\n  and a fall into the gap leaves nothing of the HUD behind:")
+    # EVERY ROOF'S FALL, NOT THE FIRST ONE'S. Which falls put her save-
+    # under over the strip on the frame the view steps is a matter of
+    # phase: the first roof's did, until the incoming row's paint moved
+    # (CLAUDE.md 8.22), and then it did not - the control found nothing
+    # there and the rule was no less needed. So both halves walk off all
+    # four roofs: with HUD_CLIP not one sample of any of them has a wrong
+    # cell, and with it poked to RET the copy comes back in some.
     for control in (False, True):
-        hg = city4(sym, names)
-        if control:
-            hg.m.poke(sym["HUD_CLIP"], 0xC9)
-        tiles = tileset(hg)
-        hg.put(B[0][0] * 4 + 8, B[0][2] * 16)
-        seen = fall_watch(hg, tiles, B[0][1])
-        landed = hg.feet() == PAVEMENT
-        del hg
+        falls = []
+        for k in range(len(B) - 1):
+            hg = city4(sym, names)
+            if control:
+                hg.m.poke(sym["HUD_CLIP"], 0xC9)
+            tiles = tileset(hg)
+            hg.put(B[k][0] * 4 + 8, B[k][2] * 16)
+            seen = fall_watch(hg, tiles, B[k][1])
+            falls.append((k, hg.feet() == PAVEMENT, seen))
+            del hg
+        landed = all(f[1] for f in falls)
         if not control:
-            check("walked off the first roof into its gap, the playfield is "
-                  "the map at every frame", landed and not seen,
-                  f"{len(seen)} samples with a wrong cell"
-                  + (f", the first {seen[0]}" if seen else ""))
+            check("walked off every roof into the gap after it, the "
+                  "playfield is the map at every frame",
+                  landed and not any(f[2] for f in falls),
+                  ", ".join(f"roof {k}: {len(sn)}" for k, _, sn in falls)
+                  + " samples with a wrong cell")
         else:
+            hit = [(k, sn[0]) for k, _, sn in falls if sn]
             check("... and with HUD_CLIP = RET the strip is left on "
-                  "the wall",
-                  landed and seen and seen[0][1]
-                  and all(r == 22 for r, _ in seen[0][1]),
-                  f"{len(seen)} samples, the first at frame "
-                  f"{seen[0][0] if seen else '-'}: "
-                  f"{seen[0][1] if seen else 'nothing'}")
+                  "the wall", landed and hit
+                  and all(r in (21, 22) for _, (_, cells) in hit
+                          for r, _ in cells[:1]),
+                  f"{len(hit)} of {len(falls)} falls, the first at roof "
+                  f"{hit[0][0]}, frame {hit[0][1][0]}: {hit[0][1][1]}"
+                  if hit else "nothing on any roof")
 
     # AND THE STREET DRONE COMES DOWN WITH HER. It used to patrol a beat
     # in the plaza, two rows above the pavement, and the camera walked it

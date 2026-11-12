@@ -386,7 +386,17 @@ BUL_ERASE:      ld   a,(BUL_DREW)
 ; ---------------------------------------------------------------------
 ; Reloading
 ; ---------------------------------------------------------------------
-START_RELOAD:   ld   a,RELOAD_FRAMES
+; ONE THAT HAS ALREADY BEGUN IS NOT BEGUN AGAIN. Both releases - on land
+; and in the water - call this on any pull that GUN_HAS_ROUND says puts
+; nothing in the air, and that is also every pull WHILE a reload runs.
+; Restarting the count there meant a player tapping an empty gun, which
+; is what a player out of rounds does, never got the magazines back:
+; measured in level 15, tapping every eight game frames held both at 0
+; for 150 frames against a 30-frame reload (CLAUDE.md 8.20).
+START_RELOAD:   ld   a,(RELOAD_TIMER)
+                or   a
+                ret  nz                 ; already counting down
+                ld   a,RELOAD_FRAMES
                 ld   (RELOAD_TIMER),a
                 ret
 

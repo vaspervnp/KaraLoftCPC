@@ -135,6 +135,7 @@ def main():
     agent = inc_values("level1_city/cityagent.inc")
     drone = inc_values("level1_city/citydrone.inc")
     sniper = inc_values("level2_forest/forestsniper.inc")
+    seadrone = inc_values("level4_underwater/seadrone.inc")
     T = sym["ENEMY_TYPES"]
     # EN_KINDS OFF THE BUILD AND NOT OFF THIS LIST. Counting the rows
     # the suite happens to know about made the page check pass on a
@@ -151,7 +152,10 @@ def main():
             # THE FOREST'S, AND THE FIRST ROW HERE THAT IS NOT THE
             # CITY'S - so it is also the check that a character's art
             # is named out of its OWN level's bank symbols.
-            ("forestsniper", 2, sniper, "WALK", "FIRE")]
+            ("forestsniper", 2, sniper, "WALK", "FIRE"),
+            # THE SEA'S, which SWIMS - the tag is the sheet's, so a row
+            # that took the City's FLY would point at no cels at all.
+            ("seadrone", 3, seadrone, "SWIM", "FIRE")]
     check("every kind the engine has is checked below", len(want) == kinds,
           f"{len(want)} rows against EN_KINDS {kinds}")
 

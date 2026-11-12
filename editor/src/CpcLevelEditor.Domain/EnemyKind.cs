@@ -57,4 +57,12 @@ public enum EnemyKind : byte
     /// (CLAUDE.md 8.6), and a rule this validator does not have yet.
     /// </remarks>
     Sniper = 2,
+
+    /// <summary>
+    /// <c>EN_SEADRONE</c> — the undersea's security drone, 32×16 pixels, and
+    /// the City's drone's rules in the water: it follows her once it has
+    /// been on the screen, with the follow's distances the swimmer's
+    /// (CLAUDE.md 8.20).
+    /// </summary>
+    SeaDrone = 3,
 }

@@ -184,27 +184,72 @@ def main():
           "sharing one would make this vacuous")
 
     print("\n  PRESS SPACE OR FIRE:")
-    on = inc_bytes(inc, "INTRO_TEXT_ON", "INTRO_TEXT_OFF")
-    off = inc_bytes(inc, "INTRO_TEXT_OFF", "\n\n")
+    # THE ENGINE MAKES BOTH STRIPS ITSELF, at the title (src/intro.asm):
+    # the one without the words out of video RAM, the one with them out
+    # of that and a mask of two bits a byte. What it is held against is
+    # the tool's own pair, which make_intro.py writes beside the include
+    # rather than into it - so the comparison is two pieces of code that
+    # never see each other's output, and the picture is the third.
+    strips = open(os.path.join(BUILD, "intro_strips.bin"), "rb").read()
+    on, off = strips[:len(strips) // 2], strips[len(strips) // 2:]
     n = len(on) // 8
     addrs, n_inc = text_strip(inc)
     assert n_inc == n, (n_inc, n)
     check("the two strips are different pictures", on != off,
           f"{sum(1 for a, b in zip(on, off) if a != b)} of {len(on)} bytes - "
           f"without that the blink below could not be seen")
+    pic = b"".join(native[a - SCREEN:a - SCREEN + n] for a in addrs)
+    check("... and the one without the words IS the picture", off == pic,
+          f"{n * 8} bytes of intro.bin at the prompt's eight addresses")
+
+    def strip_now():
+        return b"".join(bytes(m.read_ram(a, n)) for a in addrs)
 
     seen = set()
     for _ in range(80):
         m.run_frames(1)
-        row = bytes(m.read_ram(addrs[3], n))
-        if row == on[3 * n:4 * n]:
+        row = strip_now()
+        if row == on:
             seen.add("on")
-        elif row == off[3 * n:4 * n]:
+        elif row == off:
             seen.add("off")
         else:
             seen.add("other")
-    check("the words blink between exactly those two", seen == {"on", "off"},
+    check("the words blink between exactly those two, all eight lines",
+          seen == {"on", "off"},
           f"over 80 frames the strip was {sorted(seen)}")
+
+    # THE CONTROL: the same title on a machine whose mask is broken
+    # before INTRO_STRIPS reads it - the HIGH image is unpacked by the
+    # bootstrap and the picture is a nine-sector read after it, so there
+    # are frames between the two. A blink that did not come out of the
+    # mask would still match the tool's strips.
+    c = CPC()
+    c.run_frames(150)
+    c.insert_disc(os.path.abspath(os.path.join(BUILD, "kara.dsk")))
+    c.type_text('RUN"DISC\n')
+    mk = sym["INTRO_TEXT_MASK"]
+    first = int(re.search(r"INTRO_TEXT_MASK:.*\n\s+db &([0-9A-F]{2})", inc)
+                .group(1), 16)
+    poked = False
+    for _ in range(4000):
+        c.run_us(5000)
+        if c.peek(mk) == first and c.peek(sym["INTRO_BLINK"]) == 0:
+            c.poke(mk, first ^ 0xFF)
+            poked = True
+            break
+    for _ in range(300):
+        c.run_frames(2)
+        if c.peek(sym["LEVEL_OK"]) and c.peek(sym["INTRO_BLINK"]):
+            break
+    seen_c = set()
+    for _ in range(80):
+        c.run_frames(1)
+        row = b"".join(bytes(c.read_ram(a, n)) for a in addrs)
+        seen_c.add("on" if row == on else "off" if row == off else "other")
+    check("... and with one byte of the mask broken first, it is not",
+          poked and "other" in seen_c and "on" not in seen_c,
+          f"poked {poked}, over 80 frames the strip was {sorted(seen_c)}")
 
     print("\n  the press, and the control that it is the press:")
     before = m.peek(sym["FRAME_COUNT"])

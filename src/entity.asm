@@ -485,6 +485,8 @@ ENT_ON_INTERACT:
                 pop  hl
                 cp   PU_IDOL
                 jp   z,PLACE_STATUE
+                cp   PU_KEY                 ; the station's reader (8.23):
+                jp   z,PLACE_STATUE         ; the same handler, its counter
                 cp   PU_BOOK
                 jp   z,READ_BOOK_PUZZLE
                 ret
@@ -604,11 +606,20 @@ CHECK_KEY_DOOR: push hl
 ; so a two-idol altar is one byte's difference.
 ;                                destroys AF,BC,DE,HL
 ; ---------------------------------------------------------------------
-PLACE_STATUE:   ld   a,(STATUES_HELD)
+PLACE_STATUE:   push hl
+                ld   bc,ENT_P0
+                add  hl,bc
+                ld   a,(hl)                 ; what it takes
+                pop  hl
+                ld   de,STATUES_HELD        ; the forest's altar: an idol
+                cp   PU_KEY
+                jr   nz,.held
+                ld   de,KEYS_COUNT          ; the station's reader: a key
+.held:          ld   a,(de)
                 or   a
                 jr   z,.empty_handed
                 dec  a
-                ld   (STATUES_HELD),a
+                ld   (de),a
                 push hl
                 ld   bc,ENT_P1
                 add  hl,bc
@@ -692,6 +703,14 @@ TALK_NPC_COIN:  push hl
                 ld   a,(hl)
                 ld   (NPC_LINE),a           ; which line module 6 will show
                 pop  hl
+                ; ... AND WHAT HE TELLS HER IS A CODE. There is no line on
+                ; the screen to show (no dialogue yet), and what the
+                ; desert's NPCs sell is the way through the next door -
+                ; so it goes in her pocket as the key that door asks for
+                ; (8.22), lit in the HUD and heard as one.
+                ld   a,(KEYS_COUNT)
+                inc  a
+                ld   (KEYS_COUNT),a
                 ld   a,ER_TOLD
                 ld   (ENT_RESULT),a
                 ret
@@ -877,6 +896,9 @@ ENT_ART_OVER:   db 0, PU_KEY, L1_CITYPICKUPS_BANK
                 db 3, PU_OXYGEN, L4_SEAPICKUPS_BANK
                 dw L4_SEAPICKUPS_ADDR
                 db SEAPICKUPS_OXYGEN_FIRST
+                db 5, PU_KEY, L6_STATIONPICKUPS_BANK
+                dw L6_STATIONPICKUPS_ADDR
+                db STATIONPICKUPS_KEYCARD_FIRST
                 db &FF
 
 ; ---------------------------------------------------------------------

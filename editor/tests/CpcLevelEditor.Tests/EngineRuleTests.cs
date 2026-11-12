@@ -235,9 +235,9 @@ public class EngineRuleTests
     }
 
     /// <summary>
-    /// <c>HZ_MAX</c> is 8: <c>HAZARD_SPAWN</c> takes eight traps out of a
-    /// level's table and stops, and the ninth is a record whose cell never
-    /// moves and never bites (CLAUDE.md 8.17).
+    /// <c>HZ_MAX</c> is 16: <c>HAZARD_SPAWN</c> takes sixteen traps out of a
+    /// level's table and stops, and the seventeenth is a record whose cell
+    /// never moves and never bites (CLAUDE.md 8.17, 8.19).
     /// </summary>
     [Fact]
     public void More_traps_than_the_table_holds()
