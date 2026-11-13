@@ -68,8 +68,8 @@ def check(name, ok, detail=""):
 class Play:
     """The running game, in the units the level is written in."""
 
-    def __init__(self, sym, climbable=True, level=LEVEL):
-        self.sym, self.level = sym, level
+    def __init__(self, sym, climbable=True, level=LEVEL, calm=True):
+        self.sym, self.level, self.calm = sym, level, calm
         self.m = m = boot(sym, scroll=True)
         m.poke(sym["LEVEL_CUR"], level - 2)     # ... so the next one is ours
         m.poke(sym["GAME_STATE"], GS_CLEAR)
@@ -91,8 +91,14 @@ class Play:
         self.attr = bytes(m.read_ram(sym["TILE_ATTR"], sym["TILE_ATTR_N"]))
 
     def reread(self):
-        """The level in RAM, after a transition has replaced it."""
+        """The level in RAM, after a transition has replaced it - with
+        the BATS OFF. Every cave level carries three now (CLAUDE.md 8.24)
+        and this suite climbs without a shot fired: what it is for is the
+        ladders, the holes, the rock and the camera. The bats have their
+        own suite (tools/test_beasts.py), which climbs with them on."""
         sym, m = self.sym, self.m
+        if self.calm:
+            m.poke(sym["ENEMY_LIVE"], 0)
         hdr = m.read_ram(sym["LEVEL_LVL"], 21)
         self.w = hdr[5] | hdr[6] << 8
         self.h = hdr[7] | hdr[8] << 8
@@ -159,16 +165,53 @@ class Play:
         """The tile column CLIMB_AT probes - the middle of her six-byte box."""
         return (self.word("KARA_WX") + 3) // 4
 
-    def walk_to(self, column, frames=700):
+    def walk_to(self, column, frames=700, tick=None):
+        tick = tick or (lambda: self.m.run_frames(1))
         for _ in range(frames):
             if self.column() == column:
                 break
             self.m.joystick(JOY["right"] if self.column() < column
                             else JOY["left"])
-            self.m.run_frames(1)
+            tick()
         self.m.joystick(0)
-        self.m.run_frames(2)
+        tick()
+        tick()
         return self.column() == column
+
+    def records(self):
+        n = self.byte("ENT_COUNT")
+        raw = self.m.read_ram(self.sym["ENT_TABLE"], n * 8)
+        return [bytes(raw[i * 8:i * 8 + 8]) for i in range(n)]
+
+    def fetch_books(self, tick=None):
+        """THE PUZZLE, AS A PLAYER WHO HAS READ THE TABLET PLAYS IT
+        (8.25): before leaving a floor, walk to every book on it that the
+        gate wants and is still on the ground - and to none of the
+        cursed ones. Which is which is read off the records' own bits,
+        and where it is off the level's own table: nothing here knows
+        where the generator put a book."""
+        r0 = self.row()
+        for r in self.records():
+            if (r[0] == 4 and r[6] == 5 and not r[7] & 0x80
+                    and not r[5] & 2 and (r[3] | r[4] << 8) // 16 == r0):
+                self.walk_to((r[1] | r[2] << 8) // 8, tick=tick)
+
+    def gate(self):
+        """UP at the gate's lock and UP again at its door: the lock takes
+        the books and gives her the key, and the door takes the key.
+        -> (KEYS_COUNT after the first, GAME_STATE before, after)."""
+        recs = self.records()
+        k = next(i for i, r in enumerate(recs) if r[0] == 7)
+        self.walk_to((recs[k][1] | recs[k][2] << 8) // 8)
+        before = self.byte("GAME_STATE")
+        keys = None
+        for _ in range(2):
+            self.m.joystick(JOY["up"])
+            self.m.run_frames(4)
+            self.m.joystick(0)
+            self.m.run_frames(20)
+            keys = self.byte("KEYS_COUNT") if keys is None else keys
+        return keys, before, self.byte("GAME_STATE")
 
     def holes(self, row):
         """The runs of three or more cells a floor is MISSING - what she
@@ -278,6 +321,7 @@ def ascend(p, report=True):
     landings, alive = [p.row()], True
     for _ in range(p.h // 4):
         r0 = p.row()
+        p.fetch_books()
         s = p.shafts(r0 - 1)            # the rungs ABOVE her feet
         if not s:
             break                       # the top floor: no way up
@@ -336,6 +380,8 @@ def climb_rock(p, clock, steps=None, floors=(), report=True):
     landings = [p.row()]
     for _ in range(steps or p.h):
         r0 = p.row()
+        if r0 in floors:
+            p.fetch_books(tick=clock.run)
         runs = p.platforms(r0 - 2)
         if not runs:
             break                       # the top floor: nothing above
@@ -445,6 +491,7 @@ def descend(p, report=True):
     landings, alive = [p.row()], True
     for _ in range(p.h // 4):
         r0 = p.row()
+        p.fetch_books()
         s = p.shafts(r0)                # descending: the rungs in HER row
         if not s:
             break                       # the bottom floor: no way down
@@ -508,9 +555,12 @@ def main():
           p.byte("WORLD_CR") == 0,
           f"WORLD_CR {V_CR_MAX} -> {p.byte('WORLD_CR')}, which is the "
           f"whole map")
-    check("... picking up the clip and the key on the way",
-          p.byte("KEYS_COUNT") == 1 and p.byte("AMMO_RESERVE") == 42,
-          f"keys {p.byte('KEYS_COUNT')}, reserve {p.byte('AMMO_RESERVE')}")
+    check("... picking up the clip and the gate's two books on the way, "
+          "and none of the cursed ones",
+          p.byte("CURRENT_BOOK_ID") == 3 and p.byte("AMMO_RESERVE") == 42
+          and p.byte("PLAYER_HP") == 100,
+          f"books {p.byte('CURRENT_BOOK_ID')} (the sun and the moon), "
+          f"reserve {p.byte('AMMO_RESERVE')}, HP {p.byte('PLAYER_HP')}")
 
     door = None
     ents = p.m.read_ram(sym["ENT_TABLE"], p.byte("ENT_COUNT") * 8)
@@ -521,16 +571,10 @@ def main():
     check("the gate is a record and not a wall", door is not None,
           f"EK_DOOR at tile {door} - its own tiles carry no attributes, "
           f"which is 8.8's garage lesson")
-    p.walk_to(door)
-    before = p.byte("GAME_STATE")
-    p.m.joystick(JOY["up"])
-    p.m.run_frames(4)
-    p.m.joystick(0)
-    p.m.run_frames(20)
-    check("... and the key opens it",
-          before == 0 and p.byte("GAME_STATE") == GS_CLEAR,
-          f"GAME_STATE {before} -> {p.byte('GAME_STATE')}, "
-          f"ENT_RESULT {p.byte('ENT_RESULT')}")
+    keys, before, after = p.gate()
+    check("... and the books open it: the lock gives her its key, and "
+          "the door takes it", keys == 1 and before == 0 and after == GS_CLEAR,
+          f"key {keys} after the lock, GAME_STATE {before} -> {after}")
 
     # -----------------------------------------------------------------
     # AND THROUGH IT IS LEVEL 10, which is where that gate has pointed
@@ -608,21 +652,17 @@ def main():
     check("... and the ladders cost her nothing",
           p.byte("PLAYER_HP") == hp0,
           f"HP {hp0} -> {p.byte('PLAYER_HP')} - the free way down")
-    check("... picking up the clip and the key on the way",
-          p.byte("KEYS_COUNT") == 1 and p.byte("AMMO_RESERVE") == 56,
-          f"keys {p.byte('KEYS_COUNT')}, reserve {p.byte('AMMO_RESERVE')} - "
-          f"42 crossed the door from level 9 and this level's clip is the "
-          f"third; the KEY did not cross, which is why there is one here")
+    check("... picking up the clip and the gate's two books on the way",
+          p.byte("CURRENT_BOOK_ID") == 12 and p.byte("AMMO_RESERVE") == 56,
+          f"books {p.byte('CURRENT_BOOK_ID')} (the eye and the star), "
+          f"reserve {p.byte('AMMO_RESERVE')} - 42 crossed the door from "
+          f"level 9 and this level's clip is the third; the BOOKS did not "
+          f"cross, which is why this gate's are here")
 
-    p.walk_to(door10)
-    before = p.byte("GAME_STATE")
-    p.m.joystick(JOY["up"])
-    p.m.run_frames(4)
-    p.m.joystick(0)
-    p.m.run_frames(20)
-    check("the key opens the gate at the bottom",
-          before == 0 and p.byte("GAME_STATE") == GS_CLEAR,
-          f"GAME_STATE {before} -> {p.byte('GAME_STATE')}")
+    keys, before, after = p.gate()
+    check("the books open the gate at the bottom",
+          keys == 1 and before == 0 and after == GS_CLEAR,
+          f"key {keys} after the lock, GAME_STATE {before} -> {after}")
 
     # -----------------------------------------------------------------
     # AND THROUGH THAT ONE IS LEVEL 11: UP AGAIN, BY THE ROCK. plan.md
@@ -731,30 +771,20 @@ def main():
     kit = [r for r in (ents11[i * 8:i * 8 + 8]
                        for i in range(p.byte("ENT_COUNT")))
            if r[0] == 4 and r[6] == 2]              # EK_PICKUP, PU_MEDKIT
-    check("... picking up the clip and the key on the way",
-          p.byte("KEYS_COUNT") == 1
+    check("... picking up the clip and the gate's two books on the way",
+          p.byte("CURRENT_BOOK_ID") == 3
           and p.byte("AMMO_RESERVE") == ammo0 + 14,
-          f"keys {p.byte('KEYS_COUNT')}, reserve {ammo0} -> "
+          f"books {p.byte('CURRENT_BOOK_ID')}, reserve {ammo0} -> "
           f"{p.byte('AMMO_RESERVE')}")
     check("... and nothing she did cost her a point",
           p.byte("PLAYER_HP") == hp0 and kit and not kit[0][5] & 2,
           f"HP {hp0} -> {p.byte('PLAYER_HP')}, and the medkit she walked "
           f"past is still on the floor: at full health it is refused (8.6)")
 
-    door11 = None
-    for i in range(p.byte("ENT_COUNT")):
-        r = ents11[i * 8:i * 8 + 8]
-        if r[0] == 6:
-            door11 = (r[1] | r[2] << 8) // 8
-    p.walk_to(door11)
-    before = p.byte("GAME_STATE")
-    p.m.joystick(JOY["up"])
-    p.m.run_frames(4)
-    p.m.joystick(0)
-    p.m.run_frames(20)
-    check("the key opens the gate at the top",
-          before == 0 and p.byte("GAME_STATE") == GS_CLEAR,
-          f"GAME_STATE {before} -> {p.byte('GAME_STATE')}")
+    keys, before, after = p.gate()
+    check("the books open the gate at the top",
+          keys == 1 and before == 0 and after == GS_CLEAR,
+          f"key {keys} after the lock, GAME_STATE {before} -> {after}")
 
     # -----------------------------------------------------------------
     # AND THROUGH THAT ONE IS LEVEL 12, THE CAVE'S LAST: after the
@@ -832,6 +862,7 @@ def main():
     hp0, falls12, landings12 = p.byte("PLAYER_HP"), {}, [p.row()]
     ammo12 = p.byte("AMMO_RESERVE")
     for _ in range(8):
+        p.fetch_books()
         r0, s = p.row(), p.shafts(p.row())
         if not s or not p.walk_to(s[0]):
             break
@@ -856,27 +887,16 @@ def main():
           p.byte("PLAYER_HP") == hp0,
           f"HP {hp0} -> {p.byte('PLAYER_HP')} - the shortest stub is two "
           f"rungs, 96 lines, which is FALL_FREE")
-    check("... and the clip and the key are on the way",
-          p.byte("KEYS_COUNT") == 1
+    check("... and the clip and the gate's two books are on the way",
+          p.byte("CURRENT_BOOK_ID") == 12
           and p.byte("AMMO_RESERVE") == ammo12 + 14,
-          f"keys {p.byte('KEYS_COUNT')}, reserve {ammo12} -> "
+          f"books {p.byte('CURRENT_BOOK_ID')}, reserve {ammo12} -> "
           f"{p.byte('AMMO_RESERVE')}")
 
-    door12 = None
-    ents12 = p.m.read_ram(sym["ENT_TABLE"], p.byte("ENT_COUNT") * 8)
-    for i in range(p.byte("ENT_COUNT")):
-        r = ents12[i * 8:i * 8 + 8]
-        if r[0] == 6:
-            door12 = (r[1] | r[2] << 8) // 8
-    p.walk_to(door12)
-    before = p.byte("GAME_STATE")
-    p.m.joystick(JOY["up"])
-    p.m.run_frames(4)
-    p.m.joystick(0)
-    p.m.run_frames(20)
-    check("the key opens the last gate, over the water",
-          before == 0 and p.byte("GAME_STATE") == GS_CLEAR,
-          f"GAME_STATE {before} -> {p.byte('GAME_STATE')}")
+    keys, before, after = p.gate()
+    check("the books open the last gate, over the water",
+          keys == 1 and before == 0 and after == GS_CLEAR,
+          f"key {keys} after the lock, GAME_STATE {before} -> {after}")
 
     # AND THAT IS THE END OF THE CAVE: level 13 is the undersea's first.
     # Whether it is PAINTED is read off build/ and not written down here -

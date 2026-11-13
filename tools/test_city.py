@@ -338,7 +338,7 @@ def tick(c):
     sync(c.m, c.sym, half=0)
 
 
-def window(c, gap, w, near, far, start, run=True):
+def window(c, gap, w, near, far, start, run=True, beat=None):
     """The GAME FRAMES, counted from the start of the run-up, on which
     UP starts a jump that comes down past `gap` - and whether running
     off its edge with no press at all crosses it. One machine, put back
@@ -369,6 +369,9 @@ def window(c, gap, w, near, far, start, run=True):
             c.m.key_down('A')
         jumped, landed = None, None
         sync(c.m, c.sym, half=0)
+        if beat is not None and c.byte("FRAME_COUNT") & 1 != beat:
+            tick(c)
+        assert beat is None or c.byte("FRAME_COUNT") & 1 == beat
         for i in range(90):
             press = i == t
             # ... AND FROM THE ROOF SHE STARTED ON: a press after she has
@@ -690,7 +693,7 @@ def main():
     wm = City(sym)
     walk_to(wm, ups[0])
     climb_up(wm)
-    all_match, runoff_match = True, True
+    all_match, runoff_match, beat_moves = True, True, True
     for g, w, n, f in gaps:
         got, offs = [], 0
         for phase in (0, 1):
@@ -700,25 +703,40 @@ def main():
             offs += ran_off
         runoff_match = runoff_match and offs == (
             1 if (w, f - n) in city.RUN_OFF else 0)
-        walks = [len(window(wm, g, w, n, f, g * 4 - 24 + phase,
-                            run=False)[0]) for phase in (0, 1)]
+        # A WALK'S WINDOW IS THE SHAPE'S TOO, ONCE THE PUSH BEAT IS
+        # PINNED. In the push zone a walk is two bytes on the game frames
+        # FRAME_COUNT is even and none on the odd (PUSH_PHASE, 8.2), so
+        # the frames that reach the lip depend on the beat the run-up
+        # starts on - and put() leaves it wherever the machine's history
+        # does. Each try took its own, so a window was a mix of two
+        # windows a frame apart: a frame of "miss" in the middle, a
+        # count of 6 where both beats give 5, and the jump UP 1 here and
+        # 2 on level 4 - the same shape. At each beat, every gap of a
+        # shape is exactly WALK_JUMPS on both levels.
+        walks = {(phase, beat): window(wm, g, w, n, f, g * 4 - 24 + phase,
+                                       run=False, beat=beat)[0]
+                 for phase in (0, 1) for beat in (0, 1)}
+        beat_moves = beat_moves and all(
+            [x + 1 for x in walks[phase, 0]] == walks[phase, 1]
+            or [x - 1 for x in walks[phase, 0]] == walks[phase, 1]
+            for phase in (0, 1))
         want = city.RUN_JUMPS[w, f - n]
-        wwant = city.WALK_JUMPS.get((w, f - n), 0)
-        # A RUN'S WINDOW IS THE SHAPE'S AND A WALK'S IS A FLOOR. With the
-        # camera where play has it and the press at the top of a game
-        # frame (put(), tick()), a run comes out the same on every level
-        # for every gap of a shape; a walk steps two bytes on one frame
-        # in two in the push zone, so where the lip falls in that rhythm
-        # is the gap's, and the same shape measures 1 here and 2 on
-        # level 4 (make_city_map.py).
-        ok = tuple(got) == want and min(walks) >= wwant
+        wwant = city.WALK_JUMPS[w, f - n]
+        ok = tuple(got) == want and all(len(v) == wwant
+                                        for v in walks.values())
         all_match = all_match and ok
         print(f"      gap at {g:3d}, {w} wide, row {n} -> {f}: running "
-              f"{got[0]}/{got[1]} frames, walking {walks[0]}/{walks[1]}"
-              f"{'' if ok else '  <- the tool says ' + str(want) + ', walking at least ' + str(wwant)}")
+              f"{got[0]}/{got[1]} frames, walking "
+              + "/".join(str(len(walks[k])) for k in sorted(walks))
+              + f"{'' if ok else '  <- the tool says ' + str(want) + ', walking ' + str(wwant)}")
     check("they are the windows make_city_map.py was built against",
-          all_match, "a run's exactly, at both stride phases, and a walk's "
-          "at least")
+          all_match, "a run's at both stride phases and a walk's at both "
+          "stride phases and both push beats - exactly")
+    check("... and the push beat moves a walk's window a frame, not its "
+          "length", beat_moves,
+          "which is why a window measured at whatever beat the machine "
+          "was on came out a frame longer than either, on one machine "
+          "and not another")
     check("... and a run off the edge crosses the downhill ones only",
           runoff_match, "at one stride phase of the two, and the level "
           "and the uphill gap never")

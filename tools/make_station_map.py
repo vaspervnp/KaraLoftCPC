@@ -49,6 +49,7 @@ BUILD = os.path.join(ROOT, "build")
 sys.path.insert(0, HERE)
 from make_level import pack, read                              # noqa: E402
 from tilebake import box_pens, encode_tile, sheet_frames       # noqa: E402
+import sentries                                                 # noqa: E402
 
 ART = os.path.join(ROOT, "assets", "sprites", "level6_station")
 TILES_SHEET = "station_tiles_cpc_mode0_sheet"
@@ -62,6 +63,11 @@ BULK = 4                        # a bulkhead's ceiling comes down to here
 
 SOLID, PLATFORM, HAZARD, ADVANCE = 1, 2, 4, 128
 EK_PLAYER_START, EK_PICKUP, EK_HAZARD, EK_DOOR, EK_RECEPTACLE = 0, 4, 5, 6, 7
+EK_ENEMY = 2
+EN_GUARD, EN_TURRET = 8, 9      # sentries, both (CLAUDE.md 8.27)
+TURRET_ROW = ROW_FLOOR - 2      # the row a turret is bolted ON: its box is
+                                # 16 lines over that, so its top is 16 under
+                                # hers and its round goes across her chest
 EF_ACTIVE, EF_SOLID, EF_TOUCH = 1, 4, 8
 PU_KEY, PU_MEDKIT = 0, 2
 HZ_LASER = 3
@@ -196,6 +202,7 @@ LEVEL_21 = dict(
     catwalks=(), consoles=(26, 72),
     lasers=((32, 0), (60, 1)), doors=(80,),
     keys=((46, 9), (100, 9)), medkits=(), exit=120, computer=None,
+    guards=(40,), turrets=(90,),
 )
 LEVEL_22 = dict(
     level=22, about="the labs",
@@ -203,7 +210,7 @@ LEVEL_22 = dict(
     catwalks=((36, 6, 7), (90, 6, 7)), consoles=(24, 56, 96),
     lasers=((30, 0), (50, 1), (76, 0), (110, 1)), doors=(62, 116),
     keys=((38, 7), (92, 7), (120, 9)), medkits=(70,), exit=124,
-    computer=None,
+    computer=None, guards=(20,), turrets=(84,),
 )
 LEVEL_23 = dict(
     level=23, about="the reactor",
@@ -213,7 +220,7 @@ LEVEL_23 = dict(
     consoles=(46, 100),
     lasers=((20, 0), (42, 1), (52, 0), (86, 1), (108, 0)), doors=(64, 114),
     keys=((36, 5), (80, 5), (119, 9)), medkits=(48,), exit=124,
-    computer=None,
+    computer=None, guards=(56,), turrets=(98,),
 )
 LEVEL_24 = dict(
     level=24, about="the computer",
@@ -222,7 +229,7 @@ LEVEL_24 = dict(
     catwalks=((26, 6, 7), (66, 6, 7)), consoles=(22, 84),
     lasers=((18, 0), (36, 1), (54, 0), (90, 1), (100, 0)), doors=(62, 104),
     keys=((30, 7), (68, 7), (96, 9)), medkits=(44,), exit=None,
-    computer=114,
+    computer=114, guards=(48,), turrets=(94,),
 )
 LAYOUTS = (LEVEL_21, LEVEL_22, LEVEL_23, LEVEL_24)
 
@@ -326,9 +333,23 @@ def build_entities(L):
     else:
         recs.append(entity(EK_DOOR, L["computer"] * 8, floor,
                            EF_ACTIVE | EF_SOLID, 0, PU_KEY))
+    # THE SENTRIES (8.27): a cyber guard on the floor, drawn compiled, and
+    # a turret bolted to the wall at her chest, each keeping its post.
+    for x in L.get("guards", ()):
+        recs.append(entity(EK_ENEMY, x * 8, floor, EF_ACTIVE, EN_GUARD, 0))
+    for x in L.get("turrets", ()):
+        recs.append(entity(EK_ENEMY, x * 8, TURRET_ROW * 16, EF_ACTIVE,
+                           EN_TURRET, 0))
     assert len(recs) <= ENT_MAX
     assert len(L["lasers"]) <= HZ_MAX
-    return b"".join(recs)
+    ents = b"".join(recs)
+    sentries.check(L["level"], [(x, ROW_FLOOR) for x in L.get("guards", ())],
+                   ents)
+    sentries.check(L["level"], [(x, TURRET_ROW) for x in L.get("turrets", ())],
+                   ents, w=2, h=1, compiled=False)
+    sentries.spaced(L["level"], list(L.get("guards", ()))
+                    + list(L.get("turrets", ())))
+    return ents
 
 
 def checks(g, t, L, flags):

@@ -83,11 +83,11 @@ public sealed record VocabularyView(
         new Dictionary<string, ParamView[]>
         {
             [nameof(EntityKind.Pickup)] =
-                [new("which pickup", Pickups), new("amount / lock id / symbol")],
+                [new("which pickup", Pickups), new("amount / lock id / a book's symbol bit, +128 cursed")],
             [nameof(EntityKind.Door)] =
                 [new("lock id"), new("which pickup opens it", Pickups)],
             [nameof(EntityKind.Receptacle)] =
-                [new("which pickup it takes", Pickups), new("how many it still wants")],
+                [new("which pickup it takes", Pickups), new("how many it still wants / a book gate's symbol bits")],
             [nameof(EntityKind.Npc)] = [new("coins asked"), new("which line he says")],
             // p0 IS ALWAYS "WHICH THING THIS IS" (CLAUDE.md 8.6), and the
             // enemy row is the one editor.md had the other way round: the
@@ -96,7 +96,7 @@ public sealed record VocabularyView(
             // now picks it off a list, because a number with no list behind
             // it is one ENEMY_ADD can refuse without anybody being told.
             [nameof(EntityKind.Enemy)] =
-                [new("which character", Enemies), new("patrol half-width in tiles")],
+                [new("which character", Enemies), new("patrol half-width in tiles - nothing, for a sentry")],
             // ... AND THE HAZARD ROW TOO, now that something reads it: a
             // spike trap's damage and period are the TYPE's, and what the
             // record says is which hazard and which cel it starts on

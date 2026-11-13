@@ -100,6 +100,10 @@ gen python3 "$ROOT/tools/make_desert_map.py"
 # open tiles, baked like every other (CLAUDE.md 8.23).
 gen python3 "$ROOT/tools/make_station_map.py"
 
+# THE SENTRIES ARE COMPILED (CLAUDE.md 8.27): their two fire cels, out of
+# the span blobs build_levels.py exported, as code - before the banks are
+# allocated, because the compiled blobs are what goes in them.
+python3 "$ROOT/tools/compile_sprite.py" --build
 python3 "$ROOT/tools/level_banks.py"
 
 # A level's OWN bytes - its map, its entity table and its tile flags -

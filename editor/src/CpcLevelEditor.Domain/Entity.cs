@@ -24,7 +24,7 @@ namespace CpcLevelEditor.Domain;
 /// <list type="table">
 ///   <item><term>Pickup</term><description>p0 = <see cref="PickupKind"/>, p1 = amount, lock id, or symbol</description></item>
 ///   <item><term>Door</term><description>p0 = lock id, p1 = the <see cref="PickupKind"/> that opens it</description></item>
-///   <item><term>Receptacle</term><description>p0 = the <see cref="PickupKind"/> it takes, p1 = how many it still wants</description></item>
+///   <item><term>Receptacle</term><description>p0 = the <see cref="PickupKind"/> it takes, p1 = how many it still wants - or, for a book gate, the bits of the symbols it wants (CLAUDE.md 8.25)</description></item>
 ///   <item><term>Npc</term><description>p0 = coins asked, p1 = which line he says</description></item>
 ///   <item><term>Enemy</term><description>p0 = which character (<c>EN_*</c>), p1 = patrol half-width in tiles</description></item>
 ///   <item><term>Hazard</term><description>p0 = <see cref="HazardKind"/>, p1 = the cel it starts on — the damage and the period are the type's, like an enemy's (CLAUDE.md 8.17)</description></item>

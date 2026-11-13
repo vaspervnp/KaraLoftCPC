@@ -52,6 +52,7 @@ BUILD = os.path.join(ROOT, "build")
 sys.path.insert(0, HERE)
 from make_level import pack, read                              # noqa: E402
 from tilebake import box_pens, encode_tile, sheet_frames       # noqa: E402
+import sentries                                                 # noqa: E402
 
 ART = os.path.join(ROOT, "assets", "sprites", "level5_desert")
 TILES_SHEET = "desert_tiles_cpc_mode0_sheet"
@@ -85,7 +86,8 @@ TILE_FLAGS = {
     # short of the door's, so UP there meets nothing.
 }
 
-EK_PLAYER_START, EK_NPC, EK_PICKUP, EK_DOOR = 0, 3, 4, 6
+EK_PLAYER_START, EK_ENEMY, EK_NPC, EK_PICKUP, EK_DOOR = 0, 2, 3, 4, 6
+EN_MERC = 7                     # the mercenary, a sentry (CLAUDE.md 8.27)
 EF_ACTIVE, EF_TAKEN, EF_SOLID, EF_TOUCH = 1, 2, 4, 8
 PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN = 0, 1, 2, 3
 ENT_MAX = 24
@@ -165,6 +167,10 @@ class Bake:
 #   bunker    the left column of the bunker the level ends at; its door
 #             is the four after it
 #   entry     the left column of a bunker she came OUT of, if any
+#   mercs     (column, the row it stands ON) of a mercenary: a SENTRY,
+#             24x64 and drawn compiled, which keeps its post and shoots
+#             at her (src/sentry.asm). Two a level, GAP tiles apart, on
+#             a column tools/sentries.py says its cel can be drawn on
 # ---------------------------------------------------------------------
 # LEVEL 17 IS THE OASIS. She comes out of the siphon's outlet into the
 # pool at the left - level 16's way out leads here - and walks east. Two
@@ -185,6 +191,7 @@ LEVEL_17 = dict(
     cacti=(38, 88),
     bones=(56, 92), signs=(), fences=(),
     tents=(100,), npc=("informant", 103, 3),
+    mercs=((32, 9), (72, 9)),
     coins=((22, 9), (46, 9), (62, 7), (79, 9), (98, 9)),
     medkits=(), ammo=(),
     bunker=116, entry=None, shuttle=None,
@@ -204,6 +211,7 @@ LEVEL_18 = dict(
     cacti=(42, 80),
     bones=(16, 70, 112), signs=(), fences=(),
     tents=(104,), npc=("nomad", 107, 4),
+    mercs=((44, 9), (84, 9)),
     coins=((14, 9), (29, 7), (59, 5), (73, 9), (97, 7), (113, 9)),
     medkits=(), ammo=(),
     bunker=116, entry=4, shuttle=None,
@@ -222,6 +230,7 @@ LEVEL_19 = dict(
     cacti=(20, 46, 84, 110),
     bones=(), signs=(16, 48, 88), fences=(17, 18, 49, 50, 89, 90),
     tents=(102,), npc=("informant", 105, 5),
+    mercs=((40, 9), (86, 9)),
     coins=((12, 9), (29, 7), (36, 9), (62, 5), (72, 5), (80, 9), (99, 7)),
     medkits=(77,), ammo=(),
     bunker=116, entry=4, shuttle=None,
@@ -241,6 +250,7 @@ LEVEL_20 = dict(
     cacti=(40, 72, 100),
     bones=(), signs=(96,), fences=(97, 98, 99),
     tents=(64,), npc=("nomad", 67, 5),
+    mercs=((32, 9), (92, 9)),
     coins=((18, 9), (27, 9), (44, 9), (53, 7), (58, 7), (78, 9), (85, 7)),
     medkits=(46,), ammo=(),
     bunker=None, entry=4, shuttle=110,
@@ -365,6 +375,8 @@ def build_entities(L):
         door = L["shuttle"] + 1             # the boarding door, on the pad
     recs.append(entity(EK_DOOR, door * 8, ground, EF_ACTIVE | EF_SOLID,
                        0, PU_KEY))
+    for x, row in L.get("mercs", ()):
+        recs.append(entity(EK_ENEMY, x * 8, row * 16, EF_ACTIVE, EN_MERC, 0))
     assert len(recs) <= ENT_MAX
     return b"".join(recs)
 
@@ -436,6 +448,13 @@ def checks(g, t, ents, L):
         assert (x, row) in where, \
             f"level {L['level']}: a kind-{r[0]} at tile {x}, row {row} " \
             f"is somewhere she cannot stand"
+    # A SENTRY STANDS ON SAND - every column of its box over solid
+    # ground, not a pit - where its cel can be drawn and nothing is
+    # painted under it (tools/sentries.py).
+    for x, row in L.get("mercs", ()):
+        assert all(g[row][c] == t["sand_top"] for c in range(x, x + 3)), \
+            f"level {L['level']}: the mercenary at {x} is not on sand"
+    sentries.check(L["level"], L.get("mercs", ()), ents)
     # A PIT MUST BE ONE SHE CAN GET OUT OF: sand on both sides of it, so
     # there is a lip to jump to.
     for x, n in L["pits"]:

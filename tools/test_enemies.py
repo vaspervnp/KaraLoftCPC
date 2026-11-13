@@ -48,10 +48,12 @@ EK_ENEMY, EF_ACTIVE, EF_TAKEN = 2, 1, 2
 ES_FIELDS = ("REC", "X", "Y", "TYPE", "FACE", "CEL", "TIMER", "FIRE", "HP",
              "HOME", "SPAN", "DIR", "DIE")
 ES, ES_STRIDE = {}, 0
-EN_T = dict(BANK=0, RIGHT=1, BANK_L=3, LEFT=4, MOVE_F=6, MOVE_N=7,
-            FIRE_F=8, FIRE_N=9, W=10, H=11, SPEED=12, PERIOD=13, HP=14,
-            DUR=15, SPAWNS=17)
-EN_T_STRIDE = 32
+# ... AND SO DOES THE TYPE ROW'S: it was 32 bytes of which 21 were used,
+# and went to 21 when a tenth row would not fit a page (CLAUDE.md 8.27).
+EN_T_FIELDS = ("BANK", "RIGHT", "BANK_L", "LEFT", "MOVE_F", "MOVE_N",
+               "FIRE_F", "FIRE_N", "W", "H", "SPEED", "PERIOD", "HP", "DUR",
+               "SPAWNS", "KIND")
+EN_T, EN_T_STRIDE = {}, 0
 JOY_RIGHT, JOY_LEFT, JOY_FIRE, JOY_UP = 0x08, 0x04, 0x10, 0x01
 
 fails = []
@@ -76,9 +78,11 @@ def inc_values(path):
 
 
 def es_layout(sym):
-    global ES, ES_STRIDE
+    global ES, ES_STRIDE, EN_T, EN_T_STRIDE
     ES = {k: sym["ES_" + k] for k in ES_FIELDS}
     ES_STRIDE = sym["ES_STRIDE"]
+    EN_T = {k: sym["EN_T_" + k] for k in EN_T_FIELDS}
+    EN_T_STRIDE = sym["EN_T_STRIDE"]
 
 
 def slot(m, sym, i, field):
@@ -136,6 +140,12 @@ def main():
     drone = inc_values("level1_city/citydrone.inc")
     sniper = inc_values("level2_forest/forestsniper.inc")
     seadrone = inc_values("level4_underwater/seadrone.inc")
+    bats = inc_values("level3_cave/cavebats.inc")
+    merc = inc_values("level5_desert/desertmercenary.inc")
+    guard = inc_values("level6_station/stationcyber.inc")
+    turret = inc_values("level6_station/stationturret.inc")
+    wolf = inc_values("level2_forest/forestwolf.inc")
+    boar = inc_values("level2_forest/forestboar.inc")
     T = sym["ENEMY_TYPES"]
     # EN_KINDS OFF THE BUILD AND NOT OFF THIS LIST. Counting the rows
     # the suite happens to know about made the page check pass on a
@@ -147,15 +157,29 @@ def main():
     check("the whole table is inside one page - ADD A,low cannot carry",
           (T & 0xFF) + kinds * EN_T_STRIDE <= 256,
           f"&{T:04X} + {kinds * EN_T_STRIDE} bytes, {kinds} kinds")
-    want = [("cityagent", 0, agent, "WALK", "FIRE"),
+    want = [("cityagent", 0, agent, "SENTRY", None),
             ("citydrone", 1, drone, "FLY", "FIRE"),
             # THE FOREST'S, AND THE FIRST ROW HERE THAT IS NOT THE
             # CITY'S - so it is also the check that a character's art
             # is named out of its OWN level's bank symbols.
-            ("forestsniper", 2, sniper, "WALK", "FIRE"),
+            ("forestsniper", 2, sniper, "SENTRY", None),
             # THE SEA'S, which SWIMS - the tag is the sheet's, so a row
             # that took the City's FLY would point at no cels at all.
-            ("seadrone", 3, seadrone, "SWIM", "FIRE")]
+            ("seadrone", 3, seadrone, "SWIM", "FIRE"),
+            # THE ONES THAT BITE (8.24): the second cel range is the
+            # charge's, so each takes its own sheet's attack tag
+            ("cavebats", 4, bats, "FLY", "SWOOP"),
+            ("forestwolf", 5, wolf, "RUN", "ATTACK"),
+            ("forestboar", 6, boar, "CHARGE", "ATTACK"),
+            # THE SENTRIES (8.27): the agent, the sniper, the mercenary
+            # and the guard are drawn by ONE compiled cel a facing, the
+            # aim - so their "move" range is that cel and their "fire"
+            # range the one after it, which the blob does not have and
+            # the compiled draw never asks for. The turret is a sentry
+            # the span blitter draws, with its own two ranges.
+            ("desertmercenary", 7, merc, "SENTRY", None),
+            ("stationcyber", 8, guard, "SENTRY", None),
+            ("stationturret", 9, turret, "SCAN", "FIRE")]
     check("every kind the engine has is checked below", len(want) == kinds,
           f"{len(want)} rows against EN_KINDS {kinds}")
 
@@ -171,18 +195,27 @@ def main():
         base = T + t * EN_T_STRIDE
         got = {k: m.peek(base + o) for k, o in EN_T.items()}
         key = name.upper()
+        if move == "SENTRY":
+            aim = v[f"{key}_FIRE_FIRST"]
+            ranges = (aim, 1, aim + 1, 1)
+        else:
+            ranges = (v[f"{key}_{move}_FIRST"], v[f"{key}_{move}_COUNT"],
+                      v[f"{key}_{fire}_FIRST"], v[f"{key}_{fire}_COUNT"])
         ok = (got["W"] == v[f"{key}_BOX_W"] and got["H"] == v[f"{key}_BOX_H"]
-              and got["MOVE_F"] == v[f"{key}_{move}_FIRST"]
-              and got["MOVE_N"] == v[f"{key}_{move}_COUNT"]
-              and got["FIRE_F"] == v[f"{key}_{fire}_FIRST"]
-              and got["FIRE_N"] == v[f"{key}_{fire}_COUNT"])
+              and (got["MOVE_F"], got["MOVE_N"], got["FIRE_F"],
+                   got["FIRE_N"]) == ranges)
         check(f"{name}'s row is the sheet's own numbers", ok,
               f"{got['W']}x{got['H']} bytes, move {got['MOVE_F']}+"
               f"{got['MOVE_N']}, fire {got['FIRE_F']}+{got['FIRE_N']}")
-        check(f"{name}'s two facings are in DIFFERENT banks",
-              got["BANK"] != got["BANK_L"],
-              f"&{got['BANK']:02X} right, &{got['BANK_L']:02X} left - "
-              f"same address &{word(m, base + EN_T['RIGHT']):04X} in each")
+        # TWO DIFFERENT BLOBS, which is what the drone's bug was: one bank
+        # byte for both facings, at the same address in each, drew the
+        # right-facing art both ways. Most characters' facings are in two
+        # banks at one address; the bat's and the wolf's are two addresses
+        # in one bank, and that is the same answer.
+        r, l = word(m, base + EN_T["RIGHT"]), word(m, base + EN_T["LEFT"])
+        check(f"{name}'s two facings are two different blobs",
+              (got["BANK"], r) != (got["BANK_L"], l),
+              f"&{got['BANK']:02X}:{r:04X} right, &{got['BANK_L']:02X}:{l:04X} left")
 
     # ---- the spawn -------------------------------------------------
     print("\n  spawned from the level's own records:")

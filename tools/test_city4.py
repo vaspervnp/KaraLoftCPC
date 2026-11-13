@@ -315,19 +315,24 @@ def main():
             good, ran_off = window(wm, g, w, n, f, g * 4 - 24 + phase)
             got.append(len(good))
             offs += ran_off
+        # ... at both push beats too: a walk's window is a frame earlier
+        # or later with the beat, and the same length (test_city.py)
         walks = [len(window(wm, g, w, n, f, g * 4 - 24 + phase,
-                            run=False)[0]) for phase in (0, 1)]
+                            run=False, beat=beat)[0])
+                 for phase in (0, 1) for beat in (0, 1)]
         want = city.RUN_JUMPS[w, f - n]
-        wwant = city.WALK_JUMPS.get((w, f - n), 0)
-        ok = tuple(got) == want and min(walks) >= wwant
+        wwant = city.WALK_JUMPS[w, f - n]
+        ok = tuple(got) == want and all(x == wwant for x in walks)
         all_match = all_match and ok
         runoff_match = runoff_match and offs == (
             1 if (w, f - n) in city.RUN_OFF else 0)
         print(f"      gap at {g:3d}, {w} wide, row {n} -> {f}: running "
-              f"{got[0]}/{got[1]} frames, walking {walks[0]}/{walks[1]}"
-              f"{'' if ok else '  <- the tool says ' + str(want) + ', walking at least ' + str(wwant)}")
+              f"{got[0]}/{got[1]} frames, walking "
+              + "/".join(map(str, walks))
+              + f"{'' if ok else '  <- the tool says ' + str(want) + ', walking ' + str(wwant)}")
     check("they are level 2's windows, shape for shape",
-          all_match, "a run's exactly and a walk's at least (8.14)")
+          all_match, "a run's and a walk's exactly, at both stride phases "
+          "and both push beats (8.14)")
     check("... and a run off the edge crosses the downhill one only",
           runoff_match)
     across = []

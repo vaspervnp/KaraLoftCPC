@@ -420,6 +420,7 @@ def route():
     # in the second sweep have room for.
     m, _ = F.to_level(sym, 23)
     m.poke(sym["HZ_OFF_COL"], 255)
+    m.poke(sym["HZ_OFF_ADD"], 255)      # ... and at the door (8.27)
     frames, wrong = drive(m, 23, {"hp": 100})
     check("... and with the cells off the screen kept on the list, level 23 "
           "shows a beam a cel behind", wrong > 0, f"{wrong} frames")
@@ -446,6 +447,7 @@ def lock():
 
 
 def main():
+    F.QUIET = True                      # the sentries are test_sentries.py's
     offline()
     laser()
     door()

@@ -50,6 +50,7 @@ BUILD = os.path.join(ROOT, "build")
 sys.path.insert(0, HERE)
 from make_level import pack, read                              # noqa: E402
 from tilebake import box_pens, encode_tile, sheet_frames       # noqa: E402
+import sentries                                              # noqa: E402
 
 ART = os.path.join(ROOT, "assets", "sprites", "level2_forest")
 
@@ -101,6 +102,7 @@ LK_DISABLES = 1                 # docs/editor.md 5.4's own order
 EF_ACTIVE, EF_TAKEN, EF_SOLID, EF_TOUCH = 1, 2, 4, 8
 PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN, PU_IDOL, PU_BOOK = range(6)
 EN_AGENT, EN_DRONE, EN_SNIPER = 0, 1, 2
+EN_WOLF, EN_BOAR = 5, 6         # they bite, on the ground (CLAUDE.md 8.24)
 ENT_MAX = 24
 SCREEN_TILES = 20               # 160 pixels of play area, 8 to a tile
 PATROL = 3                      # half-width in tiles
@@ -276,6 +278,10 @@ LEVEL_5 = dict(
           34: "mushrooms", 44: "bush_l", 45: "bush_r", 69: "rock",
           75: "flowers", 84: "mushrooms", 93: "rock", 105: "flowers"},
     snipers=(),
+    # A WOLF ON THE GRASS BEFORE THE MOUNTAIN AND A BOAR PAST THE THIRD
+    # PIT: two encounters, fifty tiles apart, and each one with a branch
+    # in reach - (34, 4, 7) and (84, 4, 7) - to get above its charge.
+    beasts=((42, EN_WOLF), (92, EN_BOAR)),
     entities=[
         # kind, tile x, the row it STANDS on, flags, p0, p1
         ("start", 3, None, 0, 0),
@@ -337,6 +343,7 @@ LEVEL_6 = dict(
     deco={8: "bush_l", 9: "bush_r", 25: "rock", 48: "flowers",
           68: "mushrooms", 96: "rock", 112: "flowers"},
     snipers=(),
+    beasts=((30, EN_WOLF), (80, EN_BOAR)),
     entities=[
         ("start", 3, None, 0, 0),
         ("ammo", 26, None, 14, 0),
@@ -382,6 +389,13 @@ LEVEL_7 = dict(
     caves=(1, 120),
     deco={8: "flowers", 30: "rock", 52: "bush_l", 53: "bush_r",
           78: "mushrooms", 92: "rock", 104: "flowers", 114: "rock"},
+    # NO SNIPER, AND THAT IS A MEASUREMENT TOO (CLAUDE.md 8.27). One stood
+    # at 104, past the key, and was never on the screen with the field -
+    # and walked from the start, the field's eighth trap was a cel behind
+    # the map on 7 game frames against 2 without him: ENEMY_PICK's walk
+    # of the table, a thousand T for a sentry nowhere near, is all the
+    # eight cells breathing together had to spare. Level 8's fields are
+    # four cells, and its sniper costs them nothing.
     snipers=(),
     entities=[
         ("start", 3, None, 0, 0),
@@ -394,6 +408,11 @@ LEVEL_7 = dict(
     ],
     # (column, the cel it starts on, which altar stops it)
     traps=tuple((x, 0, 0) for x in range(62, 78, 2)),
+    # NO BEAST, AND THAT IS A MEASUREMENT (CLAUDE.md 8.26): a field of
+    # eight cells breathing together and a wolf's refresh do not fit one
+    # second sweep. With the refresh first the field was a cel behind the
+    # map on 214 game frames of 454; with the field's paint first the
+    # sweep ran to 85,892 T and the loop was 87 of 200 standing.
 )
 
 # ---------------------------------------------------------------------
@@ -421,7 +440,7 @@ LEVEL_8 = dict(
     caves=(1, 118),                     # map, and the way out IN it
     deco={5: "rock", 22: "flowers", 41: "mushrooms", 55: "bush_l",
           56: "bush_r", 69: "rock", 93: "flowers", 105: "mushrooms"},
-    snipers=(),
+    snipers=(56,),                      # under the second idol's climb
     entities=[
         ("start", 3, None, 0, 0),
         ("idol", 19, 5, 0, 0),
@@ -567,24 +586,24 @@ def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
 # 64-line box placed level with the tiles starts INSIDE them and the
 # landing snaps her a whole row low.
 #
-# AND BOTH LEVELS SHIP WITH NO ENEMIES, WHICH IS A MEASUREMENT AND NOT
-# AN OVERSIGHT. The forest's only ranged character is the sniper, and it
-# is 12x64 - agent class, which CLAUDE.md 8.7 measured as unaffordable
-# at 50 Hz and 9 called affordable at 25 Hz ON PAPER, with nothing
-# having measured it. Two of them went in level 5 and the measurement is
-# what took them out: standing beside one, the loop is
+# AND NEITHER LEVEL HAS A SNIPER, WHICH IS A MEASUREMENT AND NOT AN
+# OVERSIGHT. The forest's only ranged character is 12x64 - agent class,
+# which CLAUDE.md 8.7 measured as unaffordable at 50 Hz and 9 called
+# affordable at 25 Hz ON PAPER, with nothing having measured it. Two of
+# them went in level 5 and the measurement is what took them out:
+# standing beside one, the loop is
 #
 #     80 game frames in 200 hardware, against 100 with ENEMY_LIVE at 0
 #
 # - the same level, the same spot, one thing changed. Twenty holes in
 # two hundred frames, where the City's drones cost nought to five.
+# EN_SNIPER stays in the type table the way EN_AGENT has.
 #
-# The forest's OWN creatures are a wolf and a boar, and both are 16x24
-# and would very likely fit - but their tags are RUN and ATTACK. They
-# are melee, and the engine has no melee: driven through EN_T_FIRE they
-# would shoot invisible bullets. That is the work level 2's enemies are
-# waiting on, and EN_SNIPER stays in the type table the way EN_AGENT
-# has - correct data that the frame cannot spend yet.
+# WHAT THEY HAVE IS THE FOREST'S OWN CREATURES: a wolf and a boar each,
+# on the ground (`beasts`). Their tags are RUN and ATTACK - melee - and
+# a row of ENEMY_TYPES whose EN_T_KIND says so charges and bites where a
+# drone would fire, and keeps to the line it was placed on (CLAUDE.md
+# 8.24). They hold the lock at 100 of 200.
 
 # What each name in a LAYOUT's `entities` means, in the engine's terms:
 # the kind, the flag bits, and which of p0/p1 the two numbers are. `p0
@@ -631,7 +650,13 @@ def build_entities(t, L):
                            flags, p0, p1))
     for x in L["snipers"]:
         recs.append(entity(EK_ENEMY, x, ROW_GROUND, EF_ACTIVE,
-                           EN_SNIPER, PATROL))
+                           EN_SNIPER, 0))
+    # THE BEASTS: the forest's own wolf and boar, which bite where the
+    # sniper would shoot (CLAUDE.md 8.24). They stand on the ground row
+    # and keep to it, so a branch is where she is out of their reach.
+    for x, kind in L.get("beasts", ()):
+        recs.append(entity(EK_ENEMY, x, ROW_GROUND, EF_ACTIVE,
+                           kind, PATROL))
 
     # THE TRAPS, AND WHAT STOPS EACH ONE. `traps` is (column, phase,
     # which altar): the phase is the cel it starts on, so a field can be
@@ -717,6 +742,13 @@ def checks(m, t, ents, L):
     for a, b in zip(spans, spans[1:]):
         gap = (b - PATROL) - (a + PATROL)
         assert gap > SCREEN_TILES, f"two enemies {gap} tiles apart"
+    # ... and a SNIPER is a sentry (CLAUDE.md 8.27): drawn compiled, so
+    # his column must keep every line of his box inside a page of video
+    # RAM, and redrawn only when he turns, so no pickup, trap or altar
+    # may be under him - tools/sentries.py, the desert's and the
+    # station's own rule.
+    sentries.check(L["level_id"], [(x, ROW_GROUND) for x in L["snipers"]],
+                   ents)
 
     # ... AND EVERY THING SHE HAS TO TOUCH MUST BE SOMEWHERE SHE CAN
     # STAND. A record's row is the floor it stands on and not the cell
@@ -800,7 +832,7 @@ def main():
         traps = len(L.get("traps", ()))
         print(f"-> level_{n}.lvl     {len(blob)} bytes: {back['width']}x"
               f"{back['height']}, {back['entities']} entities "
-              f"({pickups} pickups, {enemies} snipers, {traps} traps), "
+              f"({pickups} pickups, {enemies} enemies, {traps} traps), "
               f"{len(links) // 4} links, tileset {TILESET_ID}")
         print(f"   {len(L['trees'])} trees, {len(L['branches'])} branch "
               f"platforms, {len(L['pits'])} pits ({pit_tiles} tiles of "

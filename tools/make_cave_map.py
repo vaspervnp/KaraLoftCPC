@@ -95,15 +95,17 @@ the numbering is not part of the contract.
               80 and 64 lines, and all of them free. The gate out stands
               on the last dry floor, and past it is the undersea.
 
-WHAT IS NOT HERE IS THE PUZZLE. The artist drew a four-slot gate and
-two panels that hint the order sun-moon / eye-star, and CLAUDE.md 8.1
-calls the cave's signature a "3-symbol book/lever puzzle";
-READ_BOOK_PUZZLE and CURRENT_BOOK_ID exist in the engine and nothing
-has ever driven them. The gates here are EK_DOORs that a key opens, and
-the slots are drawn UNFILLED at both ends - including level 10's, which
-she has already come through. gate_book_sun/_moon/_eye/_star are in the
-sheet and stay unplaced, because a gate drawn with its books in would
-be this file claiming a mechanic that is not written.
+AND EVERY GATE IS THE PUZZLE plan.md names - "the covers of ancient
+books open a gate" - with the artist's own pieces (CLAUDE.md 8.25). A
+gate wants the two symbols of ONE of the two tablets, sun-and-moon or
+eye-and-star, and that tablet is carved into the wall where she comes in
+and beside the gate. The level has a book of every symbol: the two the
+gate wants, one on her way and one off it, and the two it does not,
+which are CURSED - picking one up costs her a cell of health and it is
+gone. With both good books she presses UP at the gate: its wanted slots
+light with their books in, she has the gate's key, and the next UP opens
+it. The gate she came through, in levels 10-12, is drawn with the last
+level's books in its slots.
 """
 import json
 import os
@@ -129,6 +131,20 @@ MAP_W, MAP_H = 32, 64           # 1.6 screens across, 5.3 DOWN
 TILESET_ID = 3                  # environment 3, levels 9-12
 
 SOLID, PLATFORM, HAZARD, LADDER = 1, 2, 4, 8
+ADVANCE = 128                   # TA_ADVANCE: moves on to the next index
+
+# THE GATE'S FOUR SYMBOLS, in its slots' order, and the bit each is in a
+# book's p1 and in the lock's (src/books.asm). A cursed book is its bit
+# with bit 7 set. The two TABLETS are the clue: a gate wants the pair
+# one of them is carved with (8.25).
+SYMBOLS = ("sun", "moon", "eye", "star")
+CURSED = 0x80
+TABLETS = {("sun", "moon"): "panel_sun_moon", ("eye", "star"): "panel_eye_star"}
+# A WANTED SLOT IS A PAIR OF TILES THAT DO NOT EXIST YET - the artist's
+# empty slot carrying TA_ADVANCE, and the slot with its book in at the
+# next index - appended to the blob after the bake. Until then the map
+# holds this placeholder for it, and main() puts the index in.
+SLOT_PAIR = 1000
 
 # The walls are the map's edges and she is three tiles wide, so the
 # inner faces go here and everything outside them is fill.
@@ -169,11 +185,15 @@ LEVEL_9 = dict(
     start=(6, FLOORS[-1]),              # column, the floor she stands on
     gate=(12, FLOORS[0]),               # the way out, shut
     entrance=None,
-    # THE KEY IS ON THE SECOND FLOOR FROM THE TOP, so the climb is done
-    # before the gate can be opened and the last ladder is not a
-    # shortcut past it.
-    pickups=((20, FLOORS[-2], "ammo"), (12, FLOORS[-4], "medkit"),
-             (22, FLOORS[1], "key")),
+    pickups=((20, FLOORS[-2], "ammo"), (12, FLOORS[-4], "medkit")),
+    # THE GATE WANTS THE SUN AND THE MOON, and the tablet where she
+    # comes in says so (8.25). The moon is where the key was - the
+    # second floor from the top, so the climb is done before the gate
+    # can be opened - and the sun is past the ladder on floor 30, a
+    # detour; the eye and the star are detours too, and cursed.
+    wants=("sun", "moon"),
+    books=((22, FLOORS[1], "moon"), (26, FLOORS[3], "sun"),
+           (25, FLOORS[5], "eye"), (5, FLOORS[2], "star")),
     crystals=((54, 14, "crystal_0"), (54, 15, "crystal_1"),
               (38, 18, "crystal_0"), (22, 11, "crystal_1")),
     fixtures=((50, 12, "beam_top"), (51, 12, "beam_post"),
@@ -181,6 +201,7 @@ LEVEL_9 = dict(
               (18, 8, "lamp_1")),
     pillars=(),
     pools=(),
+    bats=((54, 14), (38, 12), (22, 16)),
 )
 
 LEVEL_10 = dict(
@@ -202,11 +223,18 @@ LEVEL_10 = dict(
     start=(17, FLOORS[0]),              # in the doorway she came through
     gate=(16, FLOORS[-1]),              # the way out, shut, at the bottom
     entrance=(16, FLOORS[0]),           # ... and the way in, open
-    # THE KEY IS ON THE SECOND FLOOR FROM THE BOTTOM, which is level
-    # 9's rule read the other way up: the descent is done before the
-    # gate can be opened.
-    pickups=((15, FLOORS[1], "ammo"), (16, FLOORS[3], "medkit"),
-             (18, FLOORS[-2], "key")),
+    pickups=((15, FLOORS[1], "ammo"), (16, FLOORS[3], "medkit")),
+    # THE EYE AND THE STAR. The eye is where the key was, on the second
+    # floor from the bottom and between where she lands and the way
+    # down, so it cannot be missed; the star is left of where the
+    # ladder puts her down on floor 22 - and right where the HOLE above
+    # puts her, which is the one thing that hole gives back. The sun is
+    # beside the tablet at the start, and the moon past the gate at
+    # the bottom, both cursed: a book in plain sight that she has to
+    # read the wall to leave alone.
+    wants=("eye", "star"),
+    books=((18, FLOORS[-2], "eye"), (5, FLOORS[2], "star"),
+           (8, FLOORS[0], "sun"), (6, FLOORS[-1], "moon")),
     crystals=((30, 26, "crystal_1"), (46, 6, "crystal_0"),
               (62, 21, "crystal_0"), (62, 22, "crystal_1")),
     fixtures=((11, 14, "lamp_0"), (27, 8, "lamp_1"), (43, 17, "lamp_0"),
@@ -223,6 +251,7 @@ LEVEL_10 = dict(
     # state TA_HAZARD was in before 8.12, so setting it would be this
     # file describing a mechanic the engine has not got.
     pools=((62, 8), (62, 9)),
+    bats=((14, 16), (30, 14), (46, 18)),
 )
 
 LEVEL_11 = dict(
@@ -257,10 +286,15 @@ LEVEL_11 = dict(
     start=(6, FLOORS[-1]),              # in the doorway she came through
     gate=(8, FLOORS[0]),                # the way out, shut, at the top
     entrance=(5, FLOORS[-1]),           # ... and the way in, open
-    # THE KEY IS ON THE SECOND FLOOR FROM THE TOP, level 9's rule: the
-    # climb is done before the gate can be opened.
-    pickups=((15, FLOORS[-2], "ammo"), (17, FLOORS[3], "medkit"),
-             (18, FLOORS[1], "key")),
+    pickups=((15, FLOORS[-2], "ammo"), (17, FLOORS[3], "medkit")),
+    # THE SUN AND THE MOON again, level 9's tablet: the sun where the
+    # key was, the moon left of where the staircase lands her on floor
+    # 30, and the two cursed ones off the way across a floor each - and
+    # NOT under the first staircase's top step, which is where a miss
+    # lands her: a fall that is free against FALL_FREE has to stay free.
+    wants=("sun", "moon"),
+    books=((18, FLOORS[1], "sun"), (5, FLOORS[3], "moon"),
+           (25, FLOORS[5], "eye"), (26, FLOORS[6], "star")),
     crystals=((62, 25, "crystal_0"), (62, 26, "crystal_1"),
               (46, 23, "crystal_1"), (22, 5, "crystal_0")),
     fixtures=((35, 22, "lamp_0"), (19, 24, "lamp_1"),
@@ -274,6 +308,7 @@ LEVEL_11 = dict(
     # animate here (7.3).
     drips=((14, "drip_2"), (22, "drip_1")),
     pools=((6, 22), (6, 23)),
+    bats=((54, 12), (38, 16), (22, 14)),
 )
 
 LEVEL_12 = dict(
@@ -301,10 +336,17 @@ LEVEL_12 = dict(
     start=(9, FLOORS[0]),               # in the doorway she came through
     gate=(18, FLOORS[-2]),              # the way out, on the last dry floor
     entrance=(8, FLOORS[0]),            # ... and the way in, open
-    # THE KEY IS ON THE SECOND FLOOR FROM THE BOTTOM, level 10's rule:
-    # the descent is done before the gate can be opened.
-    pickups=((14, FLOORS[1], "ammo"), (14, FLOORS[3], "medkit"),
-             (17, FLOORS[-3], "key")),
+    pickups=((14, FLOORS[1], "ammo"), (14, FLOORS[3], "medkit")),
+    # THE EYE AND THE STAR, and THIS LEVEL IS ONE WAY: a broken ladder
+    # and a hole are both down and never up. So every book is on a
+    # floor she has to cross, and the detour to one never crosses the
+    # hole beside its ladder - the star is against the right wall of
+    # floor 30, the side the ladder does not lead to. The eye is where
+    # the key was. The sun is left of the doorway she comes in by, and
+    # the moon past the gate at the bottom.
+    wants=("eye", "star"),
+    books=((17, FLOORS[-3], "eye"), (27, FLOORS[3], "star"),
+           (5, FLOORS[0], "sun"), (25, FLOORS[-2], "moon")),
     # The walls are cracked and water pours out of them - two falls
     # down the left wall, the lower one through the broken floor at
     # row 46, and two down the right.
@@ -315,9 +357,13 @@ LEVEL_12 = dict(
     fixtures=((33, 16, "lamp_1"), (9, 17, "lamp_0")),
     pillars=(),
     pools=(),
+    bats=((14, 14), (30, 16), (46, 18)),
 )
 
 LAYOUTS = (LEVEL_9, LEVEL_10, LEVEL_11, LEVEL_12)
+# THE GATE SHE CAME THROUGH IS THE LAST LEVEL'S, with its books in.
+for _prev, _L in zip(LAYOUTS, LAYOUTS[1:]):
+    _L["came_through"] = _prev["wants"]
 
 TILE_FLAGS = {
     # The rock she stands on. A floating ledge is a PLATFORM - a floor
@@ -333,6 +379,9 @@ TILE_FLAGS = {
     "wall_fill": SOLID, "wall_l": SOLID, "wall_l_b": SOLID,
     "wall_r": SOLID, "wall_r_b": SOLID,
     "ceil": SOLID, "ceil_stalactites": SOLID,
+    # ... and the tablets are set INTO the wall's face, so they are wall:
+    # an empty flag there was a one-tile notch in it at her chest.
+    "panel_sun_moon": SOLID, "panel_eye_star": SOLID,
     # The earthquake's cracks are wall_fill breaking open, so they are
     # wall; the waterfall, the flood's surface and the flood itself
     # carry NOTHING, because TA_WATER has no reader (the pools' note
@@ -356,6 +405,8 @@ EK_PLAYER_START, EK_ENEMY, EK_NPC, EK_PICKUP = 0, 2, 3, 4
 EK_DOOR, EK_RECEPTACLE = 6, 7
 EF_ACTIVE, EF_TAKEN, EF_SOLID, EF_TOUCH = 1, 2, 4, 8
 PU_KEY, PU_AMMO, PU_MEDKIT, PU_COIN, PU_IDOL, PU_BOOK = range(6)
+EN_BAT = 4                      # it swoops and bites (CLAUDE.md 8.24)
+BAT_PATROL = 3                  # half-width in tiles, until it has seen her
 PICKUPS = {"key": (PU_KEY, 0), "ammo": (PU_AMMO, 14), "medkit": (PU_MEDKIT, 0),
            "coin": (PU_COIN, 0), "idol": (PU_IDOL, 0), "book": (PU_BOOK, 0)}
 ENT_MAX = 24
@@ -501,15 +552,21 @@ def build_map(names, L):
     # 4 wide x 5 tall: the slots across the top, then four rows of
     # pillar / door / door / pillar.
     gate_col, gate_row = L["gate"]
-    gate_slots(g, t, gate_col, gate_row)
+    gate_slots(g, t, gate_col, gate_row, wanted=L["wants"])
     for r in range(gate_row - 4, gate_row):
         for i, n in enumerate(("gate_pillar_l", "gate_door_l",
                                "gate_door_r", "gate_pillar_r")):
             g[r][gate_col + i] = t[n]
 
-    # ---- the panels that hint its order, set into the walls ---------
-    g[gate_row - 2][WALL_L] = t["panel_sun_moon"]
-    g[gate_row - 2][WALL_R] = t["panel_eye_star"]
+    # ---- THE TABLET, which is the clue -----------------------------
+    # The pair the gate wants, carved: on both walls beside the gate,
+    # and on the wall nearest where she comes in, at her chest - so she
+    # has read it before she meets a single book (8.25).
+    tablet = t[TABLETS[tuple(L["wants"])]]
+    g[gate_row - 2][WALL_L] = tablet
+    g[gate_row - 2][WALL_R] = tablet
+    col, floor = L["start"]
+    g[floor - 2][WALL_L if col - WALL_L < WALL_R - col else WALL_R] = tablet
 
     # ---- and the gate she came THROUGH, which is the same gate open --
     # Its two door leaves are folded back against the pillars, drawn as
@@ -518,7 +575,7 @@ def build_map(names, L):
     # doorway you can see through and not a door.
     if L["entrance"]:
         in_col, in_row = L["entrance"]
-        gate_slots(g, t, in_col, in_row)
+        gate_slots(g, t, in_col, in_row, filled=L["came_through"])
         for r in range(in_row - 4, in_row):
             g[r][in_col] = t["gate_pillar_l"]
             g[r][in_col + 3] = t["gate_pillar_r"]
@@ -533,11 +590,29 @@ def build_map(names, L):
     return g
 
 
-def gate_slots(g, t, col, row):
-    """The four unfilled slots across the head of a gate."""
-    for i, n in enumerate(("gate_slot_sun", "gate_slot_moon",
-                           "gate_slot_eye", "gate_slot_star")):
-        g[row - 5][col + i] = t[n]
+def gate_slots(g, t, col, row, wanted=(), filled=()):
+    """The four slots across the head of a gate: the artist's empty
+    ones, a placeholder for each slot the gate WANTS (SLOT_PAIR), and
+    the slot with its book in for each one already FILLED - the gate she
+    came through, whose books the last level took (8.25)."""
+    for i, sym in enumerate(SYMBOLS):
+        if sym in filled:
+            g[row - 5][col + i] = t[f"gate_book_{sym}"]
+        elif sym in wanted:
+            g[row - 5][col + i] = SLOT_PAIR + i
+        else:
+            g[row - 5][col + i] = t[f"gate_slot_{sym}"]
+
+
+def lock_col(L):
+    """Where the gate's lock stands: HZ_SATISFIED lights the 3 x 5
+    around a receptacle - its own column and one either side - so the
+    lock has to be within a column of every slot it wants, and it
+    stands as near the doorway's middle as that allows."""
+    idx = [SYMBOLS.index(s) for s in L["wants"]]
+    lo, hi = max(idx) - 1, min(idx) + 1
+    assert lo <= hi, f"no column lights both {L['wants']}"
+    return L["gate"][0] + min(max(lo, 1), hi)
 
 
 def entity(kind, tile_x, base_row, flags, p0=0, p1=0):
@@ -558,9 +633,31 @@ def build_entities(L):
     for x, row, kind in L["pickups"]:
         p0, p1 = PICKUPS[kind]
         out.append(entity(EK_PICKUP, x, row, EF_ACTIVE | EF_TOUCH, p0, p1))
+    # THE BOOKS: a wanted one is its bit, a cursed one its bit and
+    # CURSED - picking it up costs her, and it is gone (8.25).
+    for x, row, sym in L["books"]:
+        bit = 1 << SYMBOLS.index(sym)
+        out.append(entity(EK_PICKUP, x, row, EF_ACTIVE | EF_TOUCH, PU_BOOK,
+                          bit if sym in L["wants"] else bit | CURSED))
+    # THE LOCK, AND THEN THE DOOR, in that order: the interact pass
+    # stops at the first box it meets, so UP at the gate finds the lock
+    # while it wants anything, and the door once it is satisfied - by
+    # which time it has given her the door's key.
     gate_col, gate_row = L["gate"]
+    want = sum(1 << SYMBOLS.index(s) for s in L["wants"])
+    out.append(entity(EK_RECEPTACLE, lock_col(L), gate_row, EF_ACTIVE,
+                      PU_BOOK, want))
     out.append(entity(EK_DOOR, gate_col + 1, gate_row,
                       EF_ACTIVE | EF_SOLID, 0, PU_KEY))
+    # THE BATS, IN THE ORDER SHE MEETS THEM. On a map 32 tiles wide
+    # every enemy is NEAR - ENEMY_PICK's near test is across and the
+    # whole map is in it - so they come one at a time in table order
+    # (8.20), and the order is the route's. Each hangs two rows above
+    # the floor it is on until it is on the screen, and then it is
+    # hers until one of them is dead (8.7, 8.24).
+    for floor, col in L.get("bats", ()):
+        out.append(entity(EK_ENEMY, col, floor - 2, EF_ACTIVE,
+                          EN_BAT, BAT_PATROL))
     return b"".join(out)
 
 
@@ -700,6 +797,28 @@ def checks(m, names, ents, L):
             f"a kind-{ents[i]} record at tile {x}, row {row} is somewhere "
             f"she cannot stand - the ladders are the only way up")
 
+    # THE PUZZLE (8.25). Every symbol the gate wants has exactly ONE
+    # good book; every other book is cursed and is a symbol it does not
+    # want; there is a curse to avoid, or the tablet is decoration; and
+    # there is no key left in the level, because the lock is the key.
+    recs = [ents[i:i + 8] for i in range(0, len(ents), 8)]
+    books = [r for r in recs if r[0] == EK_PICKUP and r[6] == PU_BOOK]
+    want = sum(1 << SYMBOLS.index(x) for x in L["wants"])
+    good = [r[7] for r in books if not r[7] & CURSED]
+    assert sorted(good) == sorted(1 << SYMBOLS.index(x) for x in L["wants"]), (
+        f"the gate wants {L['wants']} and the good books are {good}")
+    for r in books:
+        if r[7] & CURSED:
+            assert not r[7] & want, f"a cursed book of a symbol it wants"
+    assert any(r[7] & CURSED for r in books), "no book to leave alone"
+    assert not [r for r in recs if r[0] == EK_PICKUP and r[6] == PU_KEY], (
+        "a key in a level whose gate is opened by its books")
+    # ... AND THE LOCK IS THE RECORD BEFORE THE DOOR, which is what lets
+    # UP find it first; and it lights the slots it wants (lock_col).
+    k = next(i for i, r in enumerate(recs) if r[0] == EK_RECEPTACLE)
+    assert recs[k + 1][0] == EK_DOOR, "the lock is not right before the door"
+    assert recs[k][7] == want
+
     # ... AND EVERY FLOOR HAS TO BE REACHED, which is the cave's own
     # version of the same question: a ladder in the wrong column is a
     # level that stops at the floor below it and looks perfectly fine.
@@ -750,6 +869,31 @@ def main():
             for x in range(MAP_W):
                 g[r][x] = remap.get(g[r][x], g[r][x])
 
+    # THE GATES' SLOTS, AS PAIRS, after everything the bake made: the
+    # artist's empty slot carrying TA_ADVANCE and then the slot with its
+    # book in, so the lock's HZ_SATISFIED moves a wanted slot on to its
+    # lit picture exactly as it moves the altar's (8.17, 8.25). One pair
+    # a symbol any of the four gates wants, shared like every tile here.
+    names_all = names + extra_names
+    used = [x for x in SYMBOLS if any(x in L["wants"] for L in LAYOUTS)]
+    pair = {}
+    pair_bytes = b""
+    t = {n: i for i, n in enumerate(names)}
+    tiles = os.path.join(BUILD, "levels", "level3_cave", "cavetiles.bin")
+    base = open(tiles, "rb").read()[:64 * len(names)]
+    for x in used:
+        pair[SYMBOLS.index(x)] = len(names_all) + len(pair) * 2
+        for n in (f"gate_slot_{x}", f"gate_book_{x}"):
+            pair_bytes += base[64 * t[n]:64 * t[n] + 64]
+    for _, g, _, _, _ in built:
+        for r in range(MAP_H):
+            for x in range(MAP_W):
+                if g[r][x] >= SLOT_PAIR:
+                    g[r][x] = pair[g[r][x] - SLOT_PAIR]
+    extra_names = extra_names + [f"{p}_{x}" for x in used
+                                 for p in ("slot", "book")]
+    extra_bytes = extra_bytes + pair_bytes
+
     full = names + extra_names
     flags = bytes(TILE_FLAGS.get(n, 0) for n in full)
     # A BAKED TILE INHERITS WHAT IS UNDERNEATH IT, because what the cell
@@ -762,6 +906,8 @@ def main():
         if j >= len(names):
             flags[j] = (TILE_FLAGS.get(names[under], 0)
                         | TILE_FLAGS.get(names[over], 0))
+    for x in used:
+        flags[pair[SYMBOLS.index(x)]] = ADVANCE     # ... and its book is next
     flags = bytes(flags) + bytes(256 - len(flags))
 
     # THE BLOB IS TRUNCATED TO THE TILESET'S OWN TILES FIRST, so running
@@ -769,8 +915,6 @@ def main():
     # copy on the first - make_city_map.py's own rule, and the same
     # reason: build.sh runs this AFTER build_levels.py exported the
     # blob and BEFORE level_banks.py lays it into a bank.
-    tiles = os.path.join(BUILD, "levels", "level3_cave", "cavetiles.bin")
-    base = open(tiles, "rb").read()[:64 * len(names)]
     assert len(base) == 64 * len(names), "the tile blob is short"
     assert len(extra_bytes) == 64 * len(extra_names)
     open(tiles, "wb").write(base + extra_bytes)

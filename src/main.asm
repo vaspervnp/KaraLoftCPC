@@ -1071,12 +1071,12 @@ BANK_STORE:     ld   a,PEN_GREEN
                 ; an altar cell's attribute is looked up with
                 ; TILE_ATTR's page in D (src/hazard.asm)
                 assert (TILE_ATTR AND 255) == 0
-                ; ENEMY_TYPE_AT does the same with a 32-byte stride, and
+                ; ENEMY_TYPE_AT does the same with a 21-byte stride, and
                 ; the WHOLE table has to sit in one page: ADD A,low
                 ; discards the carry, so a table that straddles a page
                 ; boundary silently reads the wrong row.
                 ; (asserted after the HIGH image, where the table is)
-                assert EN_T_STRIDE == 32
+                assert EN_T_STRIDE == 21
                 assert EN_T_USED <= EN_T_STRIDE
                 ; The enemy's script sits above hers and below the round
                 ; saves' ceiling, like every other buffer up there.
@@ -1277,16 +1277,26 @@ HIGH_END:
 HIGH_SIZE       equ  HIGH_END - HIGH_START
                 assert (ENEMY_TYPES AND 255) + EN_KINDS * EN_T_STRIDE <= 256
                 assert ENEMY_TYPES_END - ENEMY_TYPES == EN_KINDS * EN_T_STRIDE
-                assert HIGH_END <= LEVEL_IMAGE
-; ... AND PAST IT, THE SPIKE TRAPS' PENDING CELLS: two bytes a cell, in
-; the base RAM nothing else uses, written before anything reads it -
-; HAZARD_SPAWN empties the list at every level install (src/hazard.asm).
-HZ_PEND         equ  HIGH_END
+; THE TRAPS' PENDING CELLS: two bytes a cell, written before anything
+; reads them - HAZARD_SPAWN empties the list at every level install
+; (src/hazard.asm). They were past the HIGH image, and they are in the
+; 64 bytes between the entity table and TILE_ATTR now, which nothing had
+; used since the traps' own table moved out of them (8.19): the HIGH
+; image needed the 32 bytes for the enemies' new rows (8.24).
+HZ_PEND         equ  ENT_TABLE + ENT_MAX * ENT_STRIDE
+                assert HZ_PEND + HZ_PEND_MAX * 2 <= TILE_ATTR
+; ... AND WHAT A SENTRY LAST PUT ON THE SCREEN, in the 32 after them that
+; nothing used (src/sentry.asm). Read only while ENEMY_DREW says its
+; pixels are up there, so a level start never has to clear them.
+EN_DREW_SLOT    equ  HZ_PEND + HZ_PEND_MAX * 2
+EN_DREW_CEL     equ  EN_DREW_SLOT + 2
+EN_DREW_FACE    equ  EN_DREW_SLOT + 3
+                assert EN_DREW_FACE < TILE_ATTR
 ; ... AND THE TRAPS THEMSELVES, at the last 128 bytes below the level
 ; image: a page boundary cannot fall inside them, which HAZARD_SPAWN's
-; slot arithmetic needs, and the pending list must end before them.
+; slot arithmetic needs, and the HIGH image must end before them.
 HZ_TABLE        equ  LEVEL_IMAGE - HZ_MAX * HZ_STRIDE
-                assert HZ_PEND + HZ_PEND_MAX * 2 <= HZ_TABLE
+                assert HIGH_END <= HZ_TABLE
                 assert (HZ_TABLE AND 255) + HZ_MAX * HZ_STRIDE <= 256
 
 ; =====================================================================
@@ -1308,6 +1318,20 @@ SOUND_IMAGE     equ  HIGH_IMAGE + HIGH_SIZE
                 org  SOUND_ADDR, SOUND_IMAGE
 SOUND_START:
                 include "sound.asm"
+                include "levels/level3_cave/cavebooks.inc"
+                include "books.asm"         ; the cave's gate (8.25)
+                include "hazard_it.asm"     ; a trap beside an enemy (8.26)
+                ; THE CHARACTERS' DURATION TABLES, which are data and went
+                ; where the TOP image had room until the sentries took it
+                ; (8.27)
+                include "levels/level3_cave/cavebats.inc"
+                include "levels/level2_forest/forestwolf.inc"
+                include "levels/level2_forest/forestboar.inc"
+                include "levels/level6_station/stationturret.inc"
+                assert CAVEBATS_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert FORESTWOLF_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert FORESTBOAR_SPAN_MAX <= SPAN_MAX_WIDTH
+                assert STATIONTURRET_SPAN_MAX <= SPAN_MAX_WIDTH
 SOUND_END:
 SOUND_SIZE      equ  SOUND_END - SOUND_START
                 assert SOUND_END <= MAP_ADDR
@@ -1329,8 +1353,27 @@ SOUND_SIZE      equ  SOUND_END - SOUND_START
 ; image below it is the other neighbour, and the biggest the build makes
 ; is asserted short of TOP_ADDR below. Nothing else writes in this
 ; image but its own patchers' working bytes (SHAPE_NOW and the like).
+;
+; AND THE STACK KEEPS 128 BYTES NOW, NOT 256, MEASURED AGAIN FIRST. The
+; same pattern under &BFD8, and every one of the twenty-four levels
+; played into - running, firing and jumping, a death and its restart on
+; the third, and a door at the end of each, three of them a disc read of
+; a whole environment's art with the interrupts off: nothing below
+; &BFD8. 40 bytes, so 128 is three times what the game has ever used,
+; and the 128 it gives back are the enemies' behaviours (8.24).
+;
+; AND 112, MEASURED A THIRD TIME, WITH THE SENTRIES IN (8.27). Painted
+; from TOP_END to &BFCF and played on levels 4, 8, 17, 21 and 23 - each
+; sentry drawn, firing and shot at, a death and its restart, and a door
+; out - nothing below &BFD0 was written. The 16 bytes it gives back are
+; EN_DRAW_C's, moved here so the core could pay for HZ_PEND_ADD's reject.
 ; =====================================================================
-TOP_ADDR        equ  &BB00
+TOP_ADDR        equ  LEVEL_IMAGE + LEVEL_IMAGE_SIZE
+                ; ... straight after the biggest level image, which is
+                ; where its room comes from: it was &BB00, and the thirty
+                ; bytes between that and the image's end are the sentry's
+                ; (8.27). A bigger level moves it up, and the asserts
+                ; below say whether it still fits under the stack.
 TOP_IMAGE       equ  SOUND_IMAGE + SOUND_SIZE
                 org  TOP_ADDR, TOP_IMAGE
 TOP_START:
@@ -1338,7 +1381,9 @@ TOP_START:
                 include "mapshape.asm"
                 include "swim.asm"
                 include "oxygen.asm"
+                include "melee.asm"         ; the enemies that bite (8.24)
+                include "sentry.asm"        ; ... and that keep a post (8.27)
 TOP_END:
 TOP_SIZE        equ  TOP_END - TOP_START
-                assert TOP_END <= STACK_TOP + 1 - 256
+                assert TOP_END <= STACK_TOP + 1 - 112
                 assert LEVEL_IMAGE + LEVEL_IMAGE_SIZE <= TOP_ADDR

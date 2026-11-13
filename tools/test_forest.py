@@ -79,8 +79,19 @@ def to_forest(sym, level=LEVEL):
         if (m.peek(sym["GAME_STATE"]) == 0
                 and m.peek(sym["LEVEL_CUR"]) == level - 1):
             m.run_frames(10)
+            calm(m, sym)
             return m, f
     return m, None
+
+
+def calm(m, sym):
+    """THE BEASTS OFF. Levels 5 and 6 carry a wolf and a boar now
+    (CLAUDE.md 8.24), and this suite drives her along the ground without
+    a shot fired - which is what it is for: the bands, the branches, the
+    spikes and the lock of a level with nothing in it. The beasts have
+    their own suite (tools/test_beasts.py). ENEMY_PICK finds nobody with
+    ENEMY_LIVE at 0, which is test_city.py's own way."""
+    m.poke(sym["ENEMY_LIVE"], 0)
 
 
 def drive(m, sym, tile, limit=4000, hurts=None):
@@ -287,6 +298,7 @@ def main():
         if (ms.peek(sym["GAME_STATE"]) == 0
                 and ms.peek(sym["LEVEL_CUR"]) == 5):
             ms.run_frames(10)
+            calm(ms, sym)
             break
     check("her health crossed the door", ms.peek(sym["PLAYER_HP"]) == carried,
           f"{carried} out of level 5 and {ms.peek(sym['PLAYER_HP'])} into "

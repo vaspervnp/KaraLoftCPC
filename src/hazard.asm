@@ -336,7 +336,7 @@ HZ_WRITE:       ld   e,a                    ; E = the cel
                 ld   b,(iy + HZ_WR)
 .cell:          ld   (hl),e
                 push hl
-                call HZ_PEND_ADD            ; BC and DE survive it
+                call HZ_PEND_ON             ; BC and DE survive it
                 pop  hl
                 ld   a,(HZ_WIDE)
                 or   a
@@ -347,7 +347,7 @@ HZ_WRITE:       ld   e,a                    ; E = the cel
                 inc  c
                 inc  c
                 push hl
-                call HZ_PEND_ADD
+                call HZ_PEND_ON
                 pop  hl
                 dec  hl
                 dec  c
@@ -367,6 +367,20 @@ HZ_WRITE:       ld   e,a                    ; E = the cel
 ; with HZ_MAX traps and one altar on it.
 ;                                destroys AF,HL
 ; ---------------------------------------------------------------------
+; HZ_PEND_ON is the same for a cell of a RUN, which is refused at the
+; door when it is wholly off the left or the right: its column comes in
+; from the map, which has the new cel - the passes' .off, before the
+; list. A laser off the screen was eight of level 23's twelve cells on
+; the frame three changed, and its tick 14,252 T (CLAUDE.md 8.27). The
+; forest's spike traps come in at HZ_PEND_ADD and do not pay the 36 T:
+; at eight cells a change that was the field's last cell on 4 frames.
+; ---------------------------------------------------------------------
+HZ_PEND_ON:     ld   a,(WORLD_X)
+                sub  c
+                add  a,SCR_CHARS - 1        ; -1 .. 39 on the screen -> 0 .. 40
+                cp   SCR_CHARS + 1
+HZ_OFF_ADD      equ  $ - 1                  ; (test_station's control)
+                ret  nc
 HZ_PEND_ADD:    ld   a,(HZ_PEND_N)
                 or   a
                 jr   z,.room
@@ -464,6 +478,8 @@ HZ_PAINT_LIST:  ld   (HZ_DODGE),a
                 ld   a,(HZ_PEND_N)          ; look at: the cells under her
                 or   a                      ; are on the list too, and the
                 ret  z                      ; first version counted them
+                call HZ_IT_BOUNDS           ; the enemy's box, this pass
+                ld   a,(HZ_PEND_N)
                 ld   b,a
                 ld   hl,HZ_PEND
                 ld   de,HZ_PEND             ; the kept ones, compacted
@@ -486,7 +502,7 @@ HZ_LIMIT        equ  $ - 1                  ; the entry's tick, patched
                 ld   a,b                    ; is asked here, inline, and
                 sub  e                      ; HZ_WHERE only for the rest
                 cp   SCR_CHAR_ROWS - 1
-                jr   nc,.where              ; out of line: the rare case
+                jp   nc,.where              ; out of line: the rare case
 .on:            ld   a,(WORLD_X)            ; WHOLLY OFF THE LEFT OR THE
                 ld   e,a                    ; RIGHT, it is off the list: its
                 ld   a,c                    ; column comes in from the map,
@@ -496,6 +512,8 @@ HZ_LIMIT        equ  $ - 1                  ; the entry's tick, patched
 HZ_OFF_COL      equ  $ - 1                  ; (test_station's control)
                 jp   nc,.off                ; -1, 0 -> 0, 1 and 38, 39 -> 39, 40
                 ld   e,a
+                call HZ_UNDER_IT            ; NEVER UNDER THE ENEMY, in any
+                jr   c,.keep                ; pass: it is not lifted off
                 ld   a,(HZ_DODGE)
                 or   a
                 jr   nz,.her
@@ -615,43 +633,16 @@ HAZARD_PAINT_A: ld   a,(HZ_PEND_N)
                 ld   a,(INPUT_NOW)
                 and  IN_LEFT + IN_RIGHT
                 ret  nz                     ; on the move: B paints it later
-                ld   a,(HZ_PEND + 1)        ; ... and the oldest has to be ON
-                ld   b,a                    ; the screen, or painting it here
-                call HZ_WHERE               ; would take it off the list
-                cp   HZ_ON                  ; with nothing painted (HZ_WHERE)
-                ret  nz
-                ld   a,(HZ_PEND_N)
-                cp   HZ_A_MAX + 1
-                jr   c,.n
-                ld   a,HZ_A_MAX
-.n:             ld   b,a
-                ld   hl,HZ_PEND
-.cell:          push bc
-                ld   c,(hl)
-                inc  hl
-                ld   b,(hl)
-                inc  hl
-                push hl
-                call HZ_PAINT
-                pop  hl
-                pop  bc
-                djnz .cell
-                ; ... and the ones not painted move to the front
-                ld   a,(HZ_PEND_N)
-                ld   c,a
-                cp   HZ_A_MAX + 1
-                jr   c,.all
-                sub  HZ_A_MAX
-                ld   (HZ_PEND_N),a
-                add  a,a
-                ld   c,a
-                ld   b,0                    ; HL is past the painted ones
-                ld   de,HZ_PEND
-                ldir
-                ret
-.all:           xor  a
-                ld   (HZ_PEND_N),a
-                ret
+                ; THE SAME WALK AS THE OTHER THREE (8.26), with no tick to
+                ; watch - the top of the first sweep, before any sprite of
+                ; hers is down - and HZ_A_MAX cells: it dodges the ENEMY's
+                ; box, which is on the screen here as everywhere, and it
+                ; drops what is off the screen instead of painting nothing.
+                ld   a,255
+                ld   (HZ_LIMIT),a
+                ld   c,HZ_A_MAX
+                xor  a                      ; she is not on the screen yet
+                jp   HZ_PAINT_LIST
 
 HZ_FAR          equ 0
 HZ_EDGE         equ 1
@@ -672,21 +663,31 @@ HZ_ON           equ 3
 ; the second sweep on it and the paint ended a cell short of its tick.
 ;                                destroys AF,HL; keeps BC,DE
 ; ---------------------------------------------------------------------
-HZ_UNDER_HER:   ld   a,(HZ_HX1)
-                cp   c
-                jr   c,.apart               ; her last column is left of it
-                ld   a,c
+HZ_UNDER_HER:   ld   hl,HZ_HX0
+                jr   HZ_UNDER_BOX
+; ... HZ_UNDER_IT is the same question about the ENEMY's box as it was
+; drawn, which HZ_IT_BOUNDS works out once a pass (8.26). A trap and an
+; enemy in one level is what this is for: the enemy is a persistent
+; sprite, its erase is its next refresh, and a cell painted under the
+; box it saved comes back as the old cel the moment it moves.
+HZ_UNDER_IT:    ld   hl,HZ_IX0
+; HL -> a box's first and last character column, then row
+HZ_UNDER_BOX:   ld   a,c
                 inc  a
-                ld   hl,HZ_HX0
                 cp   (hl)
-                jr   c,.apart               ; ... or its last left of her first
-                ld   a,(HZ_HY1)
-                cp   b
-                jr   c,.apart               ; ... or she ends above it
+                jr   c,.apart               ; the cell ends left of the box
+                inc  hl
+                ld   a,(hl)
+                cp   c
+                jr   c,.apart               ; ... or the box ends left of it
+                inc  hl
                 ld   a,b
                 inc  a
-                ld   hl,HZ_HY0
-                cp   (hl)                   ; ... or it ends above her:
+                cp   (hl)
+                jr   c,.apart               ; ... or the cell ends above it
+                inc  hl
+                ld   a,(hl)
+                cp   b                      ; ... or the box ends above it:
                 ccf                         ; carry, and no carry is a meeting
                 ret
 .apart:         or   a
@@ -870,6 +871,10 @@ HZ_HX0:         db 0            ; her drawn box in world characters, for
 HZ_HX1:         db 0            ; HZ_UNDER_HER (src/hazard_high.asm)
 HZ_HY0:         db 0
 HZ_HY1:         db 0
+HZ_IX0:         db 0            ; ... and the enemy's, for HZ_UNDER_IT
+HZ_IX1:         db 0            ; (HZ_IT_BOUNDS, src/books.asm)
+HZ_IY0:         db 0
+HZ_IY1:         db 0
 HZ_HALF:        db 0            ; non-zero: the cell being painted is half on
                                 ; the screen and stays on the list - set by
                                 ; HZ_PAINT_LIST's .where, cleared at its .keep

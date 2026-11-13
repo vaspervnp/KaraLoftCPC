@@ -8,9 +8,9 @@ namespace CpcLevelEditor.Domain;
 /// <remarks>
 /// <para>
 /// <b>This is the ENGINE's type table and not the art package's.</b>
-/// <c>assets/sprites/</c> carries seven named characters across the six
-/// levels (CLAUDE.md 7.1); <c>ENEMY_TYPES</c> in <c>src/enemy.asm</c> has
-/// three rows, and <c>p0</c> indexes that table. Everything else about an
+/// <c>assets/sprites/</c> carries the named characters of six levels
+/// (CLAUDE.md 7.1); <c>ENEMY_TYPES</c> in <c>src/enemy_types.asm</c> has
+/// ten rows, and <c>p0</c> indexes that table. Everything else about an
 /// enemy — its art, both facings' banks, the box, the speed, the fire
 /// period and the hit points — comes from the row, which is why a designer
 /// places a character rather than a set of numbers (CLAUDE.md 8.7).
@@ -27,10 +27,12 @@ namespace CpcLevelEditor.Domain;
 public enum EnemyKind : byte
 {
     /// <summary>
-    /// <c>EN_AGENT</c> — 12×64, 194-274 span bytes, <b>40,760-48,820 T
-    /// drawn and erased.</b> Its row is in the table and its art is on the
-    /// disc; nothing places one, because the frame has not got it
-    /// (CLAUDE.md 8.7).
+    /// <c>EN_AGENT</c> — the City's, 12×64, and a <b>SENTRY</b>: it keeps
+    /// its post, aims at her and fires, and is drawn by a COMPILED cel —
+    /// 15,500 T where the span blitter took 35,000 — and redrawn only when
+    /// it turns (CLAUDE.md 8.27). Where it may stand is a promise about
+    /// video RAM: no line of its box may cross a 256-byte page, and
+    /// <c>tools/sentries.py</c> checks the column. Level 4 places one.
     /// </summary>
     Agent = 0,
 
@@ -42,11 +44,11 @@ public enum EnemyKind : byte
     Drone = 1,
 
     /// <summary>
-    /// <c>EN_SNIPER</c> — the forest's, and the first row in the engine's
-    /// table that is not the City's. 12×64 like the agent, so it is the
-    /// same weight; CLAUDE.md 9 says an agent-class sprite is affordable
-    /// at 25 Hz <b>on paper, with nothing having measured it</b>, and a
-    /// level 2 map that places one is that measurement.
+    /// <c>EN_SNIPER</c> — the forest's, and a sentry like the agent
+    /// (CLAUDE.md 8.27). Through the span blitter it was 80 game frames in
+    /// 200 (CLAUDE.md 9); compiled and redrawn only when it turns, level 8
+    /// places one - and level 7, whose field of eight traps has no time to
+    /// spare even for the table's walk, does not.
     /// </summary>
     /// <remarks>
     /// <b>A row is a CHARACTER and not a level</b>, so this enum lists
@@ -65,4 +67,43 @@ public enum EnemyKind : byte
     /// (CLAUDE.md 8.20).
     /// </summary>
     SeaDrone = 3,
+
+    /// <summary>
+    /// <c>EN_BAT</c> — the cave's, 16×16, and the first character that
+    /// <b>bites</b>: where a drone fires, a bat swoops to her side and a
+    /// box that reaches hers costs her 8 points (CLAUDE.md 8.24). One of
+    /// her rounds brings it down.
+    /// </summary>
+    Bat = 4,
+
+    /// <summary>
+    /// <c>EN_WOLF</c> — the forest's, 32×24, on the ground it was placed
+    /// on: it keeps its distance, lunges, and bites for 8 (CLAUDE.md 8.24).
+    /// </summary>
+    Wolf = 5,
+
+    /// <summary>
+    /// <c>EN_BOAR</c> — the forest's heavier beast: slower to charge,
+    /// three rounds to stop, and a bite of 16 (CLAUDE.md 8.24).
+    /// </summary>
+    Boar = 6,
+
+    /// <summary>
+    /// <c>EN_MERC</c> — the desert's mercenary, 12×64, a sentry
+    /// (CLAUDE.md 8.27). Two a level, standing on the sand.
+    /// </summary>
+    Mercenary = 7,
+
+    /// <summary>
+    /// <c>EN_GUARD</c> — the station's cyber guard, 12×64, a sentry with
+    /// four hit points (CLAUDE.md 8.27).
+    /// </summary>
+    Guard = 8,
+
+    /// <summary>
+    /// <c>EN_TURRET</c> — the station's wall turret, 8×16: it keeps its
+    /// post like a sentry and is drawn by the span blitter, because it is
+    /// small enough to be cheap (CLAUDE.md 8.27).
+    /// </summary>
+    Turret = 9,
 }

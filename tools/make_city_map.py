@@ -507,7 +507,7 @@ from make_level import pack, read                    # noqa: E402
 # and the first two are why the level is the shape it is:
 #
 #   * EVERY GAP IS THREE WIDE, AND A WALK MAKES EVERY ONE OF THEM - the
-#     one that goes UP on a single frame, which is a run's gap and not a
+#     one that goes UP on two frames, which is a run's gap and not a
 #     walk's (WALK_JUMPS, below). It
 #     was not so the day the level was drawn: the jump was -15 and 21
 #     lines, the downhill gaps were four wide, and a walk made the first
@@ -528,9 +528,9 @@ from make_level import pack, read                    # noqa: E402
 # The five roofs use three of them, and in an order:
 #
 #   G1   7 -> 7, three wide    level: level 1's own gap, 7 or 8 frames
-#   G2   7 -> 8, three wide    downhill: 8 or 9, and 6 at a walk
+#   G2   7 -> 8, three wide    downhill: 8 or 9, and 5 at a walk
 #   ...  two steps up a row each to the tallest roof, and a drop off it
-#   G3   8 -> 7, three wide    UP a row: 6 or 7, and ONE at a walk
+#   G3   8 -> 7, three wide    UP a row: 6 or 7, and TWO at a walk
 #   G4   7 -> 8, three wide    as G2, onto the key's roof
 #
 # EVERY NUMBER ON THIS LEVEL IS A COMPOSITE LEVEL 1 ALREADY BAKED. The
@@ -543,7 +543,7 @@ from make_level import pack, read                    # noqa: E402
 # hold them to - and main() asserts it rather than hoping.
 # =====================================================================
 RUN_JUMPS = {(3, 0): (7, 8), (3, 1): (8, 9), (3, -1): (6, 7)}
-# A RUN'S WINDOW IS THE SHAPE'S; A WALK'S IS A FLOOR, AND IT IS SMALL
+# A RUN'S WINDOW IS THE SHAPE'S, AND SO IS A WALK'S, AND IT IS SMALL
 # GOING UP. These were measured once with the camera parked at the
 # map's right-hand end and her hundreds of bytes off the screen - the
 # suite poked her to each run-up and PLAYER_SCREEN_X's modulo-256
@@ -554,11 +554,16 @@ RUN_JUMPS = {(3, 0): (7, 8), (3, 1): (8, 9), (3, -1): (6, 7)}
 # with the camera following her and the press at the top of a game
 # frame (test_city.py's put() and tick()), every gap of a shape gives
 # the same run on both levels, exactly this table. A walk steps two
-# bytes on one frame in two in the push zone (CLAUDE.md 8.2), so which
-# frames of it reach the lip is the gap's own: the downhill window has
-# a frame of miss in it, and the jump UP is 1 frame on level 2's gap
-# and 2 on level 4's - at both stride phases.
-WALK_JUMPS = {(3, 0): 4, (3, 1): 6, (3, -1): 1}
+# bytes on the game frames FRAME_COUNT is even and none on the odd in
+# the push zone (CLAUDE.md 8.2), so which frames of it reach the lip
+# depend on the BEAT the run-up starts on - and that was the third
+# thing the instrument left to the machine's history. Each try started
+# on whatever beat put() left, so a walk's window was two windows a
+# frame apart, mixed: 6 downhill where each beat gives 5, and the jump
+# UP 1 on level 2's gap and 2 on level 4's. Measured at each beat and
+# each stride phase, every gap of a shape is exactly this, on both
+# levels; the beat moves the window a frame and not its length.
+WALK_JUMPS = {(3, 0): 4, (3, 1): 5, (3, -1): 2}
 RUN_OFF = {(3, 1)}          # the shapes a run off the edge crosses at one
                             # stride phase of the two, with no press
 # HOW HIGH SHE GOES IS 28 LINES, and every roof here is SOLID, so that
@@ -1084,8 +1089,14 @@ L4_PICKUPS = (                      # (column, base row, PU_*, p1)
 L4_DRONES = (                       # (column, row, patrol half-width)
     (33, 5, 3),                     # over the second roof
     (64, 12, 3),                    # in the plaza, on the street
-    (112, 6, 4),                    # over the key's roof
 )
+# THE AGENT, AND THE CITY'S ONLY ONE: a 24x64 character who keeps a post
+# (CLAUDE.md 8.27) - on the key's roof, where the drone that used to hover
+# over it was. He is drawn COMPILED, so where he stands is a promise about
+# video RAM, and tools/sentries.py checks it: no line of his box crosses
+# a page, nothing under it is ever repainted, and he is GAP tiles from
+# the street drone, so ENEMY_PICK never has the two near at once.
+L4_AGENTS = ((105, 8),)             # (column, the roof row he stands on)
 L4 = dict(buildings=L4_BUILDINGS, ladders=L4_LADDERS,
           barricades=L4_BARRICADES,
           garages=((L4_GARAGE_IN, False), (L4_GARAGE_OUT, True)),
@@ -1131,6 +1142,8 @@ def build_entities_4():
                     EF_ACTIVE | EF_SOLID, 0, PU_KEY))
     for x, row, half in L4_DRONES:
         e.append(entity(EK_ENEMY, x, row, EF_ACTIVE, EN_DRONE, half))
+    for x, row in L4_AGENTS:
+        e.append(entity(EK_ENEMY, x, row, EF_ACTIVE, EN_AGENT, 0))
     return b"".join(e)
 
 
@@ -1220,6 +1233,14 @@ def l4_checks(g, T, ents):
     for (_, a_hi), (b_lo, _) in zip(beats, beats[1:]):
         assert b_lo - a_hi > SCREEN_TILES, (
             f"two drones can be on screen at once: {a_hi} and {b_lo}")
+    for x, row in L4_AGENTS:
+        assert l4_roof(x) == row and x not in dict(L4_PROPS), \
+            f"the agent at {x} is not standing on his roof"
+    import sentries
+    for x, _ in L4_AGENTS:              # a drone is engaged and holds the
+        for d, _, _ in L4_DRONES:       # pick (8.7); the agent never is
+            sentries.spaced(4, (x, d))
+    sentries.check(4, L4_AGENTS, ents)
     assert len(ents) % 8 == 0 and len(ents) // 8 <= ENT_MAX
     return gaps, plazas
 

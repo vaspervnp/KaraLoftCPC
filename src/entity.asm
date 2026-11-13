@@ -75,7 +75,8 @@ PU_AMMO         equ 1
 PU_MEDKIT       equ 2
 PU_COIN         equ 3
 PU_IDOL         equ 4
-PU_BOOK         equ 5           ; p1 carries which symbol
+PU_BOOK         equ 5           ; p1 is its symbol's bit, bit 7 a curse
+                                ; (src/books.asm, CLAUDE.md 8.25)
 PU_OXYGEN       equ 6           ; a tank: her air, full (8.18)
 
 ENT_KIND        equ 0
@@ -488,7 +489,7 @@ ENT_ON_INTERACT:
                 cp   PU_KEY                 ; the station's reader (8.23):
                 jp   z,PLACE_STATUE         ; the same handler, its counter
                 cp   PU_BOOK
-                jp   z,READ_BOOK_PUZZLE
+                jp   z,BOOK_LOCK            ; the cave's gate (src/books.asm)
                 ret
 
 ; ---------------------------------------------------------------------
@@ -556,7 +557,15 @@ ENT_ON_TOUCH:   ld   a,(hl)
                 jr   .took
 .not_tank:      cp   PU_BOOK
                 ret  nz                     ; an unknown pickup is left alone
-                ld   a,d                    ; the symbol she is now carrying
+                ; A BOOK IS A SYMBOL AND SHE CARRIES A SET OF THEM: p1 is
+                ; its bit and it is ORed in, so two books are two bits and
+                ; the gate takes what it wants out of the set (BOOK_LOCK).
+                ; BIT 7 IS A CURSE - a symbol the gate does not want - and
+                ; it goes into no set: it costs her, once, and is gone.
+                bit  7,d
+                jr   nz,.cursed
+                ld   a,(CURRENT_BOOK_ID)
+                or   d
                 ld   (CURRENT_BOOK_ID),a
 .took:          ld   a,ER_TOOK
                 ld   (ENT_RESULT),a
@@ -567,6 +576,9 @@ ENT_ON_TOUCH:   ld   a,(hl)
                 add  hl,bc
                 set  1,(hl)                 ; EF_TAKEN
                 ret
+.cursed:        ld   a,BOOK_HURT
+                call HURT_HER
+                jr   .took
 
 ; ---------------------------------------------------------------------
 ; CHECK_KEY_DOOR - a door, and a key that may or may not fit.
@@ -637,41 +649,6 @@ PLACE_STATUE:   push hl
                 pop  hl                     ; Disables link fires off it -
                 jp   HZ_SATISFIED           ; which it does now, and the
                                             ; altar lights (src/hazard.asm)
-.empty_handed:  ld   a,ER_EMPTY
-                ld   (ENT_RESULT),a
-                ret
-
-; ---------------------------------------------------------------------
-; READ_BOOK_PUZZLE - a cave gate slot. It wants ONE symbol, p1, and she
-; is carrying CURRENT_BOOK_ID. Three of them in the right order is the
-; puzzle; a slot that takes the wrong book says so and keeps it.
-;                                destroys AF,BC,DE,HL
-; ---------------------------------------------------------------------
-READ_BOOK_PUZZLE:
-                ld   a,(CURRENT_BOOK_ID)
-                or   a
-                jr   z,.empty_handed
-                ld   c,a
-                push hl
-                ld   de,ENT_P1
-                add  hl,de
-                ld   a,(hl)                 ; the symbol this slot wants
-                pop  hl
-                cp   c
-                jr   nz,.wrong
-                xor  a
-                ld   (CURRENT_BOOK_ID),a    ; the book goes into the slot
-                push hl
-                ld   bc,ENT_FLAGS
-                add  hl,bc
-                set  1,(hl)                 ; lit
-                pop  hl
-                ld   a,ER_PLACED
-                ld   (ENT_RESULT),a
-                ret
-.wrong:         ld   a,ER_WRONG
-                ld   (ENT_RESULT),a
-                ret
 .empty_handed:  ld   a,ER_EMPTY
                 ld   (ENT_RESULT),a
                 ret
@@ -899,6 +876,9 @@ ENT_ART_OVER:   db 0, PU_KEY, L1_CITYPICKUPS_BANK
                 db 5, PU_KEY, L6_STATIONPICKUPS_BANK
                 dw L6_STATIONPICKUPS_ADDR
                 db STATIONPICKUPS_KEYCARD_FIRST
+                db BOOK_ENV, PU_BOOK, L3_CAVEBOOKS_BANK  ; the sun's - and
+                dw L3_CAVEBOOKS_ADDR                    ; BOOK_CEL moves it
+                db CAVEBOOKS_BOOK_SUN_FIRST             ; on to the others
                 db &FF
 
 ; ---------------------------------------------------------------------
@@ -975,6 +955,35 @@ ENT_ART_FOR:    ld   (ENT_ART_PU),a
                 ld   a,(ENT_ART_CELN)
                 ret
 
+; ---------------------------------------------------------------------
+; BOOK_CEL - ENT_BAKE_ONE's cel, A = what ENT_ART_FOR found: in the cave
+; a book is drawn out of cave_books, whose four tags are two cels each in
+; the slots' order, so its symbol's bit moves the sun's cel on by two a
+; bit. Anywhere else, and for anything else, A as it came - hudicon has
+; ONE book, at its last cel but one, and a cel past it is a frame past
+; the end of the blob (8.6).        destroys B; keeps C, DE
+; ---------------------------------------------------------------------
+                ; (its three asserts are in src/books.asm, after cavebooks.inc:
+                ; RASM evaluates an ASSERT where it stands - CLAUDE.md 12)
+
+BOOK_CEL:       ld   b,a
+                ld   a,(ENT_PU)
+                cp   PU_BOOK
+                jr   nz,.same
+                ld   a,(ENT_ART_ENV)
+                cp   BOOK_ENV
+                jr   nz,.same
+                ld   a,(ENT_SYM)
+                and  &0F
+                jr   z,.same                ; no symbol: the sun's
+.bit:           rrca
+                jr   c,.same
+                inc  b
+                inc  b
+                jr   .bit
+.same:          ld   a,b
+                ret
+
 ENT_ART_PU:     db 0
 ENT_ART_ENV:    db 0
 ENT_ART_BANK:   db 0
@@ -1028,6 +1037,9 @@ ENT_BAKE_ONE:   ld   a,(hl)
                 cp   ENT_ART_KINDS
                 jr   nc,.no                 ; a kind with no art
                 ld   (ENT_PU),a
+                inc  hl
+                ld   a,(hl)                 ; p1, for a book's symbol
+                ld   (ENT_SYM),a
 
                 ; ---- the map cell it stands on ----------------------
                 pop  hl
@@ -1042,6 +1054,7 @@ ENT_BAKE_ONE:   ld   a,(hl)
                 ; the tile is in C4, and both are the SAME &4000 window.
                 ld   a,(ENT_PU)
                 call ENT_ART_FOR            ; -> C bank, DE blob, A its first
+                call BOOK_CEL               ; (a cave book: its own symbol's)
                 ld   b,&7F                  ; cel - cel 0 of the animation,
                 out  (c),c                  ; see the note above
                 add  a,a
@@ -1617,6 +1630,7 @@ PM_RP_PAGE      equ  $ - 1
                 jp   BANK_RESTORE
 
 ENT_PU:         db 0
+ENT_SYM:        db 0            ; its p1 (BOOK_CEL)
 ENT_WAS:        db 0
 ENT_LINE:       db 0
 ENT_SKIP:       db 0

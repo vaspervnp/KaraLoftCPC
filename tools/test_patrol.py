@@ -55,8 +55,12 @@ GS_PLAY, GS_DEAD, GS_CLEAR = TS.GS_PLAY, TS.GS_DEAD, TS.GS_CLEAR
 LEVEL = 15
 LVL = read(open(os.path.join(BUILD, f"level_{LEVEL}.lvl"), "rb").read())
 EK_ENEMY = sym["EK_ENEMY"]
-ES = 17                             # ES_STRIDE - test_enemies reads it off
-ES_X, ES_Y, ES_TYPE, ES_HP, ES_DIE = 2, 4, 6, 11, 16     # the build
+# THE SLOT'S LAYOUT IS READ OFF THE BUILD, not written down: it was
+# 17 here, and ES_CHARGE made the stride 18 (CLAUDE.md 8.24) - and a suite
+# reading every slot one byte short reported a fifth drone (CLAUDE.md 10).
+ES = sym["ES_STRIDE"]
+ES_X, ES_Y, ES_TYPE, ES_HP, ES_DIE = (sym[n] for n in
+                                      ("ES_X", "ES_Y", "ES_TYPE", "ES_HP", "ES_DIE"))
 
 fails = []
 
@@ -208,8 +212,8 @@ def way_in():
           f"{p.took} hardware frames, LEVEL_ENV {p.b('LEVEL_ENV')}, "
           f"LEVEL_CUR {p.b('LEVEL_CUR')}, LEVEL_SWIM {p.b('LEVEL_SWIM')}")
     recs = drone_records()
-    T = sym["ENEMY_TYPES"] + sym["EN_SEADRONE"] * 32
-    h, hp = m.peek(T + 11), m.peek(T + sym["EN_T_HP"])
+    T = sym["ENEMY_TYPES"] + sym["EN_SEADRONE"] * sym["EN_T_STRIDE"]
+    h, hp = m.peek(T + sym["EN_T_H"]), m.peek(T + sym["EN_T_HP"])
     ok = len(recs) == 4 and all(r[2] == sym["EN_SEADRONE"] for r in recs)
     for k, (x, y, p0, p1) in enumerate(recs):
         ok = ok and (p.slot(k, ES_TYPE) == sym["EN_SEADRONE"]

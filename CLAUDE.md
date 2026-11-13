@@ -286,10 +286,11 @@ to take off in at a run and none at all at a walk. So **the jump is a
 game frame longer** — `P_JUMP` −15 → −17, 28 lines and eight frames in
 the air, the least that buys a frame, and still under the 32 of two
 rows, so no level can reach anything it could not — and every gap is
-three wide: **7/8, 8/9, 6/7 and 8/9 frames at a run — and 4, 6, ONE and
-6 at a walk, so the jump UP is a run's.** That last number was 3 until
+three wide: **7/8, 8/9, 6/7 and 8/9 frames at a run — and 4, 5, TWO and
+5 at a walk, so the jump UP is a run's.** That last number was 3 until
 the suite's own camera was found parked at the far end of the map with
-her off the screen (§8.14). The medkit is in the pit under the one that
+her off the screen, and then 1 until the walk's push BEAT was pinned
+(§8.14). The medkit is in the pit under the one that
 goes up. Not one composite level 1 did not already bake, so the City's tile
 blob, flags and bake record are byte for byte what they were (§8.14).
 
@@ -345,8 +346,8 @@ And **the City's take-off windows had been measured with nobody on the
 screen**: the suites poked her to each run-up and the camera, reading a
 modulo-256 difference, parked at the map's far end. Measured with the
 camera following her, a run is exactly `RUN_JUMPS` on every level, and
-**a walk makes the jump UP on one frame** — the table said three
-(§8.14).
+**a walk makes the jump UP on two frames** — the table said three, and
+then one, until the walk's push beat was pinned (§8.14).
 
 **AND THE SPIKES BITE NOW, WHICH THEY NEVER HAVE.** A play-test walked
 level 5 and nothing in the ground hurt her: `TA_HAZARD` was defined in
@@ -545,6 +546,63 @@ door is the Cyber-Illuminati computer, baked over the wall, and past it
 is the title. **So the game plays from level 1 to level 24** — six
 environments, twenty-four maps, and the disc still inside 40 tracks.
 
+**AND THE FOREST AND THE CAVE HAVE THEIR OWN CREATURES, WHICH BITE.**
+The wolf, the boar and the cave's bats were in the banks and not in the
+game, because the engine had no melee: a row of `ENEMY_TYPES` driven
+through it would have shot invisible bullets. Two bits of a row change
+that now (§8.24) — its shot is a CHARGE that ends in a bite, and a
+beast keeps to the ground it was placed on — and everything else is the
+engaged drone of §8.7, so the drones are the engine they were. The
+charge stops **three bytes short of her sprite**, because a box that
+meets the one she was drawn in is a refresh at the end of the sweep and
+the first charge was a game frame of 86,000 T; the bite reaches across
+the gap. A wolf on level 5: **six bites of 8 in 200 game frames, drawn
+on all 200, down in two releases**, and the lock at 100 of 200 on every
+path — each bit of it with its control.
+
+**AND THE CAVE'S GATES ARE A PUZZLE, WHICH THEY WERE DRAWN AS** (§8.25).
+A gate wants the two symbols of the tablet carved where she comes in,
+the level has a book of every symbol, and the other two are CURSED — 16
+points and gone. A good book goes into a SET she carries; the lock in
+front of the door takes the whole set or nothing and keeps what it
+refuses, so nothing she does can lose a good book, and satisfied it
+lights its slots by the altar's own machinery and hands her the key.
+Driven from the joystick through all four levels with a player who has
+read the tablet, and on the machine with the slots in video RAM byte for
+byte the artist's.
+
+**AND THE TRAP PAINTER DODGES THE ENEMY — AND NO LEVEL HAS A TRAP FIELD
+AND A BEAST, WHICH IS A MEASUREMENT** (§8.26). A cell painted under a
+persistent sprite comes back stale when it moves, so every pass now
+waits for the enemy as it waits for her: **0 stale frames against 11**
+with the dodge poked out. But a wolf's refresh is ~30,000 T of the
+second sweep and the forest's field is eight cells changing together,
+and of the three orders measured the best was 28 frames of 454 with a
+trap a cel behind **and the lock at 87 of 200**. So levels 7, 8, 13,
+14, 16 and the station keep their traps and no enemy.
+
+**AND THE BIG CHARACTERS ARE IN THE GAME, DRAWN AS CODE** (§8.27). The
+agent, the sniper, the mercenary and the cyber guard are 24×64 and the
+span blitter could not carry one; each is a SENTRY now — it keeps a
+post, is never engaged and is redrawn only when it turns — and its aim
+cel is COMPILED by `tools/compile_sprite.py` into the Z80 that draws it:
+**2.1 to 2.4 times faster, and the same video RAM and the same erase
+script as the span blitter, byte for byte.** It assumes no line of the
+box crosses a page of video RAM, which is a property of WHERE it stands
+because a world character is always the same word of the ring, so the
+map tools check the column. **And they are seen to fire**: a facing is
+two cels in the room one used to take — the aim compiled with the
+background of BOTH saved under it, and the recoil a TOGGLE over it,
+3,000 to 4,000 T where a lift and a redraw are 27,000 to 34,000 — and the picture is
+the cel it says over its saved background on every frame of a fight, 0
+bytes of 46,050 wrong. The agent is on level 4's key roof, a sniper
+in level 8, two mercenaries in each desert level and a guard and
+a wall turret in each station level — and driving the station with them
+on found the trap tick putting a laser OFF the screen on the painter's
+list, 14,252 T on the frame two change together: refused at the door
+now, it is 7,588, and the station is 0 frames wrong with its guards
+shooting.
+
 **AND THE LEVEL IT EXPORTS HAS BEEN PLAYED.** Every other check on the
 editor is one piece of software against another; `tools/test_painter.py`
 puts the editor's own four files into `build/`, relinks the disc and
@@ -693,7 +751,7 @@ iterations in 200 — 25 Hz — and at a byte a frame it is 172 (§8.2, §9).
 at a run and 7 at a walk, against a 12-byte hole (§8.8).
 
 `./tools/run_tests.sh` runs every acceptance suite and **all
-thirty-seven pass**, the editor's own among them. Eighteen checks in
+forty pass**, the editor's own among them. Eighteen checks in
 four of them did not, and how they divide is the part worth having written down:
 **fourteen were suites that had not caught up with a decision the engine
 already made, and four were a report that the game HAD got worse** —
@@ -793,6 +851,18 @@ src/hazard.asm    the spike traps, the sea's cables and its mines, and
                   save-under putting it back (8.17 - 8.19, 8.23)
 src/hazard_high.asm  ... and what runs once: the spawn at a level
                   install and the altar's links, in the HIGH image (4)
+src/hazard_it.asm ... and the enemy's drawn box, which no pass paints
+                  under, in the SOUND image (8.26)
+src/melee.asm     the enemies that BITE: the cave's bats, the forest's
+                  wolf and boar - a charge where a drone would fire, and
+                  a beast that keeps to its ground - in the TOP image
+                  (8.24)
+src/books.asm     the cave's gate: the lock that takes a SET of books
+                  and lights its slots, in the SOUND image (8.25)
+src/sentry.asm    the enemies that keep a POST - the agent, the sniper,
+                  the mercenary, the guard and the turret: redrawn only
+                  when they change, the compiled draw, and a new cel
+                  toggled in without a lift, in the TOP image (8.27)
 src/sound.asm     the AY: three voices, the effects that steal C, and
                   the watch that hears what the game did (6.7)
 src/swim.asm      the swimmer: her box, patched into 27 immediates and
@@ -902,6 +972,13 @@ tools/bench.py             T-states by calling a routine from a DI stub
 tools/check_unary_minus.py  a unary minus on a forward equ, which RASM
                            assembles without the minus - refused in
                            the build, by name (10)
+tools/compile_sprite.py    a span cel -> the Z80 that draws it: the
+                           sentries' aim, with the background of both
+                           cels saved under it, and the TOGGLE that
+                           turns it into the recoil and back (8.27)
+tools/sentries.py          where a sentry may stand: a column whose box
+                           keeps every line in a page, nothing under
+                           it, a GAP from every other enemy (8.27)
 tools/test_climb.py        the ladder, the street and the vertical camera
 tools/test_intro.py        the title screen, its palette and the press
 tools/test_hud.py          the energy bar, and that it STAYS put
@@ -1003,7 +1080,22 @@ tools/test_station.py      levels 21 to 24 on the machine: the laser's
                            the door it opens - and the altar's two-row
                            area as the control - the route through the
                            station to the computer, and the lock (8.23)
-tools/test_*.py            acceptance suites, thirty-seven of them
+tools/test_books.py        the cave's gate on the machine: the tablet,
+                           every book as its own symbol, a good one into
+                           her set and a cursed one into none, the lock
+                           and its slots on the screen, the door after
+                           it, and a death that puts it all back (8.25)
+tools/test_beasts.py       the wolf, the boar and the bats on the
+                           machine: the charge, the bite, her rounds,
+                           each of the bits that makes a beast knocked
+                           out as a control, and the lock (8.24)
+tools/test_sentries.py     the compiled cel against the span blitter,
+                           byte for byte, and a page-crossing column as
+                           the control; the rule in the tools; a
+                           mercenary in play - redrawn only when it
+                           turns, its fire, its fall - and every level
+                           with a sentry driven with them on (8.27)
+tools/test_*.py            acceptance suites, forty of them
 tools/run_tests.sh         all of them, in order
 
 assets/sprites/            the art package: the heroine, the projectiles,
@@ -1130,11 +1222,15 @@ the engine** — and since the sound, **it is `src/boot.asm` and nothing in
      own table (§8.19);
    * **the SOUND image** to `&9400`: the player, its tunes and its effects
      (§6.7), between the loader's staging and the map;
-   * **the TOP image** to `&BB00`: the swimmer — her box patcher, her
+   * **the TOP image** to `TOP_ADDR`, the end of the biggest level image
+     (`&BAE2` today; it was `&BB00`): the swimmer — her box patcher, her
      physics and her air — and the map's shape patcher, which is what the
      core had no room for once she could swim (§8.18). It sits between the
-     biggest level image and the stack's last 256 bytes, both asserted;
-     the stack's measured low is `&BFDD`, 35 bytes.
+     biggest level image and the stack's last **112** bytes, both asserted;
+     the stack's measured low is `&BFD8`, 40 bytes, over all twenty-four
+     levels (§8.24), and nothing below `&BFD0` with the sentries in
+     (§8.27). The enemies that bite live here too, and the sentries' two
+     routines.
 5. The core rewrites `&0038` with `JP IRQ_HANDLER` before the first `EI`, since
    the firmware's handler went out with the lower ROM.
 
@@ -1226,13 +1322,15 @@ mid-scanline skews the bands.
              ... &8000-&93FF the loader's staging while a level
              loads (7.5), &9400 the SOUND image (6.7), &A000 the map
              (and the title's two prompt strips while the title is
-             up, 7.7), &A800 the entity table, &A8C0 64 bytes nothing
-             uses since the traps' table moved, &A900 the tile flags,
-             &AA00 the HIGH image (4) and the traps' pending cells
-             after it, &B080 the traps' table - sixteen slots (8.19) -
+             up, 7.7), &A800 the entity table, &A8C0 the traps'
+             pending cells (32 bytes, 8.24), &A8E0 which sentry is
+             drawn and how (4 bytes, 8.27) and 28 nothing uses,
+             &A900 the tile flags, &AA00 the HIGH image (4) to
+             &B07F, &B080 the traps' table - sixteen slots (8.19) -
              &B100 the pristine LEVEL_IMAGE the bootstrap lands
-             there (10), &BB00 the TOP image - the swimmer and the
-             shape patcher (4, 8.18) - and the stack's 256 bytes
+             there (10), &BAE2 the TOP image - the swimmer, the shape
+             patcher, the beasts and the sentries (4, 8.18, 8.24,
+             8.27) - and the stack's 112 bytes
 &C000-&FFFF  Primary video RAM
 ```
 
@@ -4979,8 +5077,10 @@ Its own creatures are `forest_wolf` and `forest_boar`, both **16×24 and
 affordable. But their tags are `RUN` and `ATTACK`: they are melee, and
 an enemy type's second cel range is `EN_T_FIRE`, which spawns a round.
 Driven through it a wolf would shoot invisible bullets. That is the
-work level 2's enemies are waiting on, and it is a kind of enemy this
-engine has never had.
+work level 2's enemies were waiting on — **and it is done**: a row's
+`EN_T_KIND` makes its shot a charge and its bite, and keeps a beast to
+its ground; the wolf and the boar are in levels 5 and 6 and bats in the
+cave (§8.24).
 
 `tools/test_enemies.py` reads `EN_KINDS` **off the build** now rather
 than counting its own list, and asserts that the list names every kind.
@@ -5747,10 +5847,11 @@ stops the build with **"a kind-4 record at tile 38, row 5 is somewhere
 she cannot stand"**. The editor's generator has had this check since it
 was written (§11 step 7); a hand-made level needs it more.
 
-**What it does NOT have is an enemy**, and that is §9's measurement
+**What it did NOT have was an enemy**, and that was §9's measurement
 rather than an omission — a 12×64 sniper standing in it costs 20 game
-frames in 200. The forest's own wolf and boar would very likely fit and
-are melee, which the engine has no path for (§8.7).
+frames in 200. **It has a wolf and a boar now**, the forest's own
+melee creatures, which the engine had no path for until §8.24 — and
+they hold the lock at 100 of 200.
 
 #### And level 6, which is where level 5's door has always led
 
@@ -6325,14 +6426,12 @@ wrong — and the forest's right-hand address was the worst of the six.
   rule says align to the WHOLE table and the assert in `main.asm` is
   what said so. It is `align 128` now, which holds four rows exactly.
 
-**What is NOT here is the puzzle.** The artist drew a four-slot gate
-and two panels hinting the order sun-moon / eye-star, and §8.1 calls
-the cave's signature a "3-symbol book/lever puzzle";
-`READ_BOOK_PUZZLE` and `CURRENT_BOOK_ID` exist in the engine and
-nothing has ever driven them. The gate here is an `EK_DOOR` a key
-opens and the slots are drawn unfilled. Wiring the books to the slots
-is a mechanic and not a map, and inventing its contract quietly would
-be the worse of the two ways to be wrong.
+~~**What is NOT here is the puzzle.**~~ **It is, since §8.25**: every
+gate of the four wants the two symbols of the tablet carved where she
+comes in, the level has a book of every symbol and the other two are
+cursed, and a lock record in front of each door takes the set and lights
+the slots. The key each level used to hand her is gone — the lock gives
+it. And the cave has bats now (§8.24).
 
 ### 8.14 Level 2: the City again, across the rooftops
 
@@ -6411,12 +6510,12 @@ counts only if it STARTED a jump and that jump's first landing is past
 the gap, so a coyote press is a take-off and a run off the edge with a
 useless press in the air is not:
 
-| gap | wide | roof rows | running, even / odd byte | walking, even / odd | before the play-test |
+| gap | wide | roof rows | running, even / odd byte | walking, either byte, either beat | before the play-test |
 |---|---:|---|---|---:|---|
-| 22 | 3 | 7 → 7 | 7 / 8 | 4 / 4 | 6 / 7, walk 3 |
-| 48 | 3 | 7 → 8 | 8 / 9 | 6 / 6 | 4 wide: 5 / 6, walk **0** |
-| 74 | 3 | 8 → 7, **UP** | 6 / 7 | **1 / 1** | **3 / 4**, walk **0** |
-| 101 | 3 | 7 → 8 | 8 / 9 | 6 / 6 | 4 wide: 5 / 6, walk **0** |
+| 22 | 3 | 7 → 7 | 7 / 8 | 4 | 6 / 7, walk 3 |
+| 48 | 3 | 7 → 8 | 8 / 9 | 5 | 4 wide: 5 / 6, walk **0** |
+| 74 | 3 | 8 → 7, **UP** | 6 / 7 | **2** | **3 / 4**, walk **0** |
+| 101 | 3 | 7 → 8 | 8 / 9 | 5 | 4 wide: 5 / 6, walk **0** |
 
 **THE FIRST MEASUREMENT OF THIS TABLE WAS TAKEN WITH NOBODY ON THE
 SCREEN, AND IT SAID THE WALK MADE THE JUMP UP IN THREE FRAMES.** The
@@ -6439,11 +6538,26 @@ it, blaming the machine's history.** It was the instrument's.
 her at the trail mark; `tick()` goes from the top of one game frame to
 the top of the next. Measured that way **every gap of a shape gives the
 same run on level 2 and level 4, exactly `RUN_JUMPS`**, and the suites
-assert it exactly. A WALK's window is still a floor and that one is
-real: which frames of the push rhythm reach the lip is the gap's own,
-so the downhill window has a frame of miss in it (6 of 7 frames, at
-both phases) and **the jump UP is 1 frame on this level's gap and 2 on
-level 4's**. That is the jump a run is for. **The phase is worth a
+assert it exactly.
+
+**AND A WALK'S WINDOW WAS THE SAME FAULT A THIRD TIME: THE PUSH BEAT.**
+In the push zone a walk is two bytes on the game frames `FRAME_COUNT`
+is even and none on the odd (`PUSH_PHASE`, §8.2), so which frames of a
+run-up reach the lip depend on the beat it starts on — and `put()`
+left that wherever the machine's history did. Each try took its own,
+so a walk's window was two windows a frame apart, mixed. That is what
+this table called a floor: the jump UP read **1 frame here and 2 on
+level 4**, the same shape, and the downhill gap **6** where either beat
+gives 5 — and the day the beasts went in, level 4's downhill gap read
+5 at one stride phase and failed a floor of 6 with nothing in the City
+changed, because a few T-states somewhere else had moved the beat a
+try started on. `window()` takes the beat now and the suites measure
+both, at both stride phases: **every gap of a shape is exactly
+`WALK_JUMPS` on both levels — 4, 5 and 2 — and the beat moves the
+window a frame and not its length**, which level 2's suite checks. The
+frame of miss inside a walk's window is real at either beat (4 frames
+of 5 on the level gap). **The jump UP is 2 frames at a walk**: that is
+the jump a run is for. **The phase is worth a
 frame at a run**: an odd byte column meets the lip a byte earlier. Two shapes
 are not in the table because no press cleared them on the old jump,
 measured over a gap cut into level 1's own roof in RAM: **two rows up
@@ -6603,7 +6717,7 @@ last and the player has been taught both halves:
 
 | | |
 |---|---|
-| three gaps | **one of every shape level 2 measured** — level at column 22, UP onto the tallest roof at 41, DOWN onto the key's at 88 — all three wide: 7/8, 6/7 and 8/9 frames at a run, 4, **2** and 6 at a walk (§8.14). Each gap's pit has one ladder, back onto the roof she jumped FROM |
+| three gaps | **one of every shape level 2 measured** — level at column 22, UP onto the tallest roof at 41, DOWN onto the key's at 88 — all three wide: 7/8, 6/7 and 8/9 frames at a run, 4, **2** and 5 at a walk (§8.14). Each gap's pit has one ladder, back onto the roof she jumped FROM |
 | one plaza | eight wide, off the tallest roof (row 6): walked off it is **128 lines and 32 points**, hung off the ledge it is **70 and free**, and on its far side a ladder up the next building past a barricade (§8.15). No take-off at either phase lands across it |
 | the key's roof | **no ladder**, as level 2's had none, so the last jump is the only way onto it; walking off its near edge is 96 lines, `FALL_FREE` exactly, into the pit the way out is in — and that pit's ladder goes back up to the roof the jump is made from, so a miss is never a softlock |
 | a drone on the street | for the first time: in the plaza, two rows above the pavement, which is her muzzle's line there |
@@ -6638,8 +6752,11 @@ each run-up, she was off the screen and the view was parked at the
 map's far end, and the press went in wherever `step()` stopped. With
 the camera following her and the press at the top of a game frame,
 gap 22 is 7 / 8 on both levels and so is every shape: the suites check
-`RUN_JUMPS` exactly. The walk stays a floor, and level 4's jump UP is
-**2** frames at a walk where level 2's is 1.
+`RUN_JUMPS` exactly. **The walk was the same fault once more** — the
+push beat each try started on, which `put()` left to the machine's
+history — and measured at each beat it is `WALK_JUMPS` exactly on both
+levels: level 4's jump UP is **2** frames at a walk, and so is level
+2's.
 
 **AND THE DRIVE DROPS FRAMES, WHICH IS AN ENGINE FINDING AND NOT THE
 MAP.** 340 game frames in **683** hardware ones, and every one of the
@@ -6873,8 +6990,10 @@ her erase put the old cel back.
 #### What is NOT here
 
 * **A trap and an enemy in one level.** A cell repainted at the end of
-  a sweep under the drone's save-under would come back stale; no
-  forest level has an enemy (§9), and the City has no trap.
+  a sweep under the drone's save-under would come back stale. **The
+  painter dodges the enemy now** — and the frame still has no room for a
+  trap field and a following beast together: §8.26 has both
+  measurements, and levels 7 and 8 carry no beast for that reason.
 * ~~**A row scrolled in vertically while a trap in it changes**~~ — **it
   is handled now, because the sea scrolls down** (§8.18): `HZ_WHERE`
   keeps a cell that is one or two rows off the view on the list and paints
@@ -7677,8 +7796,10 @@ with a drone the second sweep's wait is not idle — its refresh is there
 (§8.7) — so nothing took the piece. While a vertical step is in flight
 the camera holds the horizontal axis, and in the push zone she does not
 move without it (§8.2): level 4's walking take-off at its last gap lost
-a frame of its window (5 where the tool says 6), and level 3's drive
-under fire fell apart. A piece put off once is painted the next time,
+a frame of its window (5 where the tool says 6 — **which was very likely
+the push beat and not the deferral**: that gap's walk is 5 at either
+beat, and 6 was two beats mixed, §8.14), and level 3's drive under fire
+fell apart — which is the witness that stands. A piece put off once is painted the next time,
 late or not, and both suites pass.
 
 **AND THE REGRESSION FOUND TWO SUITES THAT HAD BEEN READING A PHASE.**
@@ -7845,6 +7966,500 @@ sectors, inside 40 tracks, with all twenty-four maps on it.**
   still owes.
 * **The station's tune.**
 
+### 8.24 The enemies that bite: the forest's wolf and boar, and the cave's bats
+
+The forest and the cave had their art's own creatures in the banks and
+none of them in the game: `forest_wolf` and `forest_boar` are 32×24 and
+melee — tags `RUN`/`CHARGE` and `ATTACK` — and the engine had no melee
+path, so §8.7 said a wolf driven through it would shoot invisible
+bullets; `cave_bats` is 16×16, `fly` and `swoop`. They are three rows of
+`ENEMY_TYPES` now (`EN_BAT` 4, `EN_WOLF` 5, `EN_BOAR` 6) and
+`src/melee.asm`, and **they are the engaged drone of §8.7 with two bits
+of its row changed**, so the drones — kind 0 — are the engine they were:
+
+| `EN_T_KIND` | what changes |
+|---|---|
+| `EN_MELEE` 1 | its "shot" is a CHARGE: where `ENEMY_FIRE` would put a round in the air, `ES_CHARGE` runs `EN_CHARGE_N` = 10 game frames, the follow makes for the place beside her instead of `EN_DIST` from her, and a box that reaches hers is a bite of `EN_T_BITE`, once, which ends the charge |
+| `EN_GROUND` 2 | it keeps to the line it was placed on — the follow does not climb or sink — so a branch is where she is out of a wolf's reach, and a jump is how she lets a charge go under her |
+
+| | box, bytes × lines | speed | period | hit points | bite |
+|---|---|---:|---:|---:|---:|
+| bat | 8 × 16 | 2 | 45 | 1 | 8 |
+| wolf | 16 × 24, ground | 2 | 35 | 2 | 8 |
+| boar | 16 × 24, ground | 2 | 50 | 3 | **16** |
+
+**THE CHARGE STOPS EN_AIR = 3 BYTES SHORT OF HER SPRITE, AND THAT IS THE
+FRAME'S RULE.** A box that meets the one she was DRAWN in is a refresh
+at the end of the second sweep (`ENEMY_SLOT`, §8.7), which has no
+deadline — and her drawn box is her SPRITE's, twelve bytes, not her
+body's six. The first charge stopped a byte from her body, two inside her
+sprite, and every charge was a game frame of **86,000 T**. And it has to
+be three, because what is tested is her box as drawn THIS frame against
+its box as drawn LAST frame: she runs two bytes a frame. What bites is
+its box widened by `EN_REACH` = 7 either side — the air, her art either
+side of her body, and one — against her BODY: the bite reaches across
+the gap and the sprites never meet.
+
+**TWO MEASUREMENTS MADE A BEAST SEE HER AND BE SHOT**, and both are
+compromises written down as such:
+
+* **`EN_SIGHT_Y`.** `ENEMY_SEES` compares her top with its own, within
+  `EN_H_SIGHT`; a 24-line wolf and a 64-line heroine on one floor have
+  tops exactly that far apart, and the first wolf placed never saw her.
+  For a beast on the ground it is where her top would be standing on its
+  line — its feet less her height.
+* **`EN_HIT_BAND`.** Her muzzle is lines 11 and 17 of her box
+  (`KCORE_SPAWNS`) — 91 and 97 standing on the forest's ground — and a
+  wolf on that ground is lines 120 to 143, so every round went over its
+  back. Nothing in the art fires lower: she stands up to aim and there is
+  no crouching shot. So a round crossing a ground beast's column within
+  `EN_LOW_REACH` = 32 lines above it is a hit; on the screen it is a
+  round that stops over the wolf as it flashes.
+
+**WHERE THEY ARE**: levels 5 and 6 a wolf and a boar each, on the
+ground; levels 9 to 12 three bats each, in the order of the route — on
+a map 32 wide every enemy is near, so they come one at a time in table
+order (§8.20). **Not levels 7 and 8**, which is §8.26.
+
+Measured, `tools/test_beasts.py`, each with its control:
+
+| | |
+|---|---|
+| the wolf, engaged on level 5 | drawn on **200 of 200** game frames, its top on its ground's line (120) |
+| its bite | **6 bites of 8 in 200 game frames**; the gap to her sprite **4 to 12 bytes**, never meeting; **0 frames** refreshed anywhere but the top of the sweep |
+| ... with `EN_BITE_STEP` = `RET` | charges, **0 bites** |
+| ... with its sight its own top | **0 bites, 0 frames charging** |
+| ... with `EN_GROUND` off | climbs to her chest like a drone, `ES_Y` 92..116 |
+| ... she on the row-5 branch | not seen, 0 bites |
+| shot down | **2 releases**; with the band its own box, 8 releases and still 2 hit points |
+| the boar | the next to follow her; **4 bites of 16**; down in 2 releases |
+| the bat, level 9 up the first ladder | 200 of 200 frames, its top **12** below hers (`EN_DY`), **5 bites of 8**, gap 5 to 16, one hit brings it down, and the next is table slot 1 |
+| the lock, one following her | **100 of 200** — the wolf standing, firing, walking and jumping at three phases, running; the bat standing and firing |
+
+`tools/test_forest.py` and `tools/test_cave.py` measure the spikes, the
+ladders and the rock, so they climb and walk with the level's enemies
+held off (`ENEMY_LIVE` 0); the beasts are this suite's.
+
+**WHAT IT COST THE MEMORY MAP.** Seven rows of `ENEMY_TYPES` are 224
+bytes at the head of the HIGH image, and the HIGH image had 32 bytes
+fewer than they needed — so the traps' pending cells moved out of it, to
+the 64 bytes between the entity table and `TILE_ATTR` (`&A8C0`, asserted
+short of it). `melee.asm` and the three characters' tables went into the
+TOP image, and to make room **the stack keeps 128 bytes, not 256**,
+measured again first: a pattern under `&BFD8`, every one of the
+twenty-four levels played into — running, firing, jumping, a death and
+its restart, a door each, three of them a whole environment's art off
+the disc with the interrupts off — and nothing below `&BFD8`: 40 bytes.
+
+### 8.25 The cave's gate: the books, the tablet, and a set she carries
+
+plan.md's cave is *"a puzzle with the covers of ancient books that opens
+a gate"*, and the artist drew all of it and nothing had ever driven it:
+a gate four slots wide — sun, moon, eye, star — a book of each symbol
+(`cave_books`), each slot with its book in (`gate_book_*`, in the
+tileset), and two carved tablets, `panel_sun_moon` and `panel_eye_star`.
+`READ_BOOK_PUZZLE` existed and took ONE symbol into ONE slot; it is gone,
+and the four cave gates are the puzzle now. `src/books.asm` and
+`tools/test_books.py`.
+
+**THE TABLET IS THE CLUE.** A gate wants the two symbols of one tablet,
+that tablet — and only that one — is carved into the wall where she comes
+in and on both walls beside the gate, and the level has a book of every
+symbol. The two the gate does not want are **cursed**:
+
+| | |
+|---|---|
+| a book's `p1` | its symbol's bit — sun 1, moon 2, eye 4, star 8, the slots' order — and 128 more if it is cursed |
+| a good one | ORed into `CURRENT_BOOK_ID`: she carries a SET, so two books are two bits |
+| a cursed one | `HURT_HER(BOOK_HURT)` — 16, a spike's bite — into no set, and gone |
+| the gate's lock | an `EK_RECEPTACLE` taking `PU_BOOK`, `p1` = the set it wants, **the record right before the door** |
+
+**IT TAKES THEM ALL AT ONCE OR NOT AT ALL, AND SHE KEEPS WHAT IT
+REFUSES**, so nothing she does with a good book can lose it and the only
+thing the puzzle can cost her is a curse — no softlock in a level that
+is one way (level 12's broken ladders). Satisfied, it gives her the
+gate's key and calls `HZ_SATISFIED`, whose 3 × 5 area moves the wanted
+slots on: each is the artist's empty slot COPIED with `TA_ADVANCE`, and
+the slot with its book in at the next index, appended to the cave's blob
+after the bake — the altar's and the reader's mechanism (8.17, 8.23),
+one pair a symbol, 512 bytes for all four. **The lock is the record
+before the door because the interact pass stops at the first box it
+meets**: UP finds the lock while it wants anything, and the door once
+it has given her the key. It stands within a column of every slot it
+wants (`lock_col`: the door's column for sun-and-moon, the next for
+eye-and-star). The gate she came THROUGH, in levels 10-12, is drawn with
+the last level's books in its slots.
+
+Every book is drawn as its own symbol: `ENT_ART_OVER` has a cave row
+for `PU_BOOK` (the sun's cel of `cave_books`) and `BOOK_CEL` moves it on
+two cels a bit — in the cave only, because `hudicon` has ONE book and a
+cel past it is a frame past the end of the blob (8.6).
+
+| | levels 9 / 11 | levels 10 / 12 |
+|---|---|---|
+| the tablet, the gate's set | sun and moon, 3 | eye and star, 12 |
+| the good books | one where the key was, one off the way | the same |
+| the cursed ones | off the way, two floors | beside the doorway she comes in by, and past the gate |
+
+Measured on the machine, `tools/test_books.py`, each with the fault
+that would pass it as its control:
+
+| | as built | control |
+|---|---|---|
+| four books against an independent reading of the span format | **0 wrong** | `BOOK_CEL` = `RET`: moon, eye, star drawn as the sun |
+| two good books | **2, then 3**, HP 100 | |
+| a cursed one | books 3, **HP 100 → 84**, taken | its bit 7 cleared: the same book is a good one |
+| the lock: nothing / half / the pair and a book over | `ER_EMPTY`, `ER_WRONG` and **kept**, `ER_PLACED` leaving **8** in her hand, key 1 | |
+| its slots | **92, 94 → 93, 95**; 35, 36 untouched; on the screen byte for byte the artist's slot with its book | `TA_ADVANCE` off them: the books go in, nothing lights |
+| the next UP | `ER_OPENED`, `GS_CLEAR` | the door BEFORE the lock: `ER_LOCKED` three times, the gate never opens |
+| a death | slots dark, books back, hands and key empty | |
+
+and `tools/test_cave.py` drives all four levels from the joystick with
+a player who has read the tablet — on each floor, to every good book
+still on the ground and to none of the cursed — and opens every gate
+with two UPs: the sun and the moon in level 9 with HP 100, the eye and
+the star in 10, and so on to the water. **A cursed book under a missed
+step is a fall that stops being free**, which the suite found the first
+time: level 11's star was under the first staircase's top step, and
+`FALL_FREE`'s check measured 16 points for a 96-line fall. It is on the
+next floor up now.
+
+**WHAT PAID FOR THE PAIRS** is what nothing in the cave draws:
+`cavesymbols` (the plaques the tileset's own slot-with-book tiles make
+unnecessary), the excavator (agent class) and the earthquake's gush and
+falling rock (a flood that is drawn, 8.13) — 9,934 bytes out of the
+cave's banks, which went from 79,051 raw to **69,629**, and the packed
+set from 21,201 to 18,886. The engine side is 55 bytes in the SOUND
+image (`BOOK_LOCK`), which has 26 left; and the core ends at `&3FC4`,
+60 bytes short of the window — the beasts' hooks (8.24) took it to
+`&3FDA`, and `READ_BOOK_PUZZLE` going and pass A walking the list
+(8.26) gave 22 of those back.
+
+### 8.26 A trap and an enemy in one level — the dodge, and why no level has both
+
+§8.17 left it open: *"a cell repainted at the end of a sweep under the
+drone's save-under would come back stale"*. The enemy is a persistent
+sprite — its erase is its NEXT refresh, putting back the background it
+saved when it was drawn (8.7) — so a trap cell painted under its box
+after the draw comes back as the old cel the moment it moves, and a
+stale cel under a spike is a spike she cannot see.
+
+**THE PAINTER DODGES THE ENEMY NOW, IN EVERY PASS.** `HZ_IT_BOUNDS`
+works out the box the enemy was last drawn in, in world characters, once
+a pass (`ENEMY_DREW_*`, src/hazard_it.asm, in the SOUND image), and
+`HZ_UNDER_IT` is `HZ_UNDER_HER`'s question about it — one routine,
+`HZ_UNDER_BOX`, over two sets of bounds. A cell under the enemy waits on
+the list until it has gone, the way a cell under her waits for her erase.
+**Pass A walks the same list now** (`HZ_PAINT_LIST` with no tick and
+`HZ_A_MAX` cells) instead of painting the first cells blind, which is
+both the dodge there and 35 bytes of core. The cave uses it today: the
+gate's slots light by the painter (8.25) and a bat can be over them.
+
+Measured on level 7's field with a wolf following her, at the top of
+every game frame of a walk across it, with the cells under her and under
+the enemy's own box excused:
+
+| | frames a cell was STALE | control: `HZ_UNDER_IT` answers no |
+|---|---:|---:|
+| the field's paint before the refresh | **0** | **11**, at (62,8), (64,8) — the cells the wolf had just stood on |
+
+**AND THEN THE FRAME SAID NO, THREE WAYS.** The wolf's refresh is about
+**30,000 T** of the second sweep (a drone's is 19,200), and the forest's
+field is eight cells changing together every 5, 2, 5 and 2 game frames.
+Traced from the `WAIT_VSYNC` exit:
+
+| the order in the second sweep | frames a cell was a cel BEHIND, of 454 | the lock, of 200 |
+|---|---:|---|
+| the refresh, then the traps' first pass (as shipped) | **214** | — the passes begin past their ticks: E at tick 3 of 2, B at 4 of 4, C at 5-6 of 6 |
+| the traps' first pass, 3 cells, then the refresh | 28 | **87 standing, 91 walking** — the sweep ran to **85,892 T** |
+| ... 1 cell | 124 | 99 standing, **95** walking, 95 running |
+| no enemy | **0** | 100 |
+
+**So the levels with a trap field — 7, 8, 13, 14, 16 and the station's —
+carry no enemy THAT MOVES, and it is the frame's answer and not the
+art's.** (They carry one that does not — §8.27's sentry, redrawn only
+when it turns, and the station's lasers are what found the last T-states
+for it.) A
+cel behind on the glass is worse than it sounds here, because the bite is
+the MAP's: a spike that looks down and bites. What would buy it is a
+cheaper enemy refresh or a field that does not change eight cells at
+once; neither is written. The minefield is the case that might fit — a
+mine changes only when she sets it off — and it is not measured.
+
+### 8.27 The sentries: the big characters, drawn COMPILED, and the levels that carry them
+
+The art has four 24×64 characters that stand and shoot — the City's
+agent, the forest's sniper, the desert's mercenary and the station's
+cyber guard — and until now not one was in the game. Through the span
+blitter, a sniper on level 5 measured **84 game frames in 200 standing,
+90 firing, 74 walking and jumping and 67 running**, against 100 for the
+wolf in the same place (and §9's own 80). A 24×64 cel is ~35,000 T drawn and
+~11,000 erased, and a second sweep that has to carry it every frame does
+not hold. Two things answer it, and they are `src/sentry.asm`,
+`tools/compile_sprite.py` and `tools/sentries.py`.
+
+**A COMPILED CEL.** The span blitter is at its floor for its FORMAT
+(§9: 72 T a byte); what it pays on top is the per-line and per-group
+bookkeeping of reading that format. `compile_sprite.py` turns a span cel
+into the Z80 that draws it — every mask and data byte an immediate,
+every line's skip and count where the code goes — and what it writes is
+**exactly** what `SPAN_DRAW` writes: the same composite and the same
+erase script, so `SPAN_ERASE_AT` lifts it off unchanged. Measured on the
+machine, the aim cel as it was first compiled — ONE cel, and the save
+under exactly its own bytes — `tools/test_sentries.py`:
+
+| | span blitter | compiled | | code, a facing |
+|---|---:|---:|---:|---:|
+| `cityagent` | 33,116 T | **15,512** | 2.13× | 2,552 B |
+| `forestsniper` | 37,100 | **15,652** | 2.37× | 2,568 |
+| `desertmercenary` | 40,336 | **17,936** | 2.25× | 2,941 |
+| `stationcyber` | 43,052 | **19,744** | 2.18× | 3,232 |
+
+all eight blobs (four characters, two facings) drawing **0 bytes
+different from the span blitter** in video RAM at two positions each,
+the same script byte for byte, and both erases putting the screen back.
+
+**WHAT IT ASSUMES IS A PROMISE THE LEVEL MAKES.** The code steps along a
+line with `INC E` and down one with an add to `D`, so (a) the box's top
+is the first line of a character row — a sentry stands on a floor, a
+floor is a tile row and its box is 64 lines — and (b) **no line of the
+box crosses a 256-byte page of video RAM**. Where a box sits in video
+RAM is a property of the WORLD and not of the view: `SCROLL` starts as
+`WORLD_CR * 40 + WORLD_X` and every scroll step moves the three together
+(§8.1), so world character (X, R) is always word `40R + X` of the ring.
+A sentry does not move, so `compile_sprite.page_safe()` checks its box
+once, at build time, and `sentries.check()` refuses a column that fails
+— with the control on the machine that a column whose art does meet a
+page DOES draw wrong (3 to 23 bytes, the first such column of each
+blob), and the check that every one of the fourteen shipped sentries
+keeps it.
+
+**WHAT IT COSTS IS ROOM, AND THE ROOM IS 4,094 BYTES A FACING.** A
+compiled cel is about four and a half times its span record, and outside
+`&C0` no bank has a hole over 4,094 bytes, because `kcore`, `kextra` and
+the tileset are pinned (§6.2) and a facing is one blob in one bank. Two
+cels compiled whole are 5,200 to 6,500 bytes — the second facing has
+nowhere — so the first version shipped ONE, the aim, and a sentry that
+fired never looked as if it had. The span blobs of the agent and the
+sniper left the banks (`level_banks.py`'s `BAKED`), the station's turret
+came in.
+
+#### AND THEY ARE SEEN TO FIRE: TWO CELS IN THE ROOM OF ONE
+
+**What a sentry shows is the aim, and for the art's frames after a shot
+the RECOIL** — the type row's two cels, 4 and 5 for all four characters.
+Its walk is not a question: it keeps a post. So the room had to be
+found for exactly one more cel, and it was found by NOT compiling it.
+
+**THE SCREEN ALWAYS HOLDS THE OTHER CEL, so a change of cel is a
+TOGGLE.** A byte written is `(bg AND m) OR d`, which with `m' = m AND
+NOT d` is `(bg AND m') XOR d` — no shipped byte has a data bit under a
+mask bit, and the tool asserts it — so
+
+```
+aim XOR recoil  =  (bg AND (m'a XOR m'r)) XOR (da XOR dr)
+```
+
+and XORing that over the screen turns either cel into the other. One
+routine serves both directions and touches only the bytes that differ:
+**60 of the agent's, 87 of the sniper's, 65 of the mercenary's and 79 of
+the guard's.** The background it needs is the one the first draw saved,
+at an address the tool knows — `ENEMY_SCRIPT` out of `src/main.asm` and
+the script's own layout — so the code reads it absolute.
+
+**SO THE FIRST DRAW SAVES BOTH CELS' BACKGROUND, NOT ITS OWN.** The
+compiled aim saves under it every byte EITHER cel writes, in
+`SPAN_ERASE_AT`'s own format, split where a line has more than three
+bytes of nothing; the lift then takes either cel off, and the toggle has
+the background of every byte it touches. The blob, a facing:
+
+```
+ex de,hl ; script[0] = &FF ?   the lift emptied it: FRESH
+jump to TOGGLE through BC      the blob's own address, which the engine
+                               passes - the allocator places a blob after
+                               it is compiled, so it has no other way
+FRESH:  the aim and the save, then the toggle if ES_CEL is the recoil
+TOGGLE: ... RET (BANK_RESTORE's)
+```
+
+| | blob, a facing | the aim, fresh | the toggle | its script |
+|---|---:|---:|---:|---:|
+| `cityagent` | 3,235 B (was 2,552) | 16,232 T | **3,184 T** | 446 |
+| `forestsniper` | 3,346 (2,568) | 15,800 | **4,212** | 426 |
+| `desertmercenary` | 3,538 (2,941) | 18,140 | **3,180** | 491 |
+| `stationcyber` | **3,891** (3,232) | 19,724 | **3,752** | 531 |
+
+measured on the machine, all eight blobs: the aim, the toggle to the
+recoil and back, the recoil drawn fresh (the aim then the toggle) are
+**0 bytes different from the span blitter's picture of the same cel**,
+at two positions each, and the lift puts the screen back. The controls
+are the page rule's and **the toggle run over the background instead of
+the aim — 265 bytes wrong**, which is what the one assumption buys. The
+encoder is checked against RASM's own: the same instruction list
+assembled, the same bytes. **The guard's 3,891 is the one that decided
+the design** — compiled whole, the recoil as a delta each way was 4,425,
+over the hole; the toggle, and the screen pointer in HL so that an
+opaque byte is `ld (hl),n`, took it under. Every environment allocates:
+the forest with 2,993 bytes spare, the city 6,756, the desert 9,421, the
+station 8,803.
+
+**THE ENGINE IS THREE CHANGES AND FOUR BYTES.** `EN_STILL` used to call
+a compiled sentry's cel change nothing to draw; now, when the cel alone
+has changed, it pops its own return and jumps to `ENEMY_KEEP` — the
+instruction in `ENEMY_REFRESH` after the lift and after the line that
+empties the script — so the blob finds the script full and toggles. A
+new facing, a death's flash or the window still go the whole way round.
+`EN_DRAW_C` passes the blob's address in BC. The TOP image is `&BF8D`,
+3 bytes before the stack's 112.
+
+In play, a mercenary on level 17 with her standing in its sight, 150
+game frames: **3 shots, 6 changes of cel, 6 toggles, 0 fresh draws**,
+the recoil up on 9 frames — and **the picture on every frame is the cel
+`EN_DREW_CEL` says, composited over the background its script holds:
+0 bytes of 46,050 wrong**, with the check's own control that a recoil's
+frame read as the aim is 65 bytes wrong. With `ENEMY_KEEP` sent to
+"redraw", the same six changes are **six lifts and six fresh draws** —
+a lift of 11,400 to 14,200 T and a fresh draw of 15,800 to 19,700, 27,200 to 34,000 T each, where a toggle is 3,200 to 4,200. Every lock
+beside a sentry is 100 of 200, in its sight and firing at it included,
+and the station's four levels are 0 frames wrong with the guards
+shooting — level 23's guard toggling 6 times among five lasers.
+
+**AND STANDING IN A GUARD'S SIGHT BETWEEN TWO LASERS FOUND SOMETHING
+THAT IS NOT THE TOGGLE.** On level 23 at tile 47, 400 game frames: **90
+frames with one stale cell**, (52,5), a laser's top cell showing an old
+cel for up to twenty frames — with the toggles, and the SAME 90 frames
+with the engine as it was before them, and **0 with the guard's fire
+held off**. It is the guard's ROUND: drawn over the beam, it saves the
+old cel; the painter's passes in the second sweep dodge her box and the
+enemy's but not a round; and the round's erase puts the old cel back.
+It predates the sentries' animation and is not this section's fix — the
+suite now asserts only that the toggles leave the picture exactly as the
+engine without them (the same frames, the lock 100), and the round is
+the next thing to teach the painter.
+
+**AND IT IS A SENTRY: IT KEEPS A POST.** Two bits of `EN_T_KIND`, beside
+melee's two (§8.24):
+
+| | |
+|---|---|
+| `EN_FIXED` 4 | speed 0, so the patrol moves it nowhere; never ENGAGED, so the follow never takes it and the next enemy can come after it; it goes down where it stands; and **it is redrawn only when something about it changes** — its cel, its facing, it leaving the window (`EN_STILL`). A sprite that does not move is world-fixed and the CRTC carries its pixels for nothing (§8.7); what could spoil them is kept off it: her save-under puts back what she drew over, rounds are not drawn in its keep-out, the trap painter dodges it (§8.26), and the tools place no pickup, trap or altar under one |
+| `EN_COMPILED` 8 | its blobs ARE the cels' code, one a facing, and `EN_DRAW_C` jumps to them with `BANK_RESTORE` as the return and the blob's own address in BC; a new facing is a redraw, a new cel a toggle (below) |
+
+The station's wall turret is a sentry the span blitter draws (8×16, its
+scan a loop of four cels, so it is redrawn when the cel moves on). A
+mercenary in play on level 17: **drawn on the frame it comes on with one
+compiled draw and never engaged; standing in its sight, 3 hits in 150
+game frames and 0 fresh draws, at its post** — its recoil toggled in and
+out, above; **with `EN_STILL` answering "redraw", 50 draws in 50 game
+frames** (the control); walked past, it
+turns and is redrawn once; four releases bring it down, it flashes where
+it stands — drawn on 9 of the next 60 frames — and is gone, its record
+taken. The lock beside it is 100 of 200 standing, firing at it and
+walking past it.
+
+**THE ROW WENT FROM 32 BYTES TO 21**, because a tenth row of 32 does not
+fit the page `ENEMY_TYPES` must stay in (§10): ten rows of 21 are 210
+bytes at `&AA00`. `EN_T_STRIDE` is a symbol and `ENEMY_TYPE_AT`
+multiplies by it; `tools/test_enemies.py` reads both the stride and the
+field offsets off the build now.
+
+#### Where they are
+
+| level | | |
+|---|---|---|
+| 4 | the agent, on the key's roof (tile 105) | where the drone over that roof was; 41 tiles from the street drone |
+| 8 | a sniper (56) | the first enemy in a trap level, under the second idol's climb — walked as `tools/test_forest7.py` walks it, every cell but its own is the map's with it as without it, and the lock is 100 in its sight |
+| 17-20 | two mercenaries each | on the sand, `sentries.GAP` = 40 tiles apart |
+| 21-24 | a guard each, and a turret | with the lasers |
+
+**AND NOT LEVEL 7, WHICH IS A MEASUREMENT.** A sniper stood at 104 there,
+past the key, never on the screen with the field — and walked from the
+start, the field's eighth trap was a cel behind the map on **7 game
+frames against 2 without him**, on frames he was not even the current
+enemy: `ENEMY_PICK`'s walk of the table, about a thousand T for a sentry
+nowhere near, is all eight cells breathing together had to spare. Level
+8's fields are four cells, and its sniper costs them nothing (0 and 0).
+
+**`GAP` is 40 tiles because a sentry is never engaged**: `ENEMY_PICK`
+takes the first enemy near the view, and a sentry she has walked past
+must not still be near when the next comes into view. A drone is engaged
+and holds the pick until it is dead, so drones may be closer together;
+`sentries.check()` asks it of a sentry against everything.
+
+#### AND THE STATION FOUND THE TRAP TICK PAYING FOR CELLS NOBODY COULD SEE
+
+Driven through the station with the guards and turrets on — the one
+place a sentry and the trap painter share a second sweep — a laser was a
+cel behind the map on **4 game frames of level 23's 710 and 1 of level
+24's 556**, excusing only the sentry's own box. Traced: on a frame three
+lasers' cells change together, `HAZARD_TICK` was **14,252
+T** and put **12 cells** on the painter's list, eight of them off the
+screen, which every pass then dropped (`.off`, §8.23) after the tick had
+paid to put them there. The guard's own logic (~3,000 T) was then enough to take
+the last cell off pass B. **A cell of a RUN wholly off the left or the
+right is refused at the door now** (`HZ_PEND_ON`, the passes' own test):
+the same frame's tick is **7,588 T and 4 cells**, and all four levels are
+**0 frames wrong**. Its control is `HZ_OFF_ADD` poked to 255, which keeps
+them: 4 and 3 frames on levels 23 and 24.
+
+**ONLY A RUN'S CELLS PAY FOR THE QUESTION, AND THE FOREST IS WHY.** It
+went into `HZ_PEND_ADD` first, for every cell, and is 36 T a cell; the
+forest's field is eight single cells changing together with a margin of
+~180 µs (§8.18), and on level 7 — no enemy in it at all — the field's
+eighth trap was a cel behind on **4 game frames of the walk across**,
+against **0** with the question jumped over. A spike trap comes in at
+`HZ_PEND_ADD` and is asked nothing; a cable, a mine and a laser at
+`HZ_PEND_ON`, and the sea's three suites are what they were with it. It
+cost 9 bytes of a core with 5, so
+`EN_DRAW_C` went to the TOP image and the stack gave it room: **112
+bytes, measured a third time** — painted from `TOP_END` to `&BFCF` and
+played on levels 4, 8, 17, 21 and 23 with each sentry drawn, firing and
+shot at, a death, a restart and a door, and nothing below `&BFD0` was
+written.
+
+**What was tried and NOT taken**: a sentry's entry or turn waiting a
+frame while the painter had cells on its list (`EN_STILL`), with
+`HAZARD_TICK` moved in front of the refresh so that it could see them.
+With the off-screen reject in, the station is 0 frames wrong with the
+wait poked out, so nothing measured it, and it went. And skipping an
+undrawn sentry's sight and cels in `ENEMY_UPDATE` — 1,828 T to 268 —
+which moved no frame anywhere it was measured.
+
+**And one thing it found that is not the sentries'**: HOPPING across
+level 7's field — UP every sixteen game frames, where
+`tools/test_forest7.py` presses it only when she is stuck — shows a trap
+a cel behind on **5 game frames with no enemy at all**: a jump cel, the
+scroll and eight cells changing together leave the second sweep's passes
+a cell short. No suite drives it; it is the next thing to measure if the
+forest's fields ever have to carry more.
+
+**And §8.1's restart sweep found the four bytes that say which sentry
+was drawn and how** (`EN_DREW_SLOT`, `_CEL`, `_FACE`) surviving a death:
+`ENEMY_DREW` gates every read of them, so they were dead — and they are
+cleared in `ENEMY_SPAWN` beside it, for §8.1's reason, eight bytes once
+a level.
+
+**Memory, as it stands**: the core ends at `&3FF8` (8 bytes), the HIGH
+image at `&B07A` (6 before the traps' table), the SOUND image at `&9FFE`
+(2), the TOP image at `&BF89` (7 before the stack's 112) — and `&BF8D`
+(3) since the recoil. `EN_KIND` moved to the HIGH image, after the type
+table, to make that room.
+
+#### What is NOT here
+
+* **The agent anywhere but level 4**, and **the turret anywhere but the
+  station** — the levels before had their enemies, and each sentry is a
+  `GAP` of map.
+* **Their walk.** A sentry keeps a post, so its aim and its recoil are
+  its whole animation; the art's four walk cels would be a patrol, which
+  is a moving compiled sprite — the page rule then has to hold at every
+  column of the patrol, and a lift and a redraw every game frame is
+  27,000 to 34,000 T, the wolf's whole refresh. The toggle does not help a moving sprite: it
+  needs the background under both cels to be the one it saved.
+* **A compiled cel anywhere but a sentry.** Her own cels move every
+  frame and are drawn at any column, and `INC E` cannot be promised for
+  a sprite that goes everywhere.
+
 ## 9. Performance budget — measured directly, and it closes
 
 A hardware frame is **79,872 T-states**. **A GAME FRAME IS TWO OF THEM:
@@ -7966,7 +8581,10 @@ between tick 5 and the erase.
   stutter, it is a frame with no heroine in it. So level 5 carries no
   enemy and `EN_SNIPER` stays in the type table the way `EN_AGENT`
   has — correct data the frame cannot spend. §8.7 has what the forest
-  would need instead.
+  would need instead. **And §8.27 is how both rows came into the game
+  after all**: drawn by a compiled cel at less than half the T-states,
+  and redrawn only when they turn, an agent and a sniper stand in
+  levels 4 and 8 with the lock at 100.
 
 ### What it costs
 
@@ -8988,11 +9606,14 @@ frame, so this only helps a standing player on a still screen.
   `INPUT_SCAN`, so an UP held for one step was sometimes never read.
   Between them they made every take-off window read a frame
   differently on two machines, and that was written down as the
-  machine's history (§8.14). The walk at the jump UP read 3 frames; it
-  is 1. **The test is the one this section keeps arriving at: does
-  something that should not matter - which level, which run of the
-  suite - change the answer?** `put()` and `tick()` in
-  `tools/test_city.py` are the fix.
+  machine's history (§8.14). The walk at the jump UP read 3 frames, and
+  then 1 - **because a third thing was still left to the history: the
+  push beat a try started on**, which decides which frames of a walk
+  reach the lip. It is 2 at either beat, on both levels. **The test is
+  the one this section keeps arriving at: does something that should
+  not matter - which level, which run of the suite, a few T-states in a
+  routine nothing here calls - change the answer?** `put()`, `tick()`
+  and `window()`'s `beat` in `tools/test_city.py` are the fix.
 * **A MODEL BUILT FROM A SNAPSHOT OF ENGINE STATE DESCRIBES A SCREEN
   THAT HAS SINCE MOVED ON, AND IT READS AS TEARING.** `tools/test_module4.py`
   reconstructs the playfield from the map, and the MAP IS PLAY STATE:

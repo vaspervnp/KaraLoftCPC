@@ -119,6 +119,27 @@ BAKED |= {"stationlaser", "stationcyber", "stationcyber_l", "stationplasma",
           "stationplasma_l", "stationturret", "stationturret_l",
           "stationturretshot", "stationturretshot_l"}
 
+# ... AND THE CAVE'S (8.25). The gate's lit symbols are the tileset's own
+# slot-with-its-book tiles, so the symbol plaques that would be drawn over
+# a slot are not; the excavator is agent class; and the earthquake's gush
+# and falling rock belong to a flood that is drawn rather than played
+# (8.13). 9,934 bytes nothing reads, which is what makes room for the
+# gate's slots as pairs in the tileset.
+BAKED |= {"cavesymbols", "caveexcavator", "caveexcavator_l",
+          "cavequakegush", "cavequakerock"}
+
+# ... AND THE SENTRIES' SPAN RECORDS, BECAUSE THEY ARE DRAWN COMPILED NOW
+# (CLAUDE.md 8.27). A 24x64 character through the span blitter is 35,000
+# T a cel and the frame has not got it; tools/compile_sprite.py turns its
+# two fire cels into code - the aim drawn in 16,000 to 20,000 T and the
+# recoil toggled over it in 3,000 to 4,000 - <name>c.bin and <name>c_l.bin,
+# 3,235 to 3,891 bytes a facing, which are what goes in the bank. The turret is 8 bytes
+# by 16 and the span blitter carries it, so it comes OUT of the list
+# above: it is a sentry now, and an enemy that does not move is a type
+# row the follow leaves alone (src/sentry.asm).
+BAKED |= {"cityagent", "cityagent_l", "forestsniper", "forestsniper_l"}
+BAKED -= {"stationturret", "stationturret_l"}
+
 
 def blobs(level):
     """The level's own ART - not the bank images this tool writes, and

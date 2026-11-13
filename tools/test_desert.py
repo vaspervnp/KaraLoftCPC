@@ -555,6 +555,7 @@ def cost():
 
 
 def main():
+    F.QUIET = True                      # the sentries are test_sentries.py's
     offline()
     sand()
     npc()

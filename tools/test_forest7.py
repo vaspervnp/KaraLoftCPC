@@ -76,8 +76,21 @@ def to_level(sym, level, frm=None):
     return m, took
 
 
+# THE SENTRIES ARE tools/test_sentries.py's (CLAUDE.md 8.27). Levels 7
+# and 8 carry a sniper, the desert mercenaries and the station guards and
+# turrets, and what this suite and the two that import it measure is the
+# traps, the sand and the doors - a sentry's pixels on the screen would be
+# a picture check's wrong cells and its rounds a drive's lost points. So
+# a suite that sets QUIET holds ENEMY_LIVE at 0 on every game frame,
+# which a door or a restart that spawns them again cannot get past;
+# test_beasts.py, which wants its wolf, does not set it.
+QUIET = False
+
+
 def gframe(m, sym, joy):
     """One GAME frame with `joy` held, ending at the top of the loop."""
+    if QUIET:
+        m.poke(sym["ENEMY_LIVE"], 0)
     m.joystick(joy)
     m.run_frames(1)
     sync(m, sym, 0)
@@ -756,6 +769,8 @@ def level8(sym, tiles, trap0):
 
 
 def main():
+    global QUIET
+    QUIET = True                        # the snipers are test_sentries.py's
     sym = symbols()
     tiles, trap0 = offline(sym)
     level7(sym, tiles, trap0)

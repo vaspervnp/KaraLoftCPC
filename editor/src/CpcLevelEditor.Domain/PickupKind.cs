@@ -17,7 +17,14 @@ public enum PickupKind : byte
     Coin = 3,
     Idol = 4,
 
-    /// <summary>The book of level 3's puzzle; <c>p1</c> carries which symbol.</summary>
+    /// <summary>
+    /// A book of the cave's gate (CLAUDE.md 8.25): <c>p1</c> is its symbol's
+    /// bit - sun 1, moon 2, eye 4, star 8 - and 128 more if it is CURSED,
+    /// which costs her a cell and goes into no set. The gate is a
+    /// <see cref="EntityKind.Receptacle"/> taking <c>Book</c> whose
+    /// <c>p1</c> is the set of bits it wants, and it is the record right
+    /// before its door.
+    /// </summary>
     Book = 5,
 
     /// <summary>An oxygen tank: her air, full, in a level of water (CLAUDE.md 8.18).</summary>

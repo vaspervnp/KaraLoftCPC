@@ -54,7 +54,17 @@ EN_DRONE        equ 1
 EN_SNIPER       equ 2           ; the forest's, and the first row here that
                                 ; is not the city's
 EN_SEADRONE     equ 3           ; the sea's security drone (8.20)
-EN_KINDS        equ 4
+EN_BAT          equ 4           ; the cave's - it bites (src/melee.asm, 8.24)
+EN_WOLF         equ 5           ; the forest's, on the ground, and bites
+EN_BOAR         equ 6           ; ... and the heavier one
+EN_MERC         equ 7           ; the desert's mercenary, a SENTRY: it does
+                                ; not walk, and it is drawn COMPILED
+                                ; (src/sentry.asm, CLAUDE.md 8.27) - as the
+                                ; agent and the sniper above are now too
+EN_GUARD        equ 8           ; the station's cyber guard, the same
+EN_TURRET       equ 9           ; the station's wall turret: a sentry, 8x16,
+                                ; through the span blitter
+EN_KINDS        equ 10
 
 EN_T_BANK       equ 0           ; the RIGHT-facing blob's bank ...
 EN_T_RIGHT      equ 1           ; dw
@@ -77,9 +87,16 @@ EN_T_HP         equ 14
 EN_T_DUR        equ 15          ; dw - the art's own cel durations
 EN_T_SPAWNS     equ 17          ; dw - the artist's muzzle points, 0 if the
                                 ; sheet has none
-EN_T_USED       equ 19
-EN_T_STRIDE     equ 32          ; a power of two, because ENEMY_TYPE_AT
-                                ; indexes it with ADD A,ENEMY_TYPES AND 255
+EN_T_KIND       equ 19          ; EN_MELEE, EN_GROUND (src/melee.asm), 0 for
+                                ; a character that shoots and flies
+EN_T_BITE       equ 20          ; points a bite costs her, if it bites
+EN_T_USED       equ 21
+EN_T_STRIDE     equ 21          ; EXACTLY what a row uses. It was 32, a power
+                                ; of two for five ADD A,A, and eleven bytes a
+                                ; row were padding in an image that had one
+                                ; byte left; ten rows are 210 bytes now, and
+                                ; ENEMY_TYPE_AT multiplies by 21 in three
+                                ; more instructions (CLAUDE.md 8.27)
 
 ; THE TABLE ITSELF IS IN THE HIGH IMAGE, at its very start (src/
 ; enemy_types.asm): HIGH_ADDR is &AA00, a page boundary, so the rule
@@ -110,7 +127,9 @@ ES_HOME         equ 12          ; dw - where it was placed: the patrol centre
 ES_SPAN         equ 14          ; db - half-width of the patrol, in pixels
 ES_DIR          equ 15          ; db - 0 = moving right
 ES_DIE          equ 16          ; db - frames of dying left, 0 = not
-ES_STRIDE       equ 17
+ES_CHARGE       equ 17          ; db - frames of a charge left, 0 = none:
+                                ; a character that bites (src/melee.asm)
+ES_STRIDE       equ 18
 EN_DIE_FRAMES   equ 20          ; game frames the fall and the flashing last
 EN_DIE_VY_MAX   equ 12          ; pixels a game frame on the way down
 ENEMY_MAX       equ 4
@@ -178,6 +197,12 @@ ENEMY_SPAWN:    ld   hl,ENEMY_SCRIPT
                 ld   (ZONE_XW),a
                 ld   (ZONE_Y0),a
                 ld   (ZONE_YH),a
+                ; ... and which sentry the refresh drew and how (8.27),
+                ; which ENEMY_DREW gates the same way
+                ld   h,a
+                ld   l,a
+                ld   (EN_DREW_SLOT),hl
+                ld   (EN_DREW_CEL),hl       ; ... and EN_DREW_FACE
                 ld   hl,ENEMIES
                 ld   de,ENEMIES + 1
                 ld   bc,ENEMY_MAX * ES_STRIDE - 1
@@ -292,12 +317,15 @@ ENEMY_Y_HI      equ  $ - 6                  ; the six bytes a suite replaces
 ; ENEMY_TYPE_AT - A = EN_* -> HL = its row of ENEMY_TYPES.
 ;                                destroys AF
 ; ---------------------------------------------------------------------
-ENEMY_TYPE_AT:  add  a,a
+ENEMY_TYPE_AT:  ld   l,a                    ; 21A = 16A + 4A + A
                 add  a,a
                 add  a,a
+                ld   h,a                    ; 4A
                 add  a,a
-                add  a,a                    ; * 32
-                add  a,ENEMY_TYPES AND 255  ; aligned: cannot carry
+                add  a,a                    ; 16A
+                add  a,h
+                add  a,l
+                add  a,ENEMY_TYPES AND 255  ; one page: cannot carry
                 ld   l,a
                 ld   h,ENEMY_TYPES >> 8
                 ret
@@ -766,7 +794,8 @@ ENEMY_UPDATE:   ld   hl,(ENEMY_CUR)
                 ld   a,EN_RETRY             ; ... and stops counting down to
                 ld   (ix + ES_FIRE),a       ; a shot it cannot take
 .armed:
-                call ENEMY_ANIMATE
+                call EN_BITE_STEP           ; a charge that reaches her
+                call ENEMY_ANIMATE          ; (src/melee.asm)
                 jp   EBUL_UPDATE
 
 ; ---------------------------------------------------------------------
@@ -838,6 +867,8 @@ BX_FOLLOW       equ  $ - 2                  ; AFTER the instruction it names:
                                             ; of ld hl,(KARA_WX) (CLAUDE.md 10)
                 add  hl,de
                 ld   (EN_HERMID),hl         ; her middle, world bytes
+                call EN_CHARGE_TGT          ; a charge makes for the place
+                jp   c,.across              ; beside her (src/melee.asm)
                 ld   b,2                    ; its side, and then the other
 .side:          push bc
                 ld   hl,(EN_HERMID)
@@ -927,6 +958,9 @@ BX_EN_MIN       equ  $ - 2
                 dec  a                      ; 1: put at the left edge, so it
                 ld   (ix + ES_DIR),a        ; goes right (0); 2: at the right
 .level_x:
+                call EN_KIND                ; a wolf keeps to the ground it
+                and  EN_GROUND              ; was put on (src/melee.asm)
+                jr   nz,.level
 
                 ; ---- down: to her chest, EN_VY lines a frame --------
                 ld   hl,(KARA_WY)
@@ -1130,8 +1164,9 @@ ENEMY_SEES:     ld   c,(ix + ES_X)
                 cp   l
                 ret  c                      ; too far
 
-                ld   a,(ix + ES_Y)          ; and roughly level with it
-                ld   c,a
+                call EN_SIGHT_Y             ; and roughly level with it -
+                ld   c,a                    ; its top, or for a beast on the
+                                            ; ground its feet (src/melee.asm)
                 ; KARA_WY IS A WORD AND THIS READS ITS LOW BYTE, which is
                 ; right for the same reason PLAYER_SCREEN_X's truncation
                 ; is (8.7): what is wanted is a small DIFFERENCE, and
@@ -1248,6 +1283,8 @@ ENEMY_FIRE:     ld   hl,(ENEMY_TYP)
                 ; cels. Load the art's own hold time for it instead.
                 call ENEMY_HOLD
                 ld   (ix + ES_TIMER),a
+                call EN_MELEE_FIRE          ; one that bites charges, and
+                ret  c                      ; puts nothing in the air
 
                 ld   hl,(ENEMY_TYP)
                 ld   de,EN_T_SPAWNS
@@ -1277,23 +1314,15 @@ ENEMY_FIRE:     ld   hl,(ENEMY_TYP)
                 ld   c,(hl)                 ; y inside the box, in lines
                 jr   .mirror
 .nose:          ld   hl,(ENEMY_TYP)
-                ld   de,EN_T_W
+                ld   de,EN_T_H
                 add  hl,de
-                ld   a,(hl)
-                add  a,a
-                dec  a                      ; the box's right edge, in pixels
-                ld   c,a
-                srl  c                      ; ... and its middle, in lines,
-                inc  hl                     ; from the height
                 ld   a,(hl)
                 srl  a
-                ld   c,a
-                ld   hl,(ENEMY_TYP)
-                ld   de,EN_T_W
-                add  hl,de
+                ld   c,a                    ; its middle, in lines
+                dec  hl                     ; EN_T_W
                 ld   a,(hl)
                 add  a,a
-                dec  a
+                dec  a                      ; its right edge, in pixels
 .mirror:        ld   b,a                    ; B = x in pixels, C = y in lines
                 ld   a,(ix + ES_FACE)
                 or   a
@@ -1554,6 +1583,7 @@ ENEMY_SHOT_CHECK:
                 inc  hl
                 ld   a,(hl)
                 ld   (ENEMY_H),a
+                call EN_HIT_BAND            ; the lines a round hits it in
 
                 ld   a,(BUL_LIVE)
                 or   a
@@ -1581,13 +1611,13 @@ ENEMY_SHOT_CHECK:
                 cp   c
                 jr   c,.skip
                 jr   z,.skip
-                ld   a,(ENEMY_SY)
+                ld   a,(EN_HIT_Y)           ; (src/melee.asm)
                 ld   c,a
                 ld   a,e
                 sub  c
                 jr   c,.skip
                 ld   c,a
-                ld   a,(ENEMY_H)
+                ld   a,(EN_HIT_H)
                 cp   c
                 jr   c,.skip
                 jr   z,.skip
@@ -1653,6 +1683,9 @@ ENEMY_DYING:    ld   a,(ix + ES_DIE)
                 dec  a
                 ld   (ix + ES_DIE),a
                 ld   b,a
+                call EN_KIND                ; a sentry goes down where it
+                and  EN_FIXED               ; stands: it flashes, and is gone
+                jp   nz,EBUL_UPDATE         ; (src/sentry.asm)
                 ld   a,EN_DIE_FRAMES
                 sub  b                      ; frames since the hit
                 srl  a
@@ -1726,7 +1759,9 @@ ENEMY_DYING:    ld   a,(ix + ES_DIE)
 ;                       frame it was drawn
 ;      destroys AF,BC,DE,HL,IX,B',C'
 ; ---------------------------------------------------------------------
-ENEMY_REFRESH:  ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
+ENEMY_REFRESH:  call EN_STILL               ; a sentry with nothing new to
+                ret  c                      ; show stays as it is (sentry.asm)
+                ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
                 ; This is the ONLY place its pixels ever come off the
                 ; screen. Without it every refresh left the last image
                 ; where it was and drew another one beside it - the enemy
@@ -1742,7 +1777,8 @@ ENEMY_REFRESH:  ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
                 ld   (ENEMY_LAST_BOT),a
                 ld   hl,ENEMY_SCRIPT        ; an empty script, so nothing can
                 ld   (hl),&FF               ; restore the same bytes twice
-                ld   hl,(ENEMY_CUR)
+ENEMY_KEEP      equ  $                      ; (EN_STILL: a compiled sentry's
+                ld   hl,(ENEMY_CUR)         ;  new cel, over its old one)
                 ld   a,h
                 or   l
                 ret  z
@@ -1771,6 +1807,9 @@ ENEMY_REFRESH:  ; LIFT THE LAST ONE OFF BEFORE PUTTING THIS ONE DOWN.
                 ld   a,h
                 or   l
                 jr   nz,.shown
+                call EN_KIND                ; ... BUT NOT A SENTRY: it keeps
+                and  EN_FIXED               ; its post, and the next one comes
+                jr   nz,.shown              ; after it (src/sentry.asm)
                 ld   (ENEMY_ENG),ix
                 ld   l,(ix + ES_X)
                 ld   h,(ix + ES_X + 1)
@@ -1795,6 +1834,11 @@ BX_EN_MID       equ  $ - 2
                 ret  z                      ; a dying one that has left it
                 inc  a
                 ld   (ENEMY_DREW),a         ; its pixels are on the screen now
+                ld   (EN_DREW_SLOT),ix      ; ... which one, in which cel and
+                ld   a,(ix + ES_CEL)        ; facing: what EN_STILL asks
+                ld   (EN_DREW_CEL),a        ; about a sentry (sentry.asm)
+                ld   a,(ix + ES_FACE)
+                ld   (EN_DREW_FACE),a
                 ld   a,(ENEMY_W)            ; ... in this box, which is what
                 ld   (ENEMY_DREW_W),a       ; ENEMY_SLOT tests her against
                 ld   a,(ENEMY_H)            ; next frame
@@ -1824,6 +1868,11 @@ BX_EN_MID       equ  $ - 2
                 ld   d,(hl)                 ; DE = the blob
                 ld   b,&7F
                 out  (c),c
+                push de
+                call EN_KIND
+                pop  de
+                and  EN_COMPILED
+                jp   nz,EN_DRAW_C           ; the blob IS the cel's code
 
                 ld   a,(ix + ES_CEL)
                 add  a,a

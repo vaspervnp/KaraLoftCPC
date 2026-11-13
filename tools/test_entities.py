@@ -622,7 +622,10 @@ def art_checks(sym):
             (0, PU_AMMO):   ("CITYPICKUPS", "AMMO", 1),
             (1, PU_IDOL):   ("FORESTPICKUPS", "IDOL", 2),
             (3, PU_MEDKIT): ("SEAPICKUPS", "MEDKIT", 4),
-            (5, PU_KEY):    ("STATIONPICKUPS", "KEYCARD", 6)}
+            (5, PU_KEY):    ("STATIONPICKUPS", "KEYCARD", 6),
+            # the cave's books are its own sheet's, the sun's cel - and
+            # BOOK_CEL moves a book on to its own symbol (8.25)
+            (2, PU_BOOK):   ("CAVEBOOKS", "BOOK_SUN", 3)}
     HUD_CEL = {PU_KEY: "KEY", PU_AMMO: "AMMO", PU_MEDKIT: "HEART",
                PU_COIN: "COIN", PU_IDOL: "IDOL", PU_BOOK: "BOOK"}
 
@@ -653,11 +656,13 @@ def art_checks(sym):
           f"out of level 1's address in somebody else's banks")
 
     # THE SHARPEST HALF: the fallback must be a DIFFERENT blob in each
-    # environment, because that is the fact the old table denied.
-    addrs = {seen[(env, PU_BOOK)] for env in range(6)}
+    # environment, because that is the fact the old table denied. A coin
+    # is asked about because no environment draws one specially - the
+    # book was, until the cave's own books (8.25).
+    addrs = {seen[(env, PU_COIN)] for env in range(6)}
     check("the fallback is six different places, not one", len(addrs) == 6,
-          ", ".join(f"env {e}: &{seen[(e, PU_BOOK)][0]:02X}:"
-                    f"{seen[(e, PU_BOOK)][1]:04X}" for e in range(6)))
+          ", ".join(f"env {e}: &{seen[(e, PU_COIN)][0]:02X}:"
+                    f"{seen[(e, PU_COIN)][1]:04X}" for e in range(6)))
 
     # ... and the City still answers exactly what it always did, which
     # is what the bake checks above are measured against.
@@ -699,7 +704,7 @@ def inc_values():
 def main():
     sym = symbols()
     for n in ("ENT_UPDATE", "ENT_TABLE", "ENTITY_COLLISION_CHECK",
-              "CHECK_KEY_DOOR", "PLACE_STATUE", "READ_BOOK_PUZZLE",
+              "CHECK_KEY_DOOR", "PLACE_STATUE", "BOOK_LOCK",
               "TALK_NPC_COIN", "USE_MEDKIT", "PLAYER_HP", "KEYS_COUNT",
               "COINS_COUNT", "STATUES_HELD", "CURRENT_BOOK_ID"):
         if n not in sym:
@@ -862,7 +867,7 @@ def main():
           and w.st("STATUES_HELD") == 0,
           f"flags &{w.flags(0):02X}, held {w.st('STATUES_HELD')}")
 
-    print("\n  the gate slot, which wants ONE symbol:")
+    print("\n  the cave's gate, which wants a SET of symbols (8.25):")
     w.load(record(EK_RECEPTACLE, 80, ROOF, EF_ACTIVE, PU_BOOK, 3))
     w.give(CURRENT_BOOK_ID=0)
     w.place(40, ROOF - KARA_H)
@@ -871,13 +876,13 @@ def main():
           ER_NAME[w.result()])
     w.give(CURRENT_BOOK_ID=2)
     w.run("ENT_UPDATE", up=True)
-    check("the wrong symbol is refused AND kept",
+    check("half of the set is refused AND kept",
           w.result() == ER_WRONG and w.st("CURRENT_BOOK_ID") == 2
           and not w.flags(0) & EF_TAKEN,
           f"{ER_NAME[w.result()]}, still holding {w.st('CURRENT_BOOK_ID')}")
     w.give(CURRENT_BOOK_ID=3)
     w.run("ENT_UPDATE", up=True)
-    check("the right one lights it and leaves her empty-handed",
+    check("the whole set satisfies it and leaves her empty-handed",
           w.result() == ER_PLACED and w.st("CURRENT_BOOK_ID") == 0
           and w.flags(0) & EF_TAKEN,
           f"{ER_NAME[w.result()]}, holding {w.st('CURRENT_BOOK_ID')}")
